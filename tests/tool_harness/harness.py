@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-MCP Tool Harness — validates tool selection before building the real MCP server.
+MCP Tool Harness — validates tool selection using the claude CLI subprocess.
 
-Runs test scenarios through the Anthropic SDK using all 44 tool definitions
-and a mock server. Prints which tools were called and with what parameters,
-then validates against the expected tool list for each scenario.
+For each scenario, Claude is given all 44 tool definitions and the user
+message, then asked to output the complete tool call sequence as JSON.
+No API key required — uses the local claude CLI.
 
 Usage:
     # Run first 3 scenarios (default)
@@ -16,93 +16,215 @@ Usage:
     # Run all 10 scenarios
     python -m tests.tool_harness.harness --all
 
-    # Show full tool I/O including mock responses
+    # Show raw claude output (useful when JSON parsing fails)
     python -m tests.tool_harness.harness --scenario 2 --verbose
 """
 import argparse
 import json
-import os
+import re
+import shutil
+import subprocess
 import sys
 import textwrap
 
-import anthropic
-
 from .tool_definitions import ALL_TOOLS
-from .mock_server import MockServer
-from .scenarios import SCENARIOS, SYSTEM_PROMPT
+from .scenarios import SCENARIOS
+from .mock_server import PERSON_ID
 
-MODEL = "claude-opus-4-7"
-SEP   = "━" * 72
-THIN  = "─" * 72
-
-
-def _fmt_val(v, max_len: int = 70) -> str:
-    if isinstance(v, list):
-        if len(v) > 6:
-            return f"[...{len(v)} items]"
-        return json.dumps(v)
-    if isinstance(v, dict):
-        s = json.dumps(v, separators=(",", ":"))
-        return s if len(s) <= max_len else s[:max_len - 3] + "..."
-    if isinstance(v, str) and len(v) > max_len:
-        return f'"{v[:max_len - 4]}..."'
-    return json.dumps(v)
+SEP  = "━" * 72
+THIN = "─" * 72
 
 
-def _fmt_call(name: str, inp: dict) -> str:
-    parts = [f"{k}={_fmt_val(v)}" for k, v in inp.items()]
-    args = ", ".join(parts)
-    line = f"{name}({args})"
-    if len(line) <= 90:
-        return line
-    # wrap long calls
-    indent = " " * (len(name) + 1)
-    wrapped = (",\n" + indent).join(parts)
-    return f"{name}({wrapped})"
+# ── Prompt construction ──────────────────────────────────────────────────
+
+def _tools_summary() -> str:
+    """Compact human-readable summary of all 44 tools for the planning prompt."""
+    lines = []
+    current_group = None
+
+    # Group labels inferred from tool name prefixes (matches doc structure)
+    group_map = {
+        "create_person": "1a Person", "get_person": "1a Person",
+        "search_persons": "1a Person", "update_person": "1a Person",
+        "delete_person": "1a Person",
+        "create_household": "1b Household", "get_household": "1b Household",
+        "search_households": "1b Household", "update_household": "1b Household",
+        "delete_household": "1b Household",
+        "add_person_to_household": "1c Person-Household",
+        "remove_person_from_household": "1c Person-Household",
+        "list_household_members": "1c Person-Household",
+        "list_person_households": "1c Person-Household",
+        "create_relationship": "1d Relationship",
+        "get_relationship": "1d Relationship",
+        "list_relationships": "1d Relationship",
+        "update_relationship": "1d Relationship",
+        "delete_relationship": "1d Relationship",
+        "resolve_kinship": "1d Relationship",
+        "create_document": "2a Document", "get_document": "2a Document",
+        "list_documents": "2a Document", "search_documents": "2a Document",
+        "create_fact": "2b Fact", "get_fact_history": "2b Fact",
+        "get_current_fact": "2b Fact", "list_current_facts": "2b Fact",
+        "search_current_facts": "2b Fact",
+        "list_entity_type_schemas": "3 Schema",
+        "get_entity_type_schema": "3 Schema",
+        "get_current_entity_type_schema": "3 Schema",
+        "propose_entity_type_schema": "3 Schema",
+        "confirm_entity_type_schema": "3 Schema",
+        "evolve_entity_type_schema": "3 Schema",
+        "deactivate_entity_type_schema": "3 Schema",
+        "list_domains": "4 Reference",
+        "list_source_types": "4 Reference",
+        "list_kinship_aliases": "4 Reference",
+        "log_interaction": "5 Audit",
+        "save_file": "6 Files", "extract_text_from_file": "6 Files",
+        "get_file": "6 Files", "delete_file": "6 Files",
+    }
+
+    for tool in ALL_TOOLS:
+        name = tool["name"]
+        group = group_map.get(name, "Other")
+        if group != current_group:
+            lines.append(f"\n### Group {group}")
+            current_group = group
+
+        schema = tool["input_schema"]
+        props  = schema.get("properties", {})
+        req    = set(schema.get("required", []))
+
+        param_parts = []
+        for pname, spec in props.items():
+            marker = "*" if pname in req else ""
+            ptype  = spec.get("type", "any")
+            if "enum" in spec:
+                ptype = "|".join(spec["enum"])
+            param_parts.append(f"{pname}{marker}:{ptype}")
+
+        params_str = f"({', '.join(param_parts)})" if param_parts else "()"
+        # First sentence of description only
+        desc = tool["description"].split(".")[0].strip()
+        lines.append(f"  {name}{params_str}")
+        lines.append(f"    → {desc}")
+
+    return "\n".join(lines)
 
 
-def run_scenario(scenario: dict, mock: MockServer, verbose: bool = False) -> tuple[list[dict], str]:
-    """Run one scenario through the full agentic loop. Returns (tool_calls_log, final_text)."""
-    client = anthropic.Anthropic()
-    messages: list[dict] = [{"role": "user", "content": scenario["user_message"]}]
-    tool_calls_log: list[dict] = []
+_TOOLS_TEXT = _tools_summary()  # computed once
 
-    while True:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            tools=ALL_TOOLS,
-            messages=messages,
+
+def build_prompt(scenario: dict) -> str:
+    return f"""\
+You are a personal assistant agent for a family life management system.
+
+Current user:
+  Name:      Ravi Aggarwal
+  person_id: {PERSON_ID}
+
+─── TOOLS (44 total) ────────────────────────────────────────────────────────
+Parameters marked * are required. `embedding` params take [0.1, 0.2, 0.3]
+as a placeholder. For a new entity_instance_id on a create fact, use a
+descriptive placeholder like "NEW-UUID-passport-renewal".
+
+For UUID values that come from earlier tool calls, use a descriptive
+placeholder like "TODO-DOMAIN-ID", "USER-INPUT-SOURCE-TYPE-ID", etc.
+{_TOOLS_TEXT}
+
+─── TASK ─────────────────────────────────────────────────────────────────────
+User message: "{scenario['user_message']}"
+
+Output ONLY a JSON array of the tool calls you would make, in order:
+[
+  {{"tool": "tool_name", "params": {{}}}},
+  ...
+]
+
+Rules:
+- Include lookup calls (list_domains, list_source_types, etc.) before any
+  write call that needs IDs returned by those lookups.
+- Use search_current_facts to resolve entity_instance_id from natural language
+  before creating update or delete fact operations.
+- Use resolve_kinship for multi-hop kinship queries (not multiple list_relationships).
+- Include log_interaction as the final call for human chat turns.
+- Output only the JSON array — no explanation, no markdown fences.\
+"""
+
+
+# ── Subprocess runner ────────────────────────────────────────────────────
+
+def _check_claude_available() -> None:
+    if not shutil.which("claude"):
+        print("Error: 'claude' not found in PATH.", file=sys.stderr)
+        print("Make sure Claude Code CLI is installed and on your PATH.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _extract_json_array(text: str) -> list | None:
+    """Extract the first JSON array from claude's output."""
+    # Strip markdown fences if present
+    text = re.sub(r"```(?:json)?\s*", "", text)
+    text = re.sub(r"```", "", text)
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        return json.loads(match.group())
+    except json.JSONDecodeError:
+        return None
+
+
+def run_scenario(scenario: dict, verbose: bool = False) -> tuple[list[dict] | None, str | None]:
+    """Call claude subprocess and parse the tool call sequence. Returns (calls, error)."""
+    prompt = build_prompt(scenario)
+
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt],
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
+    except subprocess.TimeoutExpired:
+        return None, "Timed out after 120s"
+    except FileNotFoundError:
+        return None, "'claude' not found in PATH"
 
-        tool_uses  = [b for b in response.content if b.type == "tool_use"]
-        text_blocks= [b for b in response.content if b.type == "text"]
+    if verbose:
+        print("\n  [RAW OUTPUT]")
+        for line in result.stdout.splitlines():
+            print(f"  | {line}")
 
-        if not tool_uses or response.stop_reason == "end_turn":
-            final_text = " ".join(b.text for b in text_blocks).strip()
-            return tool_calls_log, final_text
+    if result.returncode != 0:
+        err = (result.stderr or result.stdout or "").strip()[:300]
+        return None, f"claude exited {result.returncode}: {err}"
 
-        messages.append({"role": "assistant", "content": response.content})
+    calls = _extract_json_array(result.stdout)
+    if calls is None:
+        snippet = result.stdout.strip()[:400]
+        return None, f"Could not parse JSON from output:\n{snippet}"
 
-        tool_results = []
-        for tu in tool_uses:
-            result = mock.handle(tu.name, tu.input)
-            tool_calls_log.append({"name": tu.name, "input": tu.input, "result": result})
-            if verbose:
-                print(f"      → {tu.name}()")
-                print(f"        input:  {json.dumps(tu.input, separators=(',', ':'))[:200]}")
-                print(f"        result: {json.dumps(result, separators=(',', ':'))[:200]}")
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tu.id,
-                "content": json.dumps(result),
-            })
-
-        messages.append({"role": "user", "content": tool_results})
+    return calls, None
 
 
-def print_result(scenario: dict, tool_calls: list[dict], final_text: str, idx: int) -> None:
+# ── Output formatting ────────────────────────────────────────────────────
+
+def _fmt_params(params: dict, max_line: int = 68) -> str:
+    if not params:
+        return "()"
+    parts = []
+    for k, v in params.items():
+        vs = json.dumps(v) if not isinstance(v, str) else f'"{v}"'
+        if len(vs) > 60:
+            vs = vs[:57] + '..."'
+        parts.append(f"{k}={vs}")
+    joined = ", ".join(parts)
+    if len(joined) <= max_line:
+        return f"({joined})"
+    # one param per line
+    indent = "       "
+    inner = (",\n" + indent).join(parts)
+    return f"(\n{indent}{inner})"
+
+
+def print_result(scenario: dict, calls: list[dict] | None, error: str | None) -> None:
     expected = scenario.get("expected_tools", [])
 
     print(f"\n{SEP}")
@@ -111,75 +233,71 @@ def print_result(scenario: dict, tool_calls: list[dict], final_text: str, idx: i
     print(f"  USER: \"{scenario['user_message']}\"")
     print()
 
-    print(f"  TOOL CALLS  ({len(tool_calls)} total)")
+    if error:
+        print(f"  ERROR: {error}")
+        print()
+        return
+
+    print(f"  TOOL CALLS  ({len(calls)} total)")
     print(f"  {THIN}")
-    for n, tc in enumerate(tool_calls, 1):
-        call_str = _fmt_call(tc["name"], tc["input"])
-        for i, line in enumerate(call_str.splitlines()):
+    for n, tc in enumerate(calls, 1):
+        tool   = tc.get("tool", tc.get("name", "?"))
+        params = tc.get("params", tc.get("parameters", tc.get("input", {})))
+        call_str = f"{tool}{_fmt_params(params)}"
+        lines = call_str.splitlines()
+        for i, line in enumerate(lines):
             prefix = f"  {n:2d}. " if i == 0 else "       "
             print(f"{prefix}{line}")
     print()
 
-    print("  FINAL RESPONSE")
-    print(f"  {THIN}")
-    wrapped = textwrap.fill(final_text, width=68, initial_indent="  ", subsequent_indent="  ")
-    print(wrapped)
-    print()
-
     if expected:
-        actual_names = [tc["name"] for tc in tool_calls]
+        actual = [tc.get("tool", tc.get("name", "")) for tc in calls]
         print("  VALIDATION")
         print(f"  {THIN}")
         all_ok = True
         for exp in expected:
-            found = exp in actual_names
+            found = exp in actual
             if not found:
                 all_ok = False
-            mark = "✓" if found else "✗"
-            print(f"    {mark}  {exp}")
-        unexpected = [n for n in actual_names if n not in expected]
-        for name in unexpected:
-            print(f"    ?  {name}  (not in expected list)")
-        if all_ok:
-            print("    → all expected tools called")
+            print(f"    {'✓' if found else '✗'}  {exp}")
+        extra = [n for n in actual if n not in expected]
+        for name in extra:
+            print(f"    ?  {name}  (not in expected list — may be fine)")
+        print(f"    → {'all expected tools called ✓' if all_ok else 'some expected tools missing'}")
         print()
 
 
+# ── Main ─────────────────────────────────────────────────────────────────
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MCP Tool Harness")
+    parser = argparse.ArgumentParser(description="MCP Tool Harness (claude subprocess)")
     parser.add_argument("--scenario", type=int, metavar="N", help="Run scenario N (1-based)")
-    parser.add_argument("--all",      action="store_true",   help="Run all scenarios")
-    parser.add_argument("--verbose",  action="store_true",   help="Show full tool I/O")
+    parser.add_argument("--all",     action="store_true",    help="Run all scenarios")
+    parser.add_argument("--verbose", action="store_true",    help="Show raw claude output")
     args = parser.parse_args()
 
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("Error: ANTHROPIC_API_KEY not set.", file=sys.stderr)
-        sys.exit(1)
+    _check_claude_available()
 
     if args.scenario:
         idx = args.scenario - 1
         if not 0 <= idx < len(SCENARIOS):
             print(f"Error: --scenario must be 1–{len(SCENARIOS)}", file=sys.stderr)
             sys.exit(1)
-        to_run = [(idx + 1, SCENARIOS[idx])]
+        to_run = [SCENARIOS[idx]]
     elif args.all:
-        to_run = list(enumerate(SCENARIOS, 1))
+        to_run = SCENARIOS
     else:
-        to_run = list(enumerate(SCENARIOS[:3], 1))
+        to_run = SCENARIOS[:3]
         print(f"Running first 3 of {len(SCENARIOS)} scenarios. "
-              f"Use --all to run all or --scenario N for one.")
+              f"Use --all for all, --scenario N for one.")
 
-    mock = MockServer()
-    print(f"\n{len(ALL_TOOLS)} tools defined · model: {MODEL}")
+    print(f"\n{len(ALL_TOOLS)} tools defined · {len(SCENARIOS)} scenarios available")
 
-    for idx, scenario in to_run:
+    for scenario in to_run:
         print(f"\nRunning {scenario['name']}...", end=" ", flush=True)
-        try:
-            tool_calls, final_text = run_scenario(scenario, mock, verbose=args.verbose)
-            print("done")
-            print_result(scenario, tool_calls, final_text, idx)
-        except Exception as e:
-            print(f"ERROR: {e}")
+        calls, error = run_scenario(scenario, verbose=args.verbose)
+        print("done" if not error else "error")
+        print_result(scenario, calls, error)
 
     print(SEP)
 
