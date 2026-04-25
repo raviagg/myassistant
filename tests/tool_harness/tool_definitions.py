@@ -515,7 +515,7 @@ ALL_TOOLS = [
         "name": "list_entity_type_schemas",
         "description": (
             "List schema definitions. Call this first to discover what entity types are already known "
-            "before deciding whether to propose a new one."
+            "before deciding whether to create a new one."
         ),
         "input_schema": {
             "type": "object",
@@ -554,11 +554,11 @@ ALL_TOOLS = [
         },
     },
     {
-        "name": "propose_entity_type_schema",
+        "name": "create_entity_type_schema",
         "description": (
-            "Create a new schema definition in inactive state (is_active=false), pending user confirmation. "
-            "Call when you encounter information that doesn't match any existing schema. "
-            "Surface the proposed fields to the user BEFORE calling confirm_entity_type_schema."
+            "Create a new active schema for a (domain, entity_type) pair. "
+            "Call in the write turn after the user has confirmed the proposed fields. "
+            "The schema is immediately active — facts of this type can be created right away."
         ),
         "input_schema": {
             "type": "object",
@@ -582,38 +582,25 @@ ALL_TOOLS = [
         },
     },
     {
-        "name": "confirm_entity_type_schema",
+        "name": "update_entity_type_schema",
         "description": (
-            "Activate a previously proposed (or evolved) schema by setting is_active=true. "
-            "Call only after the user has confirmed the proposed fields."
+            "Add or modify fields on an existing entity type schema. "
+            "Increments schema_version and activates the new version immediately. "
+            "Provide the full field list (all existing fields plus any new ones) — not a diff."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "schema_id": {"type": "string", "description": "Must reference a row with is_active=false"},
-            },
-            "required": ["schema_id"],
-        },
-    },
-    {
-        "name": "evolve_entity_type_schema",
-        "description": (
-            "Propose a new version of an existing active schema (e.g. adding a field). "
-            "Creates a new row with schema_version incremented and is_active=false. "
-            "Previous version stays active until confirm_entity_type_schema is called."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "schema_id": {"type": "string", "description": "Current active schema to evolve from"},
+                "domain_id": {"type": "string"},
+                "entity_type": {"type": "string"},
                 "field_definitions": {
                     "type": "array",
                     "items": {"type": "object"},
-                    "description": "Full field list for the new version (not a diff — include all fields)",
+                    "description": "Full field list for the new version (include all existing fields + changes)",
                 },
                 "description": {"type": "string"},
             },
-            "required": ["schema_id", "field_definitions"],
+            "required": ["domain_id", "entity_type", "field_definitions"],
         },
     },
     {
@@ -758,4 +745,4 @@ ALL_TOOLS = [
     },
 ]
 
-assert len(ALL_TOOLS) == 44, f"Expected 44 tools, got {len(ALL_TOOLS)}"
+assert len(ALL_TOOLS) == 43, f"Expected 43 tools, got {len(ALL_TOOLS)}"

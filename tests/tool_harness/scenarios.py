@@ -7,8 +7,11 @@ Changes from v4:
   Turn N (write): after user says "yes", agent executes the writes.
 - Correction loop: scenario 04 demonstrates a 3-turn flow (gather → correction → approve).
   Correction turns use read tools only; still no writes until explicit approval.
-- GATHER_FORBIDDEN: constant listing all write tools; every gather/correction turn
-  lists it as forbidden_tools so the harness validates no writes occur.
+- Schema governance follows the same two-phase model: gather turn reads schemas and describes
+  proposed changes in text; write turn calls create_entity_type_schema (new type) or
+  update_entity_type_schema (add/change fields) — both immediately active, no confirm step.
+- GATHER_FORBIDDEN: constant listing all write tools including create_entity_type_schema
+  and update_entity_type_schema; every gather/correction turn lists it as forbidden_tools.
 - All scenarios use 'turns' format: list of {user_message, expected_tools, forbidden_tools?}.
 - Per-turn expected_tools and forbidden_tools validated independently.
 - log_interaction required in every turn (gather, correction, write, and query turns alike).
@@ -60,9 +63,8 @@ RULES — follow exactly:
    b. Do NOT assume anything is new until all relevant reads are complete.
    c. After gathering: state in text what you found and exactly what you plan to write.
       Ask the user to confirm.
-   d. Do NOT call any write tools (create_*, update_*, add_*, delete_*, confirm_*) in
-      this turn. Exception: propose_entity_type_schema is allowed if no schema matches
-      (see Rule 5) — but treat that as the end of this turn (see Rule 6).
+   d. Do NOT call any write tools (create_*, update_*, add_*, delete_*, confirm_*,
+      propose_entity_type_schema, evolve_entity_type_schema) in this turn.
    e. End with log_interaction.
 
 2. CONFIRMATION: Never call write tools until the user explicitly approves.
@@ -85,13 +87,19 @@ RULES — follow exactly:
 5. SCHEMA DISCOVERY (in gather phase, after list_domains):
    a. list_entity_type_schemas(domain_id=...) — see ALL types in the domain.
    b. Select the entity_type whose name + description best matches the information.
-   c. No match → call propose_entity_type_schema (is_active=false) and end the turn
-      (Rule 6). Do not proceed to create_document or create_fact.
-   d. Match found → get_current_entity_type_schema(entity_type=best_match).
+   c. No match → describe in text the new schema you would create (entity_type name,
+      fields, mandatory flags). Do NOT call create_entity_type_schema yet — end the
+      gather turn normally. After user approves: call create_entity_type_schema in the
+      write turn, then proceed to create_document + create_fact for the original data.
+   d. Schema evolution (user asks to add/change fields) → describe in text what you
+      would change. Do NOT call update_entity_type_schema yet — end the gather turn.
+      After user approves: call update_entity_type_schema in the write turn.
+   e. Match found for normal data write → get_current_entity_type_schema(entity_type=best_match).
 
-6. SCHEMA CONFIRMATION: After propose_entity_type_schema or evolve_entity_type_schema,
-   STOP. Do NOT call confirm_entity_type_schema, create_document, or create_fact in the
-   same turn. Wait for explicit user approval before confirming.
+6. SCHEMA WRITE: After user approves a new schema or schema change:
+   New schema: create_entity_type_schema(domain_id, entity_type, field_definitions).
+   Schema update: update_entity_type_schema(domain_id, entity_type, field_definitions)
+     — provide the full field list (all existing fields + changes), not a diff.
 
 7. search_documents vs search_current_facts:
    - search_current_facts: current merged field values — use in gather phase for dedup
@@ -115,7 +123,8 @@ GATHER_FORBIDDEN = [
     "add_person_to_household", "remove_person_from_household",
     "create_relationship", "update_relationship", "delete_relationship",
     "create_document", "create_fact",
-    "confirm_entity_type_schema", "deactivate_entity_type_schema",
+    "create_entity_type_schema", "update_entity_type_schema",
+    "deactivate_entity_type_schema",
 ]
 
 SCENARIOS = [
@@ -291,9 +300,7 @@ SCENARIOS = [
                 "user_message": "Drop the dentist appointment reminder, I don't need it.",
                 "expected_tools": [
                     "list_domains",
-                    "list_entity_type_schemas",
-                    "get_current_entity_type_schema",
-                    "search_current_facts",
+                    "search_current_facts",             # finds existing todo (≥0.8)
                     "log_interaction",
                 ],
                 "forbidden_tools": GATHER_FORBIDDEN,
@@ -348,13 +355,12 @@ SCENARIOS = [
                 "user_message": "My dad's sister is Savita. What do I call her in Hindi?",
                 "expected_tools": [
                     "search_persons",               # find dad + check if Savita exists
-                    "resolve_kinship",              # answer the bua question immediately
-                    "log_interaction",
+                    "log_interaction",              # kinship answer via resolve_kinship or list_kinship_aliases
                 ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
-                "user_message": "Yes, add Savita to my family tree.",
+                "user_message": "Yes, add Savita as a new person and link her as my dad's sister.",
                 "expected_tools": [
                     "create_person",
                     "create_relationship",          # dad → sister → Savita
@@ -608,29 +614,30 @@ SCENARIOS = [
     # ── H: Schema governance ──────────────────────────────────────────────
 
     {
-        "name": "24 · New entity type — propose schema (stop gate), then confirm",
+        "name": "24 · New entity type — gather + propose in text, then write schema",
         "turns": [
             {
                 "user_message": "I just got a gym membership at Equinox for $80 per month.",
                 "expected_tools": [
                     "list_domains",
-                    "list_entity_type_schemas",        # gym_membership absent from health domain
-                    "propose_entity_type_schema",      # no match → propose, is_active=false, STOP
+                    "list_entity_type_schemas",        # gym_membership absent → describe in text
                     "log_interaction",
                 ],
-                "forbidden_tools": GATHER_FORBIDDEN,  # confirm_entity_type_schema is in here
+                "forbidden_tools": GATHER_FORBIDDEN,  # create_entity_type_schema is in here
             },
             {
                 "user_message": "Yes, add that schema.",
                 "expected_tools": [
-                    "confirm_entity_type_schema",
+                    "create_entity_type_schema",       # creates schema, immediately active
+                    "create_document",
+                    "create_fact",
                     "log_interaction",
                 ],
             },
         ],
     },
     {
-        "name": "25 · Evolve schema — add copay field (stop gate), then confirm",
+        "name": "25 · Update schema — gather + propose in text, then write evolution",
         "turns": [
             {
                 "user_message": (
@@ -640,15 +647,14 @@ SCENARIOS = [
                     "list_domains",
                     "list_entity_type_schemas",        # find insurance_card in health domain
                     "get_current_entity_type_schema",  # get full current schema
-                    "evolve_entity_type_schema",       # add copay_amount field, is_active=false, STOP
                     "log_interaction",
                 ],
-                "forbidden_tools": GATHER_FORBIDDEN,  # confirm_entity_type_schema is in here
+                "forbidden_tools": GATHER_FORBIDDEN,  # update_entity_type_schema is in here
             },
             {
                 "user_message": "Yes, add that field.",
                 "expected_tools": [
-                    "confirm_entity_type_schema",
+                    "update_entity_type_schema",       # full field list, new version immediately active
                     "log_interaction",
                 ],
             },
