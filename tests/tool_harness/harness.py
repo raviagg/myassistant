@@ -28,8 +28,7 @@ import sys
 import textwrap
 
 from .tool_definitions import ALL_TOOLS
-from .scenarios import SCENARIOS
-from .mock_server import PERSON_ID
+from .scenarios import SCENARIOS, SYSTEM_PROMPT, GLOBAL_FORBIDDEN_TOOLS
 
 SEP  = "━" * 72
 THIN = "─" * 72
@@ -113,19 +112,10 @@ _TOOLS_TEXT = _tools_summary()  # computed once
 
 def build_prompt(scenario: dict) -> str:
     return f"""\
-You are a personal assistant agent for a family life management system.
-
-Current user:
-  Name:      Ravi Aggarwal
-  person_id: {PERSON_ID}
+{SYSTEM_PROMPT}
 
 ─── TOOLS (44 total) ────────────────────────────────────────────────────────
-Parameters marked * are required. `embedding` params take [0.1, 0.2, 0.3]
-as a placeholder. For a new entity_instance_id on a create fact, use a
-descriptive placeholder like "NEW-UUID-passport-renewal".
-
-For UUID values that come from earlier tool calls, use a descriptive
-placeholder like "TODO-DOMAIN-ID", "USER-INPUT-SOURCE-TYPE-ID", etc.
+Parameters marked * are required.
 {_TOOLS_TEXT}
 
 ─── TASK ─────────────────────────────────────────────────────────────────────
@@ -136,15 +126,7 @@ Output ONLY a JSON array of the tool calls you would make, in order:
   {{"tool": "tool_name", "params": {{}}}},
   ...
 ]
-
-Rules:
-- Include lookup calls (list_domains, list_source_types, etc.) before any
-  write call that needs IDs returned by those lookups.
-- Use search_current_facts to resolve entity_instance_id from natural language
-  before creating update or delete fact operations.
-- Use resolve_kinship for multi-hop kinship queries (not multiple list_relationships).
-- Include log_interaction as the final call for human chat turns.
-- Output only the JSON array — no explanation, no markdown fences.\
+Output only the JSON array — no explanation, no markdown fences.\
 """
 
 
@@ -250,10 +232,12 @@ def print_result(scenario: dict, calls: list[dict] | None, error: str | None) ->
             print(f"{prefix}{line}")
     print()
 
-    if expected or scenario.get("forbidden_tools"):
+    scenario_forbidden = scenario.get("forbidden_tools", [])
+    all_forbidden = list(dict.fromkeys(GLOBAL_FORBIDDEN_TOOLS + scenario_forbidden))
+    if expected or all_forbidden:
         actual = [tc.get("tool", tc.get("name", "")) for tc in calls]
         expected = expected or []
-        forbidden = scenario.get("forbidden_tools", [])
+        forbidden = all_forbidden
         print("  VALIDATION")
         print(f"  {THIN}")
         all_ok = True

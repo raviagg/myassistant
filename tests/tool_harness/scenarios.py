@@ -11,51 +11,44 @@ Changes from v1:
 """
 from .mock_server import (
     PERSON_ID,
-    SOURCE_USER_INPUT_ID, SOURCE_FILE_UPLOAD_ID, SOURCE_AI_ID,
-    SOURCE_PLAID_ID, SOURCE_GMAIL_ID,
-    DOMAIN_HEALTH_ID, DOMAIN_FINANCE_ID, DOMAIN_EMPLOYMENT_ID,
-    DOMAIN_PERSONAL_ID, DOMAIN_TODO_ID, DOMAIN_HOUSEHOLD_ID, DOMAIN_NEWS_ID,
+    SOURCE_CHATBOT_ID,
 )
 
 SYSTEM_PROMPT = f"""\
 You are a personal assistant agent for a family life management system.
 
-SESSION CONTEXT — use these IDs directly; do NOT call list_domains or list_source_types:
+SESSION CONTEXT:
 
   Current user:
     Name:      Ravi Aggarwal
     person_id: {PERSON_ID}
 
-  Source type IDs:
-    user_input:   {SOURCE_USER_INPUT_ID}
-    file_upload:  {SOURCE_FILE_UPLOAD_ID}
-    ai_extracted: {SOURCE_AI_ID}
-    plaid_poll:   {SOURCE_PLAID_ID}
-    gmail_poll:   {SOURCE_GMAIL_ID}
+  Source type: All interactions through this chatbot use source_type_id: {SOURCE_CHATBOT_ID}
+  Do NOT call list_source_types — this ID is fixed for all chatbot interactions
+  (typed text, file uploads, and AI-extracted content all share the same chatbot source type).
 
-  Domain IDs:
-    health:           {DOMAIN_HEALTH_ID}
-    finance:          {DOMAIN_FINANCE_ID}
-    employment:       {DOMAIN_EMPLOYMENT_ID}
-    personal_details: {DOMAIN_PERSONAL_ID}
-    todo:             {DOMAIN_TODO_ID}
-    household:        {DOMAIN_HOUSEHOLD_ID}
-    news_preferences: {DOMAIN_NEWS_ID}
+  Domain IDs are NOT pre-loaded. Call list_domains when you need a domain_id.
 
 EMBEDDING PARAMETERS: For any embedding parameter, pass [0.1, 0.2, 0.3] as placeholder.
+For entity_instance_id on a new create, use a descriptive placeholder like "NEW-UUID-passport-renewal".
+For UUID values from earlier tool calls, use placeholders like "DOMAIN-ID-FROM-LIST-DOMAINS".
 
 RULES — follow exactly:
-1. SEARCH BEFORE WRITE: Before creating a new fact for an entity that might already
-   exist, call search_current_facts first. If a match is found (similarity >= 0.8),
-   issue an update fact using that entity_instance_id. If not found, issue a create.
-2. SUPERSEDING: When the user provides information that updates previously stored data
-   (insurance renewal, salary change, new address etc.), call search_documents to find
-   the old document, then pass its ID in supersedes_ids when creating the new document.
-3. SCHEMA CONFIRMATION: After propose_entity_type_schema or evolve_entity_type_schema,
-   present the proposed fields to the user and STOP. Do NOT call
-   confirm_entity_type_schema in the same turn — wait for explicit user approval.
+1. SEARCH BEFORE WRITE: Before calling create_fact, ALWAYS call search_current_facts first
+   to check for an existing entity instance — even if you believe the entity is brand new.
+   If similarity >= 0.8, use that entity_instance_id and issue an update.
+   If not found (empty results or similarity < 0.8), issue a create with a new UUID placeholder.
+2. SUPERSEDING: Whenever the user says data has renewed, changed, or been replaced
+   (e.g. "insurance renewed", "got a raise", "new address"), call search_documents to find
+   the old document, then pass its document_id in supersedes_ids when creating the new document.
+3. SCHEMA CONFIRMATION: After calling propose_entity_type_schema or evolve_entity_type_schema,
+   present the proposed schema to the user and STOP. Do NOT call confirm_entity_type_schema,
+   create_document, or create_fact in the same turn — wait for explicit user approval.
 4. AUDIT: Call log_interaction as the final step of every human chat turn.\
 """
+
+# list_source_types must never appear — source_type_id is always the chatbot ID from context.
+GLOBAL_FORBIDDEN_TOOLS = ["list_source_types"]
 
 SCENARIOS = [
 
@@ -237,7 +230,7 @@ SCENARIOS = [
     {
         "name": "19 · Query current salary",
         "user_message": "What is my current salary?",
-        "expected_tools": ["search_current_facts", "log_interaction"],
+        "expected_tools": ["log_interaction"],
     },
 
     # ── F: File handling ──────────────────────────────────────────────────
@@ -302,10 +295,10 @@ SCENARIOS = [
         "name": "24 · New entity type — propose only, stop for confirmation",
         "user_message": "I just got a gym membership at Equinox for $80 per month.",
         "expected_tools": [
-            "list_entity_type_schemas",     # check for existing gym_membership schema
-            "propose_entity_type_schema",   # is_active=false — MUST stop here
+            "get_current_entity_type_schema",  # check if gym_membership schema exists
+            "propose_entity_type_schema",      # is_active=false — MUST stop here
         ],
-        "forbidden_tools": ["confirm_entity_type_schema"],
+        "forbidden_tools": ["confirm_entity_type_schema", "create_document", "create_fact"],
     },
     {
         "name": "25 · Evolve schema — add copay field to insurance",
