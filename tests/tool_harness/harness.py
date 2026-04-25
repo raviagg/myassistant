@@ -250,8 +250,10 @@ def print_result(scenario: dict, calls: list[dict] | None, error: str | None) ->
             print(f"{prefix}{line}")
     print()
 
-    if expected:
+    if expected or scenario.get("forbidden_tools"):
         actual = [tc.get("tool", tc.get("name", "")) for tc in calls]
+        expected = expected or []
+        forbidden = scenario.get("forbidden_tools", [])
         print("  VALIDATION")
         print(f"  {THIN}")
         all_ok = True
@@ -260,10 +262,15 @@ def print_result(scenario: dict, calls: list[dict] | None, error: str | None) ->
             if not found:
                 all_ok = False
             print(f"    {'✓' if found else '✗'}  {exp}")
-        extra = [n for n in actual if n not in expected]
+        for forb in forbidden:
+            present = forb in actual
+            if present:
+                all_ok = False
+            print(f"    {'✗ SHOULD NOT appear:' if present else '✓ (absent)'}  {forb}")
+        extra = [n for n in actual if n not in expected and n not in forbidden]
         for name in extra:
             print(f"    ?  {name}  (not in expected list — may be fine)")
-        print(f"    → {'all expected tools called ✓' if all_ok else 'some expected tools missing'}")
+        print(f"    → {'all checks passed ✓' if all_ok else 'ISSUES FOUND'}")
         print()
 
 
