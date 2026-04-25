@@ -122,6 +122,48 @@ def _insurance_schema():
     }
 
 
+def _job_schema():
+    return {
+        "id": SCHEMA_JOB_ID,
+        "domain": "employment",
+        "domain_id": DOMAIN_EMPLOYMENT_ID,
+        "entity_type": "job",
+        "schema_version": 1,
+        "description": "Employment record — employer, role, salary, dates",
+        "field_definitions": [
+            {"name": "employer",    "type": "text",   "mandatory": True},
+            {"name": "role",        "type": "text",   "mandatory": True},
+            {"name": "salary",      "type": "number", "mandatory": False},
+            {"name": "start_date",  "type": "date",   "mandatory": False},
+            {"name": "end_date",    "type": "date",   "mandatory": False},
+        ],
+        "mandatory_fields": ["employer", "role"],
+        "is_active": True,
+        "created_at": NOW,
+    }
+
+
+def _payslip_schema():
+    return {
+        "id": SCHEMA_PAYSLIP_ID,
+        "domain": "finance",
+        "domain_id": DOMAIN_FINANCE_ID,
+        "entity_type": "payslip",
+        "schema_version": 1,
+        "description": "Payslip — pay period, gross, deductions, net pay",
+        "field_definitions": [
+            {"name": "employer",   "type": "text",   "mandatory": True},
+            {"name": "pay_period", "type": "text",   "mandatory": True},
+            {"name": "gross",      "type": "number", "mandatory": False},
+            {"name": "tax",        "type": "number", "mandatory": False},
+            {"name": "net",        "type": "number", "mandatory": False},
+        ],
+        "mandatory_fields": ["employer", "pay_period"],
+        "is_active": True,
+        "created_at": NOW,
+    }
+
+
 def _document(did=DOCUMENT_ID, content="", pid=PERSON_ID):
     return {
         "id": did,
@@ -328,11 +370,16 @@ class MockServer:
     # ── 3 Schema Governance ──────────────────────────────────────────────
 
     def _h_list_entity_type_schemas(self, i):
-        if i.get("domain_id") == DOMAIN_TODO_ID:
+        domain = i.get("domain_id")
+        if domain == DOMAIN_TODO_ID:
             return [_todo_schema()]
-        if i.get("domain_id") == DOMAIN_HEALTH_ID:
+        if domain == DOMAIN_HEALTH_ID:
             return [_insurance_schema()]
-        return [_todo_schema(), _insurance_schema()]
+        if domain == DOMAIN_EMPLOYMENT_ID:
+            return [_job_schema()]
+        if domain == DOMAIN_FINANCE_ID:
+            return [_payslip_schema()]
+        return [_todo_schema(), _insurance_schema(), _job_schema(), _payslip_schema()]
 
     def _h_get_entity_type_schema(self, i):
         if i.get("schema_id") == SCHEMA_INSURANCE_ID:
@@ -345,6 +392,10 @@ class MockServer:
             return _insurance_schema()
         if et == "todo_item":
             return _todo_schema()
+        if et == "job":
+            return _job_schema()
+        if et == "payslip":
+            return _payslip_schema()
         return {"error": "not_found", "entity_type": et}
 
     def _h_propose_entity_type_schema(self, i):

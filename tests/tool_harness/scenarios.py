@@ -1,13 +1,14 @@
 """
-Test scenarios for the MCP tool harness — v2, 25 scenarios.
+Test scenarios for the MCP tool harness — v4, 25 scenarios.
 
-Changes from v1:
-- source_type_id and domain_id are now in session context (no list_domains /
-  list_source_types needed for standard chat turns).
-- Rules added: search before write, supersedes_ids for updates, schema
-  confirmation requires user approval before confirm_entity_type_schema.
-- Added: superseding examples, file upload examples, search-before-create,
-  household, salary change, schema evolution, delete patterns.
+Changes from v3:
+- Rule 0 added: list_entity_type_schemas before every fact write so the agent
+  discovers candidate schemas rather than guessing entity type names.
+- Rule 1 strengthened: explicit similarity threshold (>=0.8 → must update,
+  <0.8 → create new). Never create a new entity_instance_id when a match exists.
+- Rule 2 clarified: two use cases for search_documents vs search_current_facts.
+- expected_tools updated: list_entity_type_schemas added to all write-fact scenarios.
+- Scenario 24 expected updated to use list_entity_type_schemas (not get_current).
 """
 from .mock_server import (
     PERSON_ID,
@@ -34,17 +35,39 @@ For entity_instance_id on a new create, use a descriptive placeholder like "NEW-
 For UUID values from earlier tool calls, use placeholders like "DOMAIN-ID-FROM-LIST-DOMAINS".
 
 RULES — follow exactly:
-1. SEARCH BEFORE WRITE: Before calling create_fact, ALWAYS call search_current_facts first
-   to check for an existing entity instance — even if you believe the entity is brand new.
-   If similarity >= 0.8, use that entity_instance_id and issue an update.
-   If not found (empty results or similarity < 0.8), issue a create with a new UUID placeholder.
-2. SUPERSEDING: Whenever the user says data has renewed, changed, or been replaced
-   (e.g. "insurance renewed", "got a raise", "new address"), call search_documents to find
-   the old document, then pass its document_id in supersedes_ids when creating the new document.
-3. SCHEMA CONFIRMATION: After calling propose_entity_type_schema or evolve_entity_type_schema,
-   present the proposed schema to the user and STOP. Do NOT call confirm_entity_type_schema,
-   create_document, or create_fact in the same turn — wait for explicit user approval.
-4. AUDIT: Call log_interaction as the final step of every human chat turn.\
+
+0. SCHEMA DISCOVERY (every write turn that involves facts):
+   a. After resolving domain_id via list_domains, call list_entity_type_schemas(domain_id=...)
+      to see ALL available entity types in that domain.
+   b. From the returned list, select the entity_type whose name and description best matches
+      the information being stored.
+   c. If NO schema closely matches — this is a new category of information:
+      call propose_entity_type_schema and STOP (see Rule 3). Do not create documents or facts.
+   d. If a match is found: call get_current_entity_type_schema(entity_type=best_match) to get
+      the full active schema with all field definitions, then continue the write pipeline.
+
+1. SEARCH BEFORE WRITE (strict):
+   Before calling create_fact, ALWAYS call search_current_facts first — even if you believe
+   the entity is brand new. Use the results as follows:
+   - similarity >= 0.8 → MUST use that entity_instance_id with operation_type=update.
+     Do NOT generate a new entity_instance_id when a match exists at this threshold.
+   - No results or similarity < 0.8 → use a new UUID placeholder with operation_type=create.
+
+2. search_documents vs search_current_facts:
+   - search_current_facts: for current merged field values — dedup check before every write,
+     and for reading current state ("what is my deductible?", "what is my salary?").
+   - search_documents: use in TWO cases:
+     (a) SUPERSEDING — when the user says data has changed, renewed, or been replaced
+         (e.g. "insurance renewed", "got a raise"), call search_documents to find the old
+         source document, then pass its document_id in supersedes_ids on the new create_document.
+     (b) HISTORICAL/SOURCE QUERIES — when the user asks about original source content
+         ("what did I write when I first registered my insurance?", "show me my original payslip").
+
+3. SCHEMA CONFIRMATION: After propose_entity_type_schema or evolve_entity_type_schema, STOP.
+   Do NOT call confirm_entity_type_schema, create_document, or create_fact in the same turn.
+   Wait for explicit user approval before confirming.
+
+4. AUDIT: log_interaction is the final call in every human chat turn.\
 """
 
 # list_source_types must never appear — source_type_id is always the chatbot ID from context.
@@ -71,8 +94,9 @@ SCENARIOS = [
         "name": "03 · Add todo — search first, not found → create",
         "user_message": "Remind me to renew my passport by June 30, 2026.",
         "expected_tools": [
-            "search_current_facts",         # check for existing todo
+            "list_entity_type_schemas",     # discover todo domain schemas
             "get_current_entity_type_schema",
+            "search_current_facts",         # check for existing todo (Rule 1)
             "create_document",
             "create_fact",                  # operation_type=create
             "log_interaction",
@@ -82,7 +106,9 @@ SCENARIOS = [
         "name": "04 · Add todo — search finds existing → update due date",
         "user_message": "Actually push the passport renewal deadline to August 15.",
         "expected_tools": [
-            "search_current_facts",         # finds existing todo
+            "list_entity_type_schemas",     # discover todo domain schemas
+            "get_current_entity_type_schema",
+            "search_current_facts",         # finds existing todo (Rule 1)
             "create_document",
             "create_fact",                  # operation_type=update, fields={due_date}
             "log_interaction",
@@ -92,6 +118,8 @@ SCENARIOS = [
         "name": "05 · Update todo status to in_progress",
         "user_message": "I started working on the passport renewal.",
         "expected_tools": [
+            "list_entity_type_schemas",
+            "get_current_entity_type_schema",
             "search_current_facts",
             "create_document",
             "create_fact",                  # operation_type=update, fields={status:in_progress}
@@ -102,6 +130,8 @@ SCENARIOS = [
         "name": "06 · Mark todo as done",
         "user_message": "Passport renewal is done!",
         "expected_tools": [
+            "list_entity_type_schemas",
+            "get_current_entity_type_schema",
             "search_current_facts",
             "create_document",
             "create_fact",                  # operation_type=update/delete
@@ -112,8 +142,9 @@ SCENARIOS = [
         "name": "07 · Add recurring todo",
         "user_message": "Remind me to buy groceries every Sunday.",
         "expected_tools": [
-            "search_current_facts",
+            "list_entity_type_schemas",
             "get_current_entity_type_schema",
+            "search_current_facts",
             "create_document",
             "create_fact",                  # fields={is_recurring:true, recurrence:"weekly"}
             "log_interaction",
@@ -128,6 +159,8 @@ SCENARIOS = [
         "name": "09 · Delete a todo explicitly",
         "user_message": "Drop the dentist appointment reminder, I don't need it.",
         "expected_tools": [
+            "list_entity_type_schemas",
+            "get_current_entity_type_schema",
             "search_current_facts",
             "create_document",
             "create_fact",                  # operation_type=delete
@@ -173,8 +206,9 @@ SCENARIOS = [
             "Coverage January 1 to December 31, 2026."
         ),
         "expected_tools": [
-            "search_current_facts",         # check for existing insurance
+            "list_entity_type_schemas",     # discover health domain schemas
             "get_current_entity_type_schema",
+            "search_current_facts",         # check for existing insurance (Rule 1)
             "create_document",
             "create_fact",                  # operation_type=create
             "log_interaction",
@@ -187,8 +221,10 @@ SCENARIOS = [
             "Same plan but deductible went up to $2,000."
         ),
         "expected_tools": [
-            "search_current_facts",         # find existing insurance entity
-            "search_documents",             # find old document to supersede
+            "list_entity_type_schemas",
+            "get_current_entity_type_schema",
+            "search_current_facts",         # find existing insurance entity (Rule 1)
+            "search_documents",             # find old document to supersede (Rule 2a)
             "create_document",              # supersedes_ids=[old_doc_id]
             "create_fact",                  # operation_type=update
             "log_interaction",
@@ -209,8 +245,9 @@ SCENARIOS = [
             "salary $120,000/year, start date March 1 2024."
         ),
         "expected_tools": [
-            "search_current_facts",
+            "list_entity_type_schemas",     # discover employment domain schemas
             "get_current_entity_type_schema",
+            "search_current_facts",         # check for existing job (Rule 1)
             "create_document",
             "create_fact",
             "log_interaction",
@@ -220,8 +257,10 @@ SCENARIOS = [
         "name": "18 · Salary change — supersedes old employment document",
         "user_message": "Got a raise at Acme Corp, now making $145,000.",
         "expected_tools": [
-            "search_current_facts",         # find existing job entity
-            "search_documents",             # find old document to supersede
+            "list_entity_type_schemas",
+            "get_current_entity_type_schema",
+            "search_current_facts",         # find existing job entity (Rule 1)
+            "search_documents",             # find old document to supersede (Rule 2a)
             "create_document",              # supersedes_ids=[old_doc_id]
             "create_fact",                  # operation_type=update, fields={salary:145000}
             "log_interaction",
@@ -244,9 +283,10 @@ SCENARIOS = [
         "expected_tools": [
             "save_file",
             "extract_text_from_file",
-            "search_current_facts",
+            "list_entity_type_schemas",     # discover finance domain schemas
             "get_current_entity_type_schema",
-            "create_document",              # source_type=file_upload, files=[{file_path}]
+            "search_current_facts",         # dedup check (Rule 1)
+            "create_document",              # source_type=chatbot, files=[{file_path}]
             "create_fact",
             "log_interaction",
         ],
@@ -260,8 +300,10 @@ SCENARIOS = [
         "expected_tools": [
             "save_file",
             "extract_text_from_file",       # OCR
-            "search_current_facts",
-            "create_document",              # source_type=file_upload, files=[{file_path}]
+            "list_entity_type_schemas",     # discover health domain schemas
+            "get_current_entity_type_schema",
+            "search_current_facts",         # dedup check (Rule 1)
+            "create_document",              # source_type=chatbot, files=[{file_path}]
             "create_fact",
             "log_interaction",
         ],
@@ -295,8 +337,8 @@ SCENARIOS = [
         "name": "24 · New entity type — propose only, stop for confirmation",
         "user_message": "I just got a gym membership at Equinox for $80 per month.",
         "expected_tools": [
-            "get_current_entity_type_schema",  # check if gym_membership schema exists
-            "propose_entity_type_schema",      # is_active=false — MUST stop here
+            "list_entity_type_schemas",        # see all health schemas — gym_membership absent
+            "propose_entity_type_schema",      # no match → propose new, is_active=false, STOP
         ],
         "forbidden_tools": ["confirm_entity_type_schema", "create_document", "create_fact"],
     },
@@ -306,8 +348,9 @@ SCENARIOS = [
             "I'd like to also track my copay amount on insurance cards going forward."
         ),
         "expected_tools": [
-            "get_current_entity_type_schema",
-            "evolve_entity_type_schema",    # is_active=false — MUST stop here
+            "list_entity_type_schemas",        # find insurance_card in health domain
+            "get_current_entity_type_schema",  # get full current schema
+            "evolve_entity_type_schema",       # add copay_amount field, is_active=false, STOP
         ],
         "forbidden_tools": ["confirm_entity_type_schema"],
     },
