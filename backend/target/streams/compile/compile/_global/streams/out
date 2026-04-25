@@ -1,0 +1,65 @@
+[error] -- [E008] Not Found Error: /Users/raaggarw/GitHome/raviagg/myassistant/backend/src/main/scala/com/myassistant/Main.scala:94:64 
+[error] 94 |                     Server.defaultWith(_.port(cfg.server.port).host(cfg.server.host)),
+[error]    |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[error]    |value host is not a member of zio.http.Server.Config - did you mean Config.port?
+[error] -- [E007] Type Mismatch Error: /Users/raaggarw/GitHome/raviagg/myassistant/backend/src/main/scala/com/myassistant/api/middleware/LoggingMiddleware.scala:16:6 
+[error] 16 |      Handler.fromFunctionZIO[Request] { request =>
+[error]    |      ^
+[error]    |Found:    (zio.http.Handler[Any, Nothing, zio.http.Request, (zio.http.Request, Unit)],
+[error]    |  zio.http.Handler[Any, Nothing, zio.http.Response, zio.http.Response])
+[error]    |Required: zio.http.Handler[Nothing, zio.http.Response, zio.http.Request, (
+[error]    |  zio.http.Request, Any)]
+[error]    |
+[error]    |The following import might make progress towards fixing the problem:
+[error]    |
+[error]    |  import izumi.reflect.dottyreflection.ReflectionUtil.
+[error]    |  reflectiveUncheckedNonOverloadedSelectable
+[error]    |
+[error] 17 |        ZIO.succeed((request, ()))
+[error] 18 |      },
+[error] 19 |      Handler.fromFunctionZIO[Response] { response =>
+[error] 20 |        ZIO.succeed(response)
+[error] 21 |      },
+[error]    |
+[error]    | longer explanation available when compiling with `-explain`
+[error] -- [E008] Not Found Error: /Users/raaggarw/GitHome/raviagg/myassistant/backend/src/main/scala/com/myassistant/db/DatabaseModule.scala:42:39 
+[error] 42 |    dataSourceLive >>> ZConnectionPool.fromDataSource
+[error]    |                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[error]    |value fromDataSource is not a member of object zio.jdbc.ZConnectionPool, but could be made available as an extension method.
+[error]    |
+[error]    |The following import might make progress towards fixing the problem:
+[error]    |
+[error]    |  import izumi.reflect.dottyreflection.ReflectionUtil.
+[error]    |  reflectiveUncheckedNonOverloadedSelectable
+[error]    |
+[error] -- [E008] Not Found Error: /Users/raaggarw/GitHome/raviagg/myassistant/backend/src/main/scala/com/myassistant/logging/AppLogger.scala:17:28 
+[error] 17 |      SLF4J.slf4j(LogFormat.structured)
+[error]    |                  ^^^^^^^^^^^^^^^^^^^^
+[error]    |value structured is not a member of object zio.logging.LogFormat, but could be made available as an extension method.
+[error]    |
+[error]    |The following import might make progress towards fixing the problem:
+[error]    |
+[error]    |  import izumi.reflect.dottyreflection.ReflectionUtil.
+[error]    |  reflectiveUncheckedNonOverloadedSelectable
+[error]    |
+[error] -- [E008] Not Found Error: /Users/raaggarw/GitHome/raviagg/myassistant/backend/src/main/scala/com/myassistant/logging/LogFormat.scala:14:14 
+[error] 14 |    LogFormat.label("timestamp", LogFormat.timestamp) +
+[error]    |    ^^^^^^^^^^^^^^^
+[error]    |value label is not a member of object com.myassistant.logging.LogFormat, but could be made available as an extension method.
+[error]    |
+[error]    |The following import might make progress towards fixing the problem:
+[error]    |
+[error]    |  import izumi.reflect.dottyreflection.ReflectionUtil.
+[error]    |  reflectiveUncheckedNonOverloadedSelectable
+[error]    |
+[error] -- [E008] Not Found Error: /Users/raaggarw/GitHome/raviagg/myassistant/backend/src/main/scala/com/myassistant/logging/LogFormat.scala:14:43 
+[error] 14 |    LogFormat.label("timestamp", LogFormat.timestamp) +
+[error]    |                                 ^^^^^^^^^^^^^^^^^^^
+[error]    |value timestamp is not a member of object com.myassistant.logging.LogFormat, but could be made available as an extension method.
+[error]    |
+[error]    |The following import might make progress towards fixing the problem:
+[error]    |
+[error]    |  import izumi.reflect.dottyreflection.ReflectionUtil.
+[error]    |  reflectiveUncheckedNonOverloadedSelectable
+[error]    |
+[error] 6 errors found

@@ -1,0 +1,108 @@
+// ============================================================
+// build.sbt — Personal Assistant Backend
+//
+// Scala 3.4 + ZIO 2.x + ZIO HTTP + ZIO JDBC + Flyway
+// Full dependency declarations, assembly settings, test config.
+// ============================================================
+
+ThisBuild / scalaVersion := "3.4.2"
+ThisBuild / organization := "com.myassistant"
+ThisBuild / version      := "0.1.0-SNAPSHOT"
+
+// ── Dependency versions ──────────────────────────────────────
+val zioVersion             = "2.1.6"
+val zioHttpVersion         = "3.0.1"
+val zioJdbcVersion         = "0.1.2"
+val zioConfigVersion       = "4.0.2"
+val zioLoggingVersion      = "2.3.0"
+val circeVersion           = "0.14.9"
+val flywayVersion          = "10.15.2"
+val hikariVersion          = "5.1.0"
+val postgresVersion        = "42.7.3"
+val prometheusVersion      = "0.16.0"
+val testcontainersVersion  = "0.41.3"
+val scalatestVersion       = "3.2.19"
+val cucumberScalaVersion   = "8.27.0"
+val cucumberJvmVersion     = "7.22.1"
+
+// ── Dependencies ─────────────────────────────────────────────
+lazy val zioDeps = Seq(
+  "dev.zio" %% "zio"              % zioVersion,
+  "dev.zio" %% "zio-streams"      % zioVersion,
+  "dev.zio" %% "zio-http"         % zioHttpVersion,
+  "dev.zio" %% "zio-jdbc"         % zioJdbcVersion,
+  "dev.zio" %% "zio-config"       % zioConfigVersion,
+  "dev.zio" %% "zio-config-typesafe" % zioConfigVersion,
+  "dev.zio" %% "zio-config-magnolia" % zioConfigVersion,
+  "dev.zio" %% "zio-logging"      % zioLoggingVersion,
+  "dev.zio" %% "zio-logging-slf4j2" % zioLoggingVersion,
+)
+
+lazy val circeDeps = Seq(
+  "io.circe" %% "circe-core"    % circeVersion,
+  "io.circe" %% "circe-generic" % circeVersion,
+  "io.circe" %% "circe-parser"  % circeVersion,
+)
+
+lazy val dbDeps = Seq(
+  "org.flywaydb"    % "flyway-core"                % flywayVersion,
+  "org.flywaydb"    % "flyway-database-postgresql" % flywayVersion,
+  "com.zaxxer"      % "HikariCP"                   % hikariVersion,
+  "org.postgresql"  % "postgresql"                 % postgresVersion,
+)
+
+lazy val prometheusDeps = Seq(
+  "io.prometheus" % "simpleclient"           % prometheusVersion,
+  "io.prometheus" % "simpleclient_hotspot"   % prometheusVersion,
+  "io.prometheus" % "simpleclient_httpserver" % prometheusVersion,
+)
+
+lazy val testDeps = Seq(
+  "dev.zio"                       %% "zio-test"                             % zioVersion          % Test,
+  "dev.zio"                       %% "zio-test-sbt"                         % zioVersion          % Test,
+  "dev.zio"                       %% "zio-test-magnolia"                    % zioVersion          % Test,
+  "com.dimafeng"                  %% "testcontainers-scala-scalatest"       % testcontainersVersion % Test,
+  "com.dimafeng"                  %% "testcontainers-scala-postgresql"      % testcontainersVersion % Test,
+  "org.scalatest"                 %% "scalatest"                            % scalatestVersion    % Test,
+  "io.cucumber"                   %% "cucumber-scala"                       % cucumberScalaVersion % Test,
+  "io.cucumber"                    % "cucumber-junit"                       % cucumberJvmVersion  % Test,
+)
+
+// ── Main project ──────────────────────────────────────────────
+lazy val backend = (project in file("."))
+  .settings(
+    name := "myassistant-backend",
+
+    libraryDependencies ++= zioDeps ++ circeDeps ++ dbDeps ++ prometheusDeps ++ testDeps,
+
+    // ── Scala compiler options ────────────────────────────────
+    scalacOptions ++= Seq(
+      "-deprecation",
+      "-feature",
+      "-unchecked",
+      "-Xfatal-warnings",
+      "-language:implicitConversions",
+      "-language:higherKinds",
+    ),
+
+    // ── Test framework ────────────────────────────────────────
+    testFrameworks += new TestFramework("zio.test.sbt.ZTestFramework"),
+
+    // ── sbt-assembly fat-JAR settings ─────────────────────────
+    assembly / assemblyJarName := "myassistant-backend.jar",
+    assembly / mainClass       := Some("com.myassistant.Main"),
+
+    // Merge strategy: take the last copy for duplicate entries
+    assembly / assemblyMergeStrategy := {
+      case PathList("META-INF", "services", xs @ _*) => MergeStrategy.filterDistinctLines
+      case PathList("META-INF", xs @ _*)             => MergeStrategy.discard
+      case PathList("reference.conf")                => MergeStrategy.concat
+      case PathList("application.conf")              => MergeStrategy.first
+      case x if x.endsWith(".class")                 => MergeStrategy.last
+      case _                                         => MergeStrategy.first
+    },
+
+    // ── Resource directories ──────────────────────────────────
+    Compile / resourceDirectories += baseDirectory.value / "src" / "main" / "resources",
+    Test    / resourceDirectories += baseDirectory.value / "src" / "test" / "resources",
+  )
