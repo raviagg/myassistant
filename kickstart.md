@@ -236,54 +236,56 @@ Test files:
 - `src/test/scala/com/myassistant/unit/services/SchemaServiceSpec.scala`
 - `src/test/scala/com/myassistant/unit/services/ReferenceServiceSpec.scala`
 - `src/test/scala/com/myassistant/unit/services/AuditServiceSpec.scala`
+- `src/test/scala/com/myassistant/unit/routes/PersonRoutesSpec.scala`
+- `src/test/scala/com/myassistant/unit/middleware/ErrorMiddlewareSpec.scala`
+- `src/test/scala/com/myassistant/unit/middleware/MetricsMiddlewareSpec.scala`
+- `src/test/scala/com/myassistant/unit/LogFormatSpec.scala`
+- `src/test/scala/com/myassistant/unit/FileRepositorySpec.scala`
 
 ---
 
 ## Code Coverage
 
-Uses [sbt-scoverage](https://github.com/scoverage/sbt-scoverage). The build enforces a **90% minimum statement coverage** — it will fail if the threshold is not met.
+Two separate coverage tracks:
+
+| Track | Command | Gate | Report |
+|---|---|---|---|
+| Unit + Integration | `sbt coverage test coverageReport` | **90% in build.sbt** — build fails if not met | `target/scala-3.4.2/scoverage-report/index.html` |
+| E2E only | `sbt coverageE2e` (from `backend/`) | **70% via script** — CI-enforced | `target/e2e-scoverage-report/index.html` |
 
 ```bash
+# ── Unit + Integration (guarded) ──────────────────────────────────────────────
 cd backend
-
-# Instrument code, run all tests, and generate the HTML report
 sbt coverage test coverageReport
+# Build fails if statement coverage < 90%
 
-# The threshold check runs automatically after test; it also runs standalone:
-sbt coverageAggregate
+# ── E2E only (separate report) ────────────────────────────────────────────────
+cd backend
+sbt coverageE2e                      # starts embedded server, runs Cucumber, generates report
+
+# Check E2E threshold (from repo root — run after sbt coverageE2e):
+./scripts/check-e2e-coverage.sh      # fails if < 70%
+
+# Override E2E threshold:
+E2E_COVERAGE_THRESHOLD=80 ./scripts/check-e2e-coverage.sh
 ```
 
-HTML report location (open in any browser):
+### What is and isn't tracked
 
-```
-backend/target/scala-3.4.2/scoverage-report/index.html
-```
+| Package | Unit+Integration | E2E | Excluded? |
+|---|---|---|---|
+| `services.*` | ✅ unit tests (mock repos) | ✅ via routes | No |
+| `db.repositories.*` | ✅ Testcontainers (all 9 repos) | ✅ via routes | No |
+| `db.DatabaseModule`, `MigrationRunner` | ✅ Testcontainers | — | No |
+| `api.routes.*`, `api.middleware.*` | ✅ in-process `routes.runZIO` | ✅ Cucumber | No |
+| `logging.*`, `monitoring.*` | ✅ unit tests | — | No |
+| `config.*`, `domain.*`, `Main` | — | — | **Yes** — pure data/wiring |
 
-**All tests contribute to one combined number** — unit tests, Testcontainers integration tests, and Cucumber E2E tests (if they run) are not tracked separately.
+### Threshold settings
 
-Excluded from coverage measurement and why:
+`coverageMinimumStmtTotal := 90` and `coverageFailOnMinimum := true` live in `backend/build.sbt`.
 
-| Package | Reason |
-|---|---|
-| `config.*`, `domain.*`, `Main` | Pure data classes / ZLayer wiring — no testable logic |
-| `logging.*`, `monitoring.*` | Static wiring (SLF4J setup, Prometheus counter definitions) — no logic |
-| `api.*` | Cucumber E2E tests hit a **running external server** and do not run under `sbt test`. Remove this exclusion once an embedded-server test harness exists. |
-| `db.repositories.HouseholdRepository` | No integration test yet — add one to include it |
-| `db.repositories.SchemaRepository` | No integration test yet |
-| `db.repositories.ReferenceRepository` | No integration test yet |
-| `db.repositories.AuditRepository` | No integration test yet |
-| `db.repositories.FileRepository` | No integration test yet |
-
-**Intentionally NOT excluded** (Testcontainers integration tests cover these):
-- `db.DatabaseModule`, `db.MigrationRunner`
-- `db.repositories.PersonRepository`, `RelationshipRepository`, `DocumentRepository`, `FactRepository`
-
-The threshold setting lives in `backend/build.sbt`:
-
-```scala
-coverageMinimumStmtTotal := 90
-coverageFailOnMinimum    := true
-```
+E2E threshold lives in `scripts/check-e2e-coverage.sh` (`THRESHOLD` default 70, override via env var).
 
 ---
 
@@ -303,6 +305,10 @@ The container starts before the first test and is torn down after the suite. Fly
 Test files:
 - `src/test/scala/com/myassistant/integration/PersonRepositorySpec.scala`
 - `src/test/scala/com/myassistant/integration/FactRepositorySpec.scala`
+- `src/test/scala/com/myassistant/integration/HouseholdRepositorySpec.scala`
+- `src/test/scala/com/myassistant/integration/SchemaRepositorySpec.scala`
+- `src/test/scala/com/myassistant/integration/ReferenceRepositorySpec.scala`
+- `src/test/scala/com/myassistant/integration/AuditRepositorySpec.scala`
 
 ---
 

@@ -112,33 +112,28 @@ lazy val backend = (project in file("."))
     Test / classLoaderLayeringStrategy := ClassLoaderLayeringStrategy.ScalaLibrary,
 
     // ── Code coverage (sbt-scoverage) ─────────────────────────
-    // Run: sbt coverage test coverageReport
-    // Report: target/scala-3.4.2/scoverage-report/index.html
-    // All tests (unit + Testcontainers integration) contribute to one combined number.
-    // Cucumber E2E tests are excluded because they require an external running server
-    // and do not run under `sbt test`.
+    // Unit + Integration combined (90% gate):  sbt coverage test coverageReport
+    // E2E only (separate report):              sbt coverageE2e
+    // Report locations:
+    //   unit+integration → target/scala-3.4.2/scoverage-report/index.html
+    //   e2e              → target/e2e-scoverage-report/index.html
+    // E2E threshold is enforced by scripts/check-e2e-coverage.sh (not build.sbt)
     coverageMinimumStmtTotal  := 90,
     coverageFailOnMinimum     := true,
+    // Only pure data / static wiring excluded — everything with logic is now tested
     coverageExcludedPackages  :=
       Seq(
-        // ── Pure data / wiring — no testable logic ────────────
         "com.myassistant.Main",
         "com.myassistant.config.*",
         "com.myassistant.domain.*",
-        // ── Logging / metrics — static wiring, no logic ───────
-        "com.myassistant.logging.*",
-        "com.myassistant.monitoring.*",
-        // ── API layer — Cucumber tests need an external server;
-        //    they do not run under `sbt test`, so no coverage here.
-        //    Remove this exclusion once an embedded-server test harness exists.
-        "com.myassistant.api.*",
-        // ── Repositories that have NO integration tests yet ───
-        //    (Person/Relationship/Document/Fact repos are tested by
-        //    Testcontainers specs and are intentionally NOT excluded)
-        "com.myassistant.db.repositories.HouseholdRepository",
-        "com.myassistant.db.repositories.SchemaRepository",
-        "com.myassistant.db.repositories.ReferenceRepository",
-        "com.myassistant.db.repositories.AuditRepository",
-        "com.myassistant.db.repositories.FileRepository",
       ).mkString(";"),
   )
+
+// ── E2E coverage alias ────────────────────────────────────────────────────────
+// Runs only the Cucumber E2E suite with scoverage instrumentation, outputting
+// to a separate directory so it does not interfere with the unit+integration gate.
+// Threshold is checked by scripts/check-e2e-coverage.sh, not enforced in build.sbt.
+addCommandAlias(
+  "coverageE2e",
+  """;set coverageDataDir := (baseDirectory.value / "target" / "e2e-scoverage");coverage;testOnly com.myassistant.e2e.*;coverageReport;set coverageDataDir := (target.value / "scoverage-data")""",
+)

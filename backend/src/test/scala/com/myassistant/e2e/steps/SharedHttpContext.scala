@@ -13,7 +13,10 @@ import java.net.http.HttpResponse.BodyHandlers
  */
 object SharedHttpContext:
 
-  val baseUrl: String   = sys.env.getOrElse("TEST_BASE_URL", "http://localhost:8080")
+  lazy val baseUrl: String =
+    sys.props.get("TEST_BASE_URL")
+      .orElse(sys.env.get("TEST_BASE_URL"))
+      .getOrElse("http://localhost:8080")
   val authToken: String = sys.env.getOrElse("TEST_AUTH_TOKEN", "test-token")
   val client: HttpClient = HttpClient.newHttpClient()
 
