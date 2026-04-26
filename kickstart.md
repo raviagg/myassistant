@@ -224,9 +224,6 @@ cd backend
 # Run all unit tests
 sbt "testOnly com.myassistant.unit.*"
 
-# Or just everything in the unit package
-sbt "testOnly -- -tags unit"
-
 # Watch mode (re-runs on file change)
 sbt ~"testOnly com.myassistant.unit.*"
 ```
@@ -235,6 +232,49 @@ Test files:
 - `src/test/scala/com/myassistant/unit/services/PersonServiceSpec.scala`
 - `src/test/scala/com/myassistant/unit/services/RelationshipServiceSpec.scala`
 - `src/test/scala/com/myassistant/unit/services/KinshipResolverSpec.scala`
+- `src/test/scala/com/myassistant/unit/services/HouseholdServiceSpec.scala`
+- `src/test/scala/com/myassistant/unit/services/SchemaServiceSpec.scala`
+- `src/test/scala/com/myassistant/unit/services/ReferenceServiceSpec.scala`
+- `src/test/scala/com/myassistant/unit/services/AuditServiceSpec.scala`
+
+---
+
+## Code Coverage
+
+Uses [sbt-scoverage](https://github.com/scoverage/sbt-scoverage). The build enforces a **90% minimum statement coverage** — it will fail if the threshold is not met.
+
+```bash
+cd backend
+
+# Instrument code, run all tests, and generate the HTML report
+sbt coverage test coverageReport
+
+# The threshold check runs automatically after test; it also runs standalone:
+sbt coverageAggregate
+```
+
+HTML report location (open in any browser):
+
+```
+backend/target/scala-3.4.2/scoverage-report/index.html
+```
+
+Excluded from coverage measurement (infrastructure wiring, no business logic):
+- `com.myassistant.Main`
+- `com.myassistant.config.*`
+- `com.myassistant.domain.*`
+- `com.myassistant.db.DatabaseModule`, `db.MigrationRunner`
+- `com.myassistant.db.repositories.*`
+- `com.myassistant.api.*`
+- `com.myassistant.logging.*`
+- `com.myassistant.monitoring.*`
+
+The threshold setting lives in `backend/build.sbt`:
+
+```scala
+coverageMinimumStmtTotal := 90
+coverageFailOnMinimum    := true
+```
 
 ---
 

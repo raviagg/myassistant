@@ -66,6 +66,8 @@ lazy val testDeps = Seq(
   "org.scalatest"                 %% "scalatest"                            % scalatestVersion    % Test,
   "io.cucumber"                   %% "cucumber-scala"                       % cucumberScalaVersion % Test,
   "io.cucumber"                    % "cucumber-junit"                       % cucumberJvmVersion  % Test,
+  // Required for ZConnectionPool.h2test used in unit tests
+  "com.h2database"                 % "h2"                                   % "2.3.232"           % Test,
 )
 
 // ── Main project ──────────────────────────────────────────────
@@ -105,4 +107,26 @@ lazy val backend = (project in file("."))
     // ── Resource directories ──────────────────────────────────
     Compile / resourceDirectories += baseDirectory.value / "src" / "main" / "resources",
     Test    / resourceDirectories += baseDirectory.value / "src" / "test" / "resources",
+
+    // ── Test classloader — needed for H2 driver discovery ─────
+    Test / classLoaderLayeringStrategy := ClassLoaderLayeringStrategy.ScalaLibrary,
+
+    // ── Code coverage (sbt-scoverage) ─────────────────────────
+    // Run: sbt coverage test coverageReport
+    // Report: target/scala-3.4.2/scoverage-report/index.html
+    coverageMinimumStmtTotal  := 90,
+    coverageFailOnMinimum     := true,
+    // Exclude infrastructure wiring and generated/config code from coverage measurement
+    coverageExcludedPackages  :=
+      Seq(
+        "com.myassistant.Main",
+        "com.myassistant.config.*",
+        "com.myassistant.domain.*",
+        "com.myassistant.db.DatabaseModule",
+        "com.myassistant.db.MigrationRunner",
+        "com.myassistant.db.repositories.*",
+        "com.myassistant.api.*",
+        "com.myassistant.logging.*",
+        "com.myassistant.monitoring.*",
+      ).mkString(";"),
   )
