@@ -24,11 +24,11 @@ This document defines all MCP tools exposed to the Claude agent (or any other or
 | [1d — Relationship](#group-1d--relationship-6-tools) | 6 |
 | [2a — Document](#group-2a--document-4-tools) | 4 |
 | [2b — Fact](#group-2b--fact-5-tools) | 5 |
-| [3 — Schema Governance](#group-3--schema-governance-7-tools) | 7 |
+| [3 — Schema Governance](#group-3--schema-governance-6-tools) | 6 |
 | [4 — Reference](#group-4--reference-3-tools) | 3 |
 | [5 — Audit](#group-5--audit-1-tool) | 1 |
 | [6 — File Handling](#group-6--file-handling-4-tools) | 4 |
-| **Total** | **44** |
+| **Total** | **43** |
 
 ---
 
@@ -458,18 +458,16 @@ Internally: vector search on `fact.embedding` → deduplicate by `entity_instanc
 
 ---
 
-## Group 3 — Schema Governance (7 tools)
+## Group 3 — Schema Governance (6 tools)
 
 Manages the `entity_type_schema` table, which defines what facts can be extracted for each (domain, entity_type) pair.
 
-The key UX pattern is **propose → confirm**:
-1. Claude encounters information it has no schema for
-2. Claude calls `propose_entity_type_schema` — creates an inactive row (`is_active = false`)
-3. Claude surfaces the proposed fields to the user in conversation
-4. User approves
-5. Claude calls `confirm_entity_type_schema` — activates the schema
+The key UX pattern is the **two-phase turn model** — the same model used throughout the system:
+1. **Gather turn** — Claude encounters information that has no schema. It reads existing schemas via `list_entity_type_schemas` / `get_current_entity_type_schema`, then proposes the new schema or change *in text* as part of its response. No write tools are called.
+2. **User confirms** — the user approves the proposed schema in conversation.
+3. **Write turn** — Claude calls `create_entity_type_schema` (new type) or `update_entity_type_schema` (add/change fields on existing type). The schema becomes active immediately — there is no separate confirm step.
 
-The same pattern applies to schema evolution via `evolve_entity_type_schema`. No schema change takes effect until explicitly confirmed.
+Schema changes take effect as soon as the write tool is called; the confirmation gate is the user's explicit approval in the prior conversational turn.
 
 Text-based search is intentionally omitted — the table is small enough that `list_entity_type_schemas(active_only=true)` gives the orchestrator sufficient context to reason about existing schemas without needing embeddings.
 
@@ -506,9 +504,9 @@ Text-based search is intentionally omitted — the table is small enough that `l
 
 **Returns:** Full schema row, or not-found if no active schema exists.
 
-### `propose_entity_type_schema`
+### `create_entity_type_schema`
 
-**Purpose:** Create a new schema definition in inactive state (`is_active = false`), pending user confirmation. Called by Claude when it encounters information that doesn't match any existing schema. The caller should surface the proposed fields to the user before calling `confirm_entity_type_schema`.
+**Purpose:** Create a new schema definition for a (domain, entity_type) pair that does not yet exist. The schema is immediately active (`is_active = true, schema_version = 1`). Called in the write turn after the user has approved the proposed schema in conversation.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
@@ -517,31 +515,24 @@ Text-based search is intentionally omitted — the table is small enough that `l
 | `field_definitions` | object[] | yes | Array of field objects: `name`, `type`, `required`, `description` |
 | `description` | string | no | Human-readable description of this entity type |
 
-**Returns:** Schema row with `is_active = false` and `schema_version = 1`.
+**Returns:** Schema row with `is_active = true` and `schema_version = 1`.
 
-### `confirm_entity_type_schema`
+### `update_entity_type_schema`
 
-**Purpose:** Activate a previously proposed (or evolved) schema by setting `is_active = true`. After this call, facts of this entity type can be extracted and stored.
+**Purpose:** Create a new version of an existing active schema — for example, adding a new field or changing a field type. Creates a new schema row with `schema_version` incremented and `is_active = true`; the previous version is deactivated. Called in the write turn after the user approves the proposed change.
 
-| Parameter | Type | Required | Description |
-|---|---|---|---|
-| `schema_id` | UUID | yes | Must reference a row with `is_active = false` |
+The caller must provide the **full field list** for the new version, not a diff. This ensures the new schema row is self-contained and unambiguous.
 
-**Returns:** Updated schema row with `is_active = true`.
-
-### `evolve_entity_type_schema`
-
-**Purpose:** Propose a new version of an existing active schema — for example, adding a new field. Creates a new row with `schema_version` incremented and `is_active = false`. The previous version remains active until `confirm_entity_type_schema` is called on the new version.
-
-Facts extracted against old schema versions are not automatically re-extracted; a separate backfill job handles that (out of scope for this tool).
+Facts extracted against older schema versions are not automatically re-extracted; a separate backfill job handles that (out of scope for this tool).
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `schema_id` | UUID | yes | The current active schema to evolve from |
-| `field_definitions` | object[] | yes | Full field list for the new version (not a diff — provide all fields) |
+| `domain_id` | UUID | yes | |
+| `entity_type` | string | yes | Identifies the existing schema to evolve |
+| `field_definitions` | object[] | yes | Full field list for the new version — not a diff, provide all fields |
 | `description` | string | no | Updated description if needed |
 
-**Returns:** New schema row with incremented `schema_version` and `is_active = false`.
+**Returns:** New schema row with incremented `schema_version` and `is_active = true`.
 
 ### `deactivate_entity_type_schema`
 
@@ -676,8 +667,8 @@ Note: documents are immutable, so a referenced file cannot be cleaned up by upda
 | 1d — Relationship | 6 |
 | 2a — Document | 4 |
 | 2b — Fact | 5 |
-| 3 — Schema Governance | 7 |
+| 3 — Schema Governance | 6 |
 | 4 — Reference | 3 |
 | 5 — Audit | 1 |
 | 6 — File Handling | 4 |
-| **Total** | **44** |
+| **Total** | **43** |
