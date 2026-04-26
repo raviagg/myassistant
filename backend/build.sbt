@@ -114,19 +114,31 @@ lazy val backend = (project in file("."))
     // ── Code coverage (sbt-scoverage) ─────────────────────────
     // Run: sbt coverage test coverageReport
     // Report: target/scala-3.4.2/scoverage-report/index.html
+    // All tests (unit + Testcontainers integration) contribute to one combined number.
+    // Cucumber E2E tests are excluded because they require an external running server
+    // and do not run under `sbt test`.
     coverageMinimumStmtTotal  := 90,
     coverageFailOnMinimum     := true,
-    // Exclude infrastructure wiring and generated/config code from coverage measurement
     coverageExcludedPackages  :=
       Seq(
+        // ── Pure data / wiring — no testable logic ────────────
         "com.myassistant.Main",
         "com.myassistant.config.*",
         "com.myassistant.domain.*",
-        "com.myassistant.db.DatabaseModule",
-        "com.myassistant.db.MigrationRunner",
-        "com.myassistant.db.repositories.*",
-        "com.myassistant.api.*",
+        // ── Logging / metrics — static wiring, no logic ───────
         "com.myassistant.logging.*",
         "com.myassistant.monitoring.*",
+        // ── API layer — Cucumber tests need an external server;
+        //    they do not run under `sbt test`, so no coverage here.
+        //    Remove this exclusion once an embedded-server test harness exists.
+        "com.myassistant.api.*",
+        // ── Repositories that have NO integration tests yet ───
+        //    (Person/Relationship/Document/Fact repos are tested by
+        //    Testcontainers specs and are intentionally NOT excluded)
+        "com.myassistant.db.repositories.HouseholdRepository",
+        "com.myassistant.db.repositories.SchemaRepository",
+        "com.myassistant.db.repositories.ReferenceRepository",
+        "com.myassistant.db.repositories.AuditRepository",
+        "com.myassistant.db.repositories.FileRepository",
       ).mkString(";"),
   )

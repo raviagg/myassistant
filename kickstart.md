@@ -259,15 +259,24 @@ HTML report location (open in any browser):
 backend/target/scala-3.4.2/scoverage-report/index.html
 ```
 
-Excluded from coverage measurement (infrastructure wiring, no business logic):
-- `com.myassistant.Main`
-- `com.myassistant.config.*`
-- `com.myassistant.domain.*`
-- `com.myassistant.db.DatabaseModule`, `db.MigrationRunner`
-- `com.myassistant.db.repositories.*`
-- `com.myassistant.api.*`
-- `com.myassistant.logging.*`
-- `com.myassistant.monitoring.*`
+**All tests contribute to one combined number** — unit tests, Testcontainers integration tests, and Cucumber E2E tests (if they run) are not tracked separately.
+
+Excluded from coverage measurement and why:
+
+| Package | Reason |
+|---|---|
+| `config.*`, `domain.*`, `Main` | Pure data classes / ZLayer wiring — no testable logic |
+| `logging.*`, `monitoring.*` | Static wiring (SLF4J setup, Prometheus counter definitions) — no logic |
+| `api.*` | Cucumber E2E tests hit a **running external server** and do not run under `sbt test`. Remove this exclusion once an embedded-server test harness exists. |
+| `db.repositories.HouseholdRepository` | No integration test yet — add one to include it |
+| `db.repositories.SchemaRepository` | No integration test yet |
+| `db.repositories.ReferenceRepository` | No integration test yet |
+| `db.repositories.AuditRepository` | No integration test yet |
+| `db.repositories.FileRepository` | No integration test yet |
+
+**Intentionally NOT excluded** (Testcontainers integration tests cover these):
+- `db.DatabaseModule`, `db.MigrationRunner`
+- `db.repositories.PersonRepository`, `RelationshipRepository`, `DocumentRepository`, `FactRepository`
 
 The threshold setting lives in `backend/build.sbt`:
 
