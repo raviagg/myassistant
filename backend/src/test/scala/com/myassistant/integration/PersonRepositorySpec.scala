@@ -16,11 +16,10 @@ import zio.jdbc.*
 /** Integration tests for PersonRepository against a real PostgreSQL instance managed by Testcontainers.
  *
  *  A fresh container is started once per suite, and Flyway migrations are applied before any test runs.
+ *  Uses pgvector/pgvector:pg16 because V1 migration creates the `vector` extension.
  */
 class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerForAll:
 
-  // pgvector/pgvector:pg16 includes both PostgreSQL 16 and the pgvector extension,
-  // which is required by V1__create_extensions.sql and the VECTOR columns.
   override val containerDef: PostgreSQLContainer.Def =
     PostgreSQLContainer.Def(
       dockerImageName = DockerImageName.parse("pgvector/pgvector:pg16"),
@@ -42,15 +41,10 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
       maxLifetime       = 60000,
     )
 
-  private def poolLayer(container: PostgreSQLContainer): ZLayer[Any, Throwable, ZConnectionPool] =
-    DatabaseModule.connectionPoolLive.provide(ZLayer.succeed(dbConfig(container)))
-
   private def migrate(container: PostgreSQLContainer): Unit =
-    val cfg      = dbConfig(container)
-    val cfgLayer = ZLayer.succeed(cfg)
     Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
-        MigrationRunner.migrate.provide(cfgLayer)
+        MigrationRunner.migrate.provide(ZLayer.succeed(dbConfig(container)))
       ).getOrThrowFiberFailure()
     }
 
@@ -60,15 +54,18 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
     withContainers { container =>
       migrate(container)
       val result = Unsafe.unsafe { implicit unsafe =>
-        Runtime.default.unsafe.run {
-          val pool = poolLayer(container)
-          (for
-            env    <- PersonRepository.live.build.scoped
-            repo    = env.get[PersonRepository]
-            person <- repo.create(CreatePerson("Ravi Aggarwal", Gender.Male, None, Some("Ravi"), None))
-                        .provide(pool)
-          yield person)
-        }.getOrThrowFiberFailure()
+        Runtime.default.unsafe.run(
+          ZIO.scoped {
+            for
+              poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+              pool     = poolEnv.get[ZConnectionPool]
+              repoEnv <- (ZLayer.succeed(pool) >>> PersonRepository.live).build
+              repo     = repoEnv.get[PersonRepository]
+              person  <- repo.create(CreatePerson("Ravi Aggarwal", Gender.Male, None, Some("Ravi"), None))
+                           .provideEnvironment(ZEnvironment(pool))
+            yield person
+          }
+        ).getOrThrowFiberFailure()
       }
       result.fullName      shouldBe "Ravi Aggarwal"
       result.id            should not be null
@@ -81,18 +78,22 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
     withContainers { container =>
       migrate(container)
       val (created, found) = Unsafe.unsafe { implicit unsafe =>
-        Runtime.default.unsafe.run {
-          val pool = poolLayer(container)
-          (for
-            env     <- PersonRepository.live.build.scoped
-            repo     = env.get[PersonRepository]
-            created <- repo.create(CreatePerson("Nirmala Devi", Gender.Female, None, None, None)).provide(pool)
-            found   <- repo.findById(created.id).provide(pool)
-          yield (created, found))
-        }.getOrThrowFiberFailure()
+        Runtime.default.unsafe.run(
+          ZIO.scoped {
+            for
+              poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+              pool     = poolEnv.get[ZConnectionPool]
+              repoEnv <- (ZLayer.succeed(pool) >>> PersonRepository.live).build
+              repo     = repoEnv.get[PersonRepository]
+              created <- repo.create(CreatePerson("Nirmala Devi", Gender.Female, None, None, None))
+                           .provideEnvironment(ZEnvironment(pool))
+              found   <- repo.findById(created.id).provideEnvironment(ZEnvironment(pool))
+            yield (created, found)
+          }
+        ).getOrThrowFiberFailure()
       }
-      found            shouldBe defined
-      found.get.id     shouldBe created.id
+      found.isDefined    shouldBe true
+      found.get.id       shouldBe created.id
       found.get.fullName shouldBe "Nirmala Devi"
     }
   }
@@ -101,17 +102,20 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
     withContainers { container =>
       migrate(container)
       val persons = Unsafe.unsafe { implicit unsafe =>
-        Runtime.default.unsafe.run {
-          val pool = poolLayer(container)
-          (for
-            env  <- PersonRepository.live.build.scoped
-            repo  = env.get[PersonRepository]
-            _    <- repo.create(CreatePerson("Alice",   Gender.Female, None, None, None)).provide(pool)
-            _    <- repo.create(CreatePerson("Bob",     Gender.Male,   None, None, None)).provide(pool)
-            _    <- repo.create(CreatePerson("Charlie", Gender.Male,   None, None, None)).provide(pool)
-            list <- repo.listAll(None).provide(pool)
-          yield list)
-        }.getOrThrowFiberFailure()
+        Runtime.default.unsafe.run(
+          ZIO.scoped {
+            for
+              poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+              pool     = poolEnv.get[ZConnectionPool]
+              repoEnv <- (ZLayer.succeed(pool) >>> PersonRepository.live).build
+              repo     = repoEnv.get[PersonRepository]
+              _       <- repo.create(CreatePerson("Alice",   Gender.Female, None, None, None)).provideEnvironment(ZEnvironment(pool))
+              _       <- repo.create(CreatePerson("Bob",     Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(pool))
+              _       <- repo.create(CreatePerson("Charlie", Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(pool))
+              list    <- repo.listAll(None).provideEnvironment(ZEnvironment(pool))
+            yield list
+          }
+        ).getOrThrowFiberFailure()
       }
       persons.size should be >= 3
       persons.map(_.fullName) should contain allOf ("Alice", "Bob", "Charlie")
@@ -122,23 +126,27 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
     withContainers { container =>
       migrate(container)
       val updated = Unsafe.unsafe { implicit unsafe =>
-        Runtime.default.unsafe.run {
-          val pool = poolLayer(container)
-          (for
-            env     <- PersonRepository.live.build.scoped
-            repo     = env.get[PersonRepository]
-            created <- repo.create(CreatePerson("OldName", Gender.Male, None, None, None)).provide(pool)
-            updated <- repo.update(
-                         created.id,
-                         UpdatePerson(fullName = Some("NewName"), gender = None, dateOfBirth = None,
-                                      preferredName = Some("Nick"), userIdentifier = None)
-                       ).provide(pool)
-          yield updated)
-        }.getOrThrowFiberFailure()
+        Runtime.default.unsafe.run(
+          ZIO.scoped {
+            for
+              poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+              pool     = poolEnv.get[ZConnectionPool]
+              repoEnv <- (ZLayer.succeed(pool) >>> PersonRepository.live).build
+              repo     = repoEnv.get[PersonRepository]
+              created <- repo.create(CreatePerson("OldName", Gender.Male, None, None, None))
+                           .provideEnvironment(ZEnvironment(pool))
+              updated <- repo.update(
+                           created.id,
+                           UpdatePerson(fullName = Some("NewName"), gender = None, dateOfBirth = None,
+                                        preferredName = Some("Nick"), userIdentifier = None)
+                         ).provideEnvironment(ZEnvironment(pool))
+            yield updated
+          }
+        ).getOrThrowFiberFailure()
       }
-      updated shouldBe defined
-      updated.get.fullName                  shouldBe "NewName"
-      updated.get.preferredName             shouldBe Some("Nick")
+      updated.isDefined         shouldBe true
+      updated.get.fullName      shouldBe "NewName"
+      updated.get.preferredName shouldBe Some("Nick")
     }
   }
 
@@ -146,16 +154,20 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
     withContainers { container =>
       migrate(container)
       val (deleted, found) = Unsafe.unsafe { implicit unsafe =>
-        Runtime.default.unsafe.run {
-          val pool = poolLayer(container)
-          (for
-            env     <- PersonRepository.live.build.scoped
-            repo     = env.get[PersonRepository]
-            created <- repo.create(CreatePerson("TempPerson", Gender.Female, None, None, None)).provide(pool)
-            deleted <- repo.delete(created.id).provide(pool)
-            found   <- repo.findById(created.id).provide(pool)
-          yield (deleted, found))
-        }.getOrThrowFiberFailure()
+        Runtime.default.unsafe.run(
+          ZIO.scoped {
+            for
+              poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+              pool     = poolEnv.get[ZConnectionPool]
+              repoEnv <- (ZLayer.succeed(pool) >>> PersonRepository.live).build
+              repo     = repoEnv.get[PersonRepository]
+              created <- repo.create(CreatePerson("TempPerson", Gender.Female, None, None, None))
+                           .provideEnvironment(ZEnvironment(pool))
+              deleted <- repo.delete(created.id).provideEnvironment(ZEnvironment(pool))
+              found   <- repo.findById(created.id).provideEnvironment(ZEnvironment(pool))
+            yield (deleted, found)
+          }
+        ).getOrThrowFiberFailure()
       }
       deleted shouldBe true
       found   shouldBe None
@@ -165,30 +177,29 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
   test("delete — fails with ReferentialIntegrityError when relationships exist") {
     withContainers { container =>
       migrate(container)
-      // Arrange: create two persons and a relationship between them
       val deleteResult = Unsafe.unsafe { implicit unsafe =>
-        Runtime.default.unsafe.run {
-          val pool = poolLayer(container)
-          (for
-            personEnv <- PersonRepository.live.build.scoped
-            relEnv    <- RelationshipRepository.live.build.scoped
-            personRepo = personEnv.get[PersonRepository]
-            relRepo    = relEnv.get[RelationshipRepository]
-            person1   <- personRepo.create(CreatePerson("PersonA", Gender.Male,   None, None, None)).provide(pool)
-            person2   <- personRepo.create(CreatePerson("PersonB", Gender.Female, None, None, None)).provide(pool)
-            _         <- relRepo.create(CreateRelationship(person1.id, person2.id, RelationType.Wife)).provide(pool)
-            // Attempt to delete person1 — should fail due to relationship FK
-            delResult <- personRepo.delete(person1.id).provide(pool).exit
-          yield delResult)
-        }.getOrThrowFiberFailure()
+        Runtime.default.unsafe.run(
+          ZIO.scoped {
+            for
+              poolEnv    <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+              pool        = poolEnv.get[ZConnectionPool]
+              personEnv  <- (ZLayer.succeed(pool) >>> PersonRepository.live).build
+              relEnv     <- (ZLayer.succeed(pool) >>> RelationshipRepository.live).build
+              personRepo  = personEnv.get[PersonRepository]
+              relRepo     = relEnv.get[RelationshipRepository]
+              person1    <- personRepo.create(CreatePerson("PersonA", Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(pool))
+              person2    <- personRepo.create(CreatePerson("PersonB", Gender.Female, None, None, None)).provideEnvironment(ZEnvironment(pool))
+              _          <- relRepo.create(CreateRelationship(person1.id, person2.id, RelationType.Wife)).provideEnvironment(ZEnvironment(pool))
+              delResult  <- personRepo.delete(person1.id).provideEnvironment(ZEnvironment(pool)).exit
+            yield delResult
+          }
+        ).getOrThrowFiberFailure()
       }
-      // Assert: the delete must have failed
       deleteResult.isFailure shouldBe true
-      // Extract the AppError from the Exit failure
       val appError: Option[AppError] = deleteResult match
         case zio.Exit.Failure(cause) => cause.failureOption
         case _                       => None
-      appError.isDefined    shouldBe true
-      appError.get          shouldBe a [AppError.ReferentialIntegrityError]
+      appError.isDefined shouldBe true
+      appError.get       shouldBe a [AppError.ReferentialIntegrityError]
     }
   }

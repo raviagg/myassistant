@@ -26,7 +26,7 @@ object DatabaseModule:
       val port     = if uri.getPort > 0 then uri.getPort else 5432
       val database = uri.getPath.stripPrefix("/")
       val props    = Map("user" -> cfg.user, "password" -> cfg.password)
-      ZConnectionPool.postgres(
-        ZConnectionPoolConfig.default.copy(maxConnections = cfg.poolSize)
-      )(host, port, database, props)
+      // ZConnectionPool.postgres returns ZLayer[ZConnectionPoolConfig, ...] — pipe the config in
+      ZLayer.succeed(ZConnectionPoolConfig.default.copy(maxConnections = cfg.poolSize)) >>>
+        ZConnectionPool.postgres(host, port, database, props)
     }

@@ -83,7 +83,7 @@ object PersonServiceSpec extends ZIOSpecDefault:
 
   /** Provide a fresh in-memory PersonService to each sub-suite independently. */
   private def withFreshService[E](spec: Spec[PersonService & ZConnectionPool, E]): Spec[Any, E] =
-    spec.provide(mockRepoLayer, PersonService.live, ZConnectionPool.h2test)
+    spec.provide(mockRepoLayer, PersonService.live, ZConnectionPool.h2test.orDie)
 
   def spec: Spec[Any, Any] =
     suite("PersonServiceSpec")(

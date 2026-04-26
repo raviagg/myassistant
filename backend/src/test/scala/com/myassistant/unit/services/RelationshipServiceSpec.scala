@@ -52,7 +52,7 @@ object RelationshipServiceSpec extends ZIOSpecDefault:
 
   /** Provide a fresh in-memory RelationshipService to each sub-suite independently. */
   private def withFreshService[E](spec: Spec[RelationshipService & ZConnectionPool, E]): Spec[Any, E] =
-    spec.provide(mockRepoLayer, RelationshipService.live, ZConnectionPool.h2test)
+    spec.provide(mockRepoLayer, RelationshipService.live, ZConnectionPool.h2test.orDie)
 
   def spec: Spec[Any, Any] =
     suite("RelationshipServiceSpec")(

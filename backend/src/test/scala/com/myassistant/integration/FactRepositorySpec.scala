@@ -19,11 +19,10 @@ import java.util.UUID
 /** Integration tests for FactRepository against a real PostgreSQL instance managed by Testcontainers.
  *
  *  Tests verify append-only fact writing, entity-instance-scoped retrieval, and document-scoped retrieval.
+ *  Uses pgvector/pgvector:pg16 because V1 migration creates the `vector` extension.
  */
 class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerForAll:
 
-  // pgvector/pgvector:pg16 includes both PostgreSQL 16 and the pgvector extension,
-  // which is required by V1__create_extensions.sql and the VECTOR columns.
   override val containerDef: PostgreSQLContainer.Def =
     PostgreSQLContainer.Def(
       dockerImageName = DockerImageName.parse("pgvector/pgvector:pg16"),
@@ -45,9 +44,6 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
       maxLifetime       = 60000,
     )
 
-  private def poolLayer(container: PostgreSQLContainer): ZLayer[Any, Throwable, ZConnectionPool] =
-    DatabaseModule.connectionPoolLive.provide(ZLayer.succeed(dbConfig(container)))
-
   private def migrate(container: PostgreSQLContainer): Unit =
     Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
@@ -55,48 +51,55 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
       ).getOrThrowFiberFailure()
     }
 
-  /** Run a ZIO effect against the pool, surfacing all errors as Throwables. */
+  /** Run a ZIO effect that only needs ZConnectionPool against the Testcontainers pool. */
   private def run[A](container: PostgreSQLContainer)(effect: ZIO[ZConnectionPool, AppError, A]): A =
     Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe.run(
-        effect.provide(poolLayer(container))
+        ZIO.scoped {
+          for
+            poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+            pool     = poolEnv.get[ZConnectionPool]
+            result  <- effect.provideEnvironment(ZEnvironment(pool))
+          yield result
+        }
       ).getOrThrowFiberFailure()
     }
 
-  /** Seed a person, source_type row (already seeded by V4), a document, and return the first
-   *  seeded schema UUID from entity_type_schema so tests can reference real FK values.
-   */
+  /** Seed a person and a document and return (docId, schemaId) from the first seeded schema row. */
   private def seedPrerequisites(container: PostgreSQLContainer): (UUID, UUID) =
     Unsafe.unsafe { implicit unsafe =>
-      Runtime.default.unsafe.run {
-        val pool = poolLayer(container)
-        (for
-          personEnv <- PersonRepository.live.build.scoped
-          docEnv    <- DocumentRepository.live.build.scoped
-          person    <- personEnv.get[PersonRepository]
-                         .create(CreatePerson("Fact Test Person", Gender.Male, None, None, None))
-                         .provide(pool)
-          // Look up the first entity_type_schema row seeded by V5 migration
-          schemaIdStr <- transaction(
-            zio.jdbc.sql"SELECT id::text FROM entity_type_schema LIMIT 1"
-              .query[String].selectOne
-          ).mapError(AppError.DatabaseError(_))
-            .flatMap(ZIO.fromOption(_).mapError(_ =>
-              AppError.InternalError(new RuntimeException("No schema seed found"))))
-            .provide(pool)
-          schemaId     = UUID.fromString(schemaIdStr)
-          doc         <- docEnv.get[DocumentRepository]
-                           .create(CreateDocument(
-                             personId      = Some(person.id),
-                             householdId   = None,
-                             contentText   = "Test document for fact tests",
-                             sourceType    = "user_input",
-                             files         = Json.arr(),
-                             supersedesIds = Nil,
-                           ))
-                           .provide(pool)
-        yield (doc.id, schemaId))
-      }.getOrThrowFiberFailure()
+      Runtime.default.unsafe.run(
+        ZIO.scoped {
+          for
+            poolEnv   <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+            pool       = poolEnv.get[ZConnectionPool]
+            personEnv <- (ZLayer.succeed(pool) >>> PersonRepository.live).build
+            docEnv    <- (ZLayer.succeed(pool) >>> DocumentRepository.live).build
+            person    <- personEnv.get[PersonRepository]
+                           .create(CreatePerson("Fact Test Person", Gender.Male, None, None, None))
+                           .provideEnvironment(ZEnvironment(pool))
+            // Look up the first entity_type_schema row seeded by the V5 migration
+            schemaIdStr <- transaction(
+                             sql"SELECT id::text FROM entity_type_schema LIMIT 1"
+                               .query[String].selectOne
+                           ).mapError(AppError.DatabaseError(_))
+                            .flatMap(ZIO.fromOption(_).mapError(_ =>
+                              AppError.InternalError(new RuntimeException("No schema seed found"))))
+                            .provideEnvironment(ZEnvironment(pool))
+            schemaId     = UUID.fromString(schemaIdStr)
+            doc         <- docEnv.get[DocumentRepository]
+                             .create(CreateDocument(
+                               personId      = Some(person.id),
+                               householdId   = None,
+                               contentText   = "Test document for fact tests",
+                               sourceType    = "user_input",
+                               files         = Json.arr(),
+                               supersedesIds = Nil,
+                             ))
+                             .provideEnvironment(ZEnvironment(pool))
+          yield (doc.id, schemaId)
+        }
+      ).getOrThrowFiberFailure()
     }
 
   // ── Tests ─────────────────────────────────────────────────────────────────
@@ -105,20 +108,31 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
     withContainers { container =>
       migrate(container)
       val (docId, schemaId) = seedPrerequisites(container)
-      val fact = run(container) {
-        FactRepository.live.build.flatMap(env =>
-          env.get[FactRepository].create(CreateFact(
-            documentId       = docId,
-            schemaId         = schemaId,
-            entityInstanceId = None,
-            operationType    = OperationType.Create,
-            fields           = Json.obj("title" -> Json.fromString("Test task"), "status" -> Json.fromString("open")),
-          ))
-        ).scoped
+      val fact = Unsafe.unsafe { implicit unsafe =>
+        Runtime.default.unsafe.run(
+          ZIO.scoped {
+            for
+              poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+              pool     = poolEnv.get[ZConnectionPool]
+              repoEnv <- (ZLayer.succeed(pool) >>> FactRepository.live).build
+              repo     = repoEnv.get[FactRepository]
+              result  <- repo.create(CreateFact(
+                           documentId       = docId,
+                           schemaId         = schemaId,
+                           entityInstanceId = None,
+                           operationType    = OperationType.Create,
+                           fields           = Json.obj(
+                             "title"  -> Json.fromString("Test task"),
+                             "status" -> Json.fromString("open"),
+                           ),
+                         )).provideEnvironment(ZEnvironment(pool))
+            yield result
+          }
+        ).getOrThrowFiberFailure()
       }
-      fact.id           should not be null
-      fact.documentId   shouldBe docId
-      fact.schemaId     shouldBe schemaId
+      fact.id            should not be null
+      fact.documentId    shouldBe docId
+      fact.schemaId      shouldBe schemaId
       fact.operationType shouldBe OperationType.Create
     }
   }
@@ -127,29 +141,31 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
     withContainers { container =>
       migrate(container)
       val (docId, schemaId) = seedPrerequisites(container)
-      val entityId = UUID.randomUUID()
+      val entityId          = UUID.randomUUID()
       val facts = Unsafe.unsafe { implicit unsafe =>
-        Runtime.default.unsafe.run {
-          val pool = poolLayer(container)
-          (for
-            env  <- FactRepository.live.build.scoped
-            repo  = env.get[FactRepository]
-            f1   <- repo.create(CreateFact(docId, schemaId, Some(entityId), OperationType.Create,
-                      Json.obj("title" -> Json.fromString("Renew passport"), "status" -> Json.fromString("open"))))
-                    .provide(pool)
-            f2   <- repo.create(CreateFact(docId, schemaId, Some(entityId), OperationType.Update,
-                      Json.obj("status" -> Json.fromString("in_progress"))))
-                    .provide(pool)
-            list <- repo.findByEntityInstance(entityId).provide(pool)
-          yield list)
-        }.getOrThrowFiberFailure()
+        Runtime.default.unsafe.run(
+          ZIO.scoped {
+            for
+              poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+              pool     = poolEnv.get[ZConnectionPool]
+              repoEnv <- (ZLayer.succeed(pool) >>> FactRepository.live).build
+              repo     = repoEnv.get[FactRepository]
+              _       <- repo.create(CreateFact(docId, schemaId, Some(entityId), OperationType.Create,
+                           Json.obj("title"  -> Json.fromString("Renew passport"),
+                                    "status" -> Json.fromString("open"))))
+                           .provideEnvironment(ZEnvironment(pool))
+              _       <- repo.create(CreateFact(docId, schemaId, Some(entityId), OperationType.Update,
+                           Json.obj("status" -> Json.fromString("in_progress"))))
+                           .provideEnvironment(ZEnvironment(pool))
+              list    <- repo.findByEntityInstance(entityId).provideEnvironment(ZEnvironment(pool))
+            yield list
+          }
+        ).getOrThrowFiberFailure()
       }
-      facts.size shouldBe 2
+      facts.size                             shouldBe 2
       facts.map(_.entityInstanceId).distinct shouldBe List(entityId)
-      // Both operations for the entity instance must be present
-      val opTypes = facts.map(_.operationType).toSet
-      opTypes should contain (OperationType.Create)
-      opTypes should contain (OperationType.Update)
+      facts.map(_.operationType).toSet should contain (OperationType.Create)
+      facts.map(_.operationType).toSet should contain (OperationType.Update)
     }
   }
 
@@ -158,24 +174,29 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
       migrate(container)
       val (docId, schemaId) = seedPrerequisites(container)
       val facts = Unsafe.unsafe { implicit unsafe =>
-        Runtime.default.unsafe.run {
-          val pool = poolLayer(container)
-          (for
-            env  <- FactRepository.live.build.scoped
-            repo  = env.get[FactRepository]
-            _    <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
-                      Json.obj("employer" -> Json.fromString("Acme"), "pay_period" -> Json.fromString("2024-01-31"),
-                               "gross_income" -> Json.fromInt(10000))))
-                    .provide(pool)
-            _    <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
-                      Json.obj("employer" -> Json.fromString("Beta Corp"), "pay_period" -> Json.fromString("2024-02-29"),
-                               "gross_income" -> Json.fromInt(11000))))
-                    .provide(pool)
-            list <- repo.findByDocument(docId).provide(pool)
-          yield list)
-        }.getOrThrowFiberFailure()
+        Runtime.default.unsafe.run(
+          ZIO.scoped {
+            for
+              poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive).build
+              pool     = poolEnv.get[ZConnectionPool]
+              repoEnv <- (ZLayer.succeed(pool) >>> FactRepository.live).build
+              repo     = repoEnv.get[FactRepository]
+              _       <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
+                           Json.obj("employer"     -> Json.fromString("Acme"),
+                                    "pay_period"   -> Json.fromString("2024-01-31"),
+                                    "gross_income" -> Json.fromInt(10000))))
+                           .provideEnvironment(ZEnvironment(pool))
+              _       <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
+                           Json.obj("employer"     -> Json.fromString("Beta Corp"),
+                                    "pay_period"   -> Json.fromString("2024-02-29"),
+                                    "gross_income" -> Json.fromInt(11000))))
+                           .provideEnvironment(ZEnvironment(pool))
+              list    <- repo.findByDocument(docId).provideEnvironment(ZEnvironment(pool))
+            yield list
+          }
+        ).getOrThrowFiberFailure()
       }
-      facts.size should be >= 2
+      facts.size                       should be >= 2
       facts.map(_.documentId).distinct shouldBe List(docId)
     }
   }
