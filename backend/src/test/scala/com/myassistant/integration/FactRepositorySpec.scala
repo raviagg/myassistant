@@ -179,3 +179,59 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
     facts.size                       should be >= 2
     facts.map(_.documentId).distinct shouldBe List(docId)
   }
+
+  test("findById — returns the fact when it exists and None for missing") {
+    val (docId, schemaId) = seedPrerequisites()
+    val (created, found, missing) = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
+        repo     = repoEnv.get[FactRepository]
+        created <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
+                     Json.obj("title" -> Json.fromString("findById fact"))))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        found   <- repo.findById(created.id).provideEnvironment(ZEnvironment(sharedPool))
+        missing <- repo.findById(java.util.UUID.randomUUID()).provideEnvironment(ZEnvironment(sharedPool))
+      yield (created, found, missing)
+    }
+    found.isDefined         shouldBe true
+    found.get.id            shouldBe created.id
+    found.get.operationType shouldBe OperationType.Create
+    missing                 shouldBe None
+  }
+
+  test("create — stores a Delete operation fact and findById returns OperationType.Delete") {
+    val (docId, schemaId) = seedPrerequisites()
+    val (fact, found) = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
+        repo     = repoEnv.get[FactRepository]
+        created <- repo.create(CreateFact(
+                     docId, schemaId, Some(UUID.randomUUID()), OperationType.Delete,
+                     Json.obj("reason" -> Json.fromString("superseded")),
+                   )).provideEnvironment(ZEnvironment(sharedPool))
+        found   <- repo.findById(created.id).provideEnvironment(ZEnvironment(sharedPool))
+      yield (created, found)
+    }
+    fact.operationType  shouldBe OperationType.Delete
+    found.isDefined     shouldBe true
+    found.get.operationType shouldBe OperationType.Delete
+  }
+
+  test("findBySchema — returns facts for a schema version with pagination") {
+    val (docId, schemaId) = seedPrerequisites()
+    val facts = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
+        repo     = repoEnv.get[FactRepository]
+        _       <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
+                     Json.obj("status" -> Json.fromString("open"))))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        _       <- repo.create(CreateFact(docId, schemaId, None, OperationType.Update,
+                     Json.obj("status" -> Json.fromString("done"))))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.findBySchema(schemaId, 10, 0).provideEnvironment(ZEnvironment(sharedPool))
+      yield list
+    }
+    facts.size should be >= 2
+    facts.forall(_.schemaId == schemaId) shouldBe true
+  }

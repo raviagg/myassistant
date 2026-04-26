@@ -56,3 +56,15 @@ class FileRepositorySpec extends AnyFunSuite with Matchers:
     val result = run(repo.exists("/tmp/this-file-does-not-exist-" + UUID.randomUUID().toString))
     result shouldBe false
   }
+
+  test("live ZLayer provides a functional FileRepository") {
+    val personId = UUID.randomUUID()
+    val result = Unsafe.unsafe { implicit unsafe =>
+      Runtime.default.unsafe.run(
+        ZIO.serviceWithZIO[FileRepository](
+          _.register(Some(personId), None, "/tmp/layer-test.pdf", "application/pdf")
+        ).provide(FileRepository.live)
+      ).getOrThrowFiberFailure()
+    }
+    result shouldBe "/tmp/layer-test.pdf"
+  }

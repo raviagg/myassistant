@@ -179,3 +179,23 @@ class AuditRepositorySpec extends AnyFunSuite with Matchers with TestContainerFo
     entries.size should be >= 2
     entries.forall(_.jobType.contains("plaid_poll")) shouldBe true
   }
+
+  test("listByPerson — returns entries for a person using limit/offset") {
+    val entries = run {
+      for
+        personEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        auditEnv  <- (ZLayer.succeed(sharedPool) >>> AuditRepository.live).build
+        person    <- personEnv.get[PersonRepository]
+                       .create(CreatePerson("ListByPerson Audit", Gender.Male, None, None, None))
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        auditRepo  = auditEnv.get[AuditRepository]
+        e1         = AuditLog(UUID.randomUUID(), Some(person.id), None, "chat msg 1", Some("resp 1"), Json.arr(), InteractionStatus.Success, None, Instant.now())
+        e2         = AuditLog(UUID.randomUUID(), Some(person.id), None, "chat msg 2", None,           Json.arr(), InteractionStatus.Partial,  Some("partial"), Instant.now())
+        _         <- auditRepo.create(e1).provideEnvironment(ZEnvironment(sharedPool))
+        _         <- auditRepo.create(e2).provideEnvironment(ZEnvironment(sharedPool))
+        list      <- auditRepo.listByPerson(person.id, 10, 0).provideEnvironment(ZEnvironment(sharedPool))
+      yield list
+    }
+    entries.size should be >= 2
+    entries.forall(_.personId.isDefined) shouldBe true
+  }

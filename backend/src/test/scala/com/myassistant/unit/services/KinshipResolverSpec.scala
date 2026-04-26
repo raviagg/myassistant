@@ -153,6 +153,39 @@ object KinshipResolverSpec extends ZIOSpecDefault:
           yield assertTrue(result.isEmpty)
         }.provide(familyRelRepoLayer, refRepoWithBuaLayer, KinshipResolver.live, ZConnectionPool.h2test),
 
+        test("covers Son/Daughter/Brother/Husband/Wife branches in relTypeToString") {
+          // Five separate single-hop graphs, one per missing RelationType.
+          // Each resolve() succeeds (path found) so relTypeToString is called for that type.
+          val personA = UUID.randomUUID()
+          val personB = UUID.randomUUID()
+          def layerFor(rt: RelationType): ZLayer[Any, Nothing, RelationshipRepository] =
+            ZLayer.fromZIO:
+              for
+                store <- Ref.make(Map.empty[UUID, Relationship])
+                now    = Instant.now()
+                rel    = Relationship(UUID.randomUUID(), personA, personB, rt, now, now)
+                _     <- store.update(_ + (rel.id -> rel))
+              yield new MockRelationshipRepository(store)
+
+          def resolveWith(rt: RelationType): ZIO[Any, AppError, Option[String]] =
+            ZIO.service[KinshipResolver]
+              .flatMap(_.resolve(personA, personB, "en"))
+              .map(_.map(_.description))
+              .provide(layerFor(rt), emptyRefRepoLayer, KinshipResolver.live, ZConnectionPool.h2test.orDie)
+
+          for
+            son      <- resolveWith(RelationType.Son)
+            daughter <- resolveWith(RelationType.Daughter)
+            brother  <- resolveWith(RelationType.Brother)
+            husband  <- resolveWith(RelationType.Husband)
+            wife     <- resolveWith(RelationType.Wife)
+          yield assertTrue(son.contains("son")) &&
+                assertTrue(daughter.contains("daughter")) &&
+                assertTrue(brother.contains("brother")) &&
+                assertTrue(husband.contains("husband")) &&
+                assertTrue(wife.contains("wife"))
+        },
+
       ),
 
     )

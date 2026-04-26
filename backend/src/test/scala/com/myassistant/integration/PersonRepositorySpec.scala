@@ -4,9 +4,10 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainerForAll
 import com.myassistant.config.DatabaseConfig
 import com.myassistant.db.{DatabaseModule, MigrationRunner}
-import com.myassistant.db.repositories.{PersonRepository, RelationshipRepository}
-import com.myassistant.domain.{CreatePerson, CreateRelationship, Gender, RelationType, UpdatePerson}
+import com.myassistant.db.repositories.{HouseholdRepository, PersonRepository, RelationshipRepository}
+import com.myassistant.domain.{CreateHousehold, CreatePerson, CreateRelationship, Gender, RelationType, UpdatePerson}
 import com.myassistant.errors.AppError
+import java.time.LocalDate
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.Outcome
@@ -176,4 +177,114 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
       case _                       => None
     appError.isDefined shouldBe true
     appError.get       shouldBe a [AppError.ReferentialIntegrityError]
+  }
+
+  test("create — with dateOfBirth and userIdentifier set") {
+    val dob = LocalDate.of(1990, 6, 15)
+    val result = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        repo     = repoEnv.get[PersonRepository]
+        person  <- repo.create(CreatePerson("Full Person", Gender.Female, Some(dob), Some("Full"), Some("full.person@test.com")))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+      yield person
+    }
+    result.dateOfBirth    shouldBe Some(dob)
+    result.userIdentifier shouldBe Some("full.person@test.com")
+    result.preferredName  shouldBe Some("Full")
+    result.gender         shouldBe Gender.Female
+  }
+
+  test("findByUserIdentifier — returns person by identifier and None for missing") {
+    val (found, missing) = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        repo     = repoEnv.get[PersonRepository]
+        _       <- repo.create(CreatePerson("Identifier Person", Gender.Male, None, None, Some("identifier.person@test.com")))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        found   <- repo.findByUserIdentifier("identifier.person@test.com").provideEnvironment(ZEnvironment(sharedPool))
+        missing <- repo.findByUserIdentifier("nobody@test.com").provideEnvironment(ZEnvironment(sharedPool))
+      yield (found, missing)
+    }
+    found.isDefined           shouldBe true
+    found.get.userIdentifier  shouldBe Some("identifier.person@test.com")
+    missing                   shouldBe None
+  }
+
+  test("create — fails with Conflict when userIdentifier is duplicated") {
+    val result = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        repo     = repoEnv.get[PersonRepository]
+        _       <- repo.create(CreatePerson("Original", Gender.Male, None, None, Some("dup@test.com")))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        conflict <- repo.create(CreatePerson("Duplicate", Gender.Female, None, None, Some("dup@test.com")))
+                      .provideEnvironment(ZEnvironment(sharedPool))
+                      .exit
+      yield conflict
+    }
+    result.isFailure shouldBe true
+    val appError: Option[AppError] = result match
+      case zio.Exit.Failure(cause) => cause.failureOption
+      case _                       => None
+    appError.isDefined shouldBe true
+    appError.get       shouldBe a [AppError.Conflict]
+  }
+
+  test("listAll — filtered by householdId returns only household members") {
+    val members = run {
+      for
+        personEnv    <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        householdEnv <- (ZLayer.succeed(sharedPool) >>> HouseholdRepository.live).build
+        personRepo    = personEnv.get[PersonRepository]
+        hRepo         = householdEnv.get[HouseholdRepository]
+        p1           <- personRepo.create(CreatePerson("HH Member One", Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
+        p2           <- personRepo.create(CreatePerson("HH Member Two", Gender.Female, None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
+        _            <- personRepo.create(CreatePerson("Not In HH",     Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
+        household    <- hRepo.create(CreateHousehold("ListAll Household")).provideEnvironment(ZEnvironment(sharedPool))
+        _            <- hRepo.addMember(p1.id, household.id).provideEnvironment(ZEnvironment(sharedPool))
+        _            <- hRepo.addMember(p2.id, household.id).provideEnvironment(ZEnvironment(sharedPool))
+        list         <- personRepo.listAll(Some(household.id)).provideEnvironment(ZEnvironment(sharedPool))
+      yield list
+    }
+    members.size shouldBe 2
+    members.map(_.fullName) should contain allOf ("HH Member One", "HH Member Two")
+  }
+
+  test("update — covers dateOfBirth and gender update paths") {
+    val updated = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        repo     = repoEnv.get[PersonRepository]
+        created <- repo.create(CreatePerson("UpdatePaths", Gender.Male, None, None, None))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        updated <- repo.update(
+                     created.id,
+                     UpdatePerson(fullName = None, gender = Some(Gender.Female),
+                                  dateOfBirth = Some(LocalDate.of(1985, 3, 20)),
+                                  preferredName = None, userIdentifier = None)
+                   ).provideEnvironment(ZEnvironment(sharedPool))
+      yield updated
+    }
+    updated.isDefined        shouldBe true
+    updated.get.gender       shouldBe Gender.Female
+    updated.get.dateOfBirth  shouldBe Some(LocalDate.of(1985, 3, 20))
+  }
+
+  test("update — with empty patch delegates to findById") {
+    val updated = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        repo     = repoEnv.get[PersonRepository]
+        created <- repo.create(CreatePerson("EmptyPatch", Gender.Male, None, None, None))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        updated <- repo.update(
+                     created.id,
+                     UpdatePerson(fullName = None, gender = None, dateOfBirth = None,
+                                  preferredName = None, userIdentifier = None)
+                   ).provideEnvironment(ZEnvironment(sharedPool))
+      yield updated
+    }
+    updated.isDefined        shouldBe true
+    updated.get.fullName     shouldBe "EmptyPatch"
   }

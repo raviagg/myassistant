@@ -145,6 +145,31 @@ object RelationshipServiceSpec extends ZIOSpecDefault:
       ),
 
       withFreshService(
+        suite("updateRelationship")(
+
+          test("fails with NotFound when relationship does not exist") {
+            for
+              svc    <- ZIO.service[RelationshipService]
+              result <- svc.updateRelationship(UUID.randomUUID(), RelationType.Wife).exit
+            yield assert(result)(fails(isSubtype[AppError.NotFound](anything)))
+          },
+
+          test("replaces the relation type and returns the updated relationship") {
+            val from = UUID.randomUUID()
+            val to   = UUID.randomUUID()
+            for
+              svc     <- ZIO.service[RelationshipService]
+              created <- svc.createRelationship(CreateRelationship(from, to, RelationType.Brother))
+              updated <- svc.updateRelationship(created.id, RelationType.Sister)
+            yield assertTrue(updated.fromPersonId == from) &&
+                  assertTrue(updated.toPersonId == to) &&
+                  assertTrue(updated.relationType == RelationType.Sister)
+          },
+
+        )
+      ),
+
+      withFreshService(
         suite("deleteRelationship")(
 
           test("returns NotFound when relationship does not exist") {
