@@ -68,6 +68,8 @@ lazy val testDeps = Seq(
   "io.cucumber"                    % "cucumber-junit"                       % cucumberJvmVersion  % Test,
   // Required for ZConnectionPool.h2test used in unit tests
   "com.h2database"                 % "h2"                                   % "2.3.232"           % Test,
+  // SLF4J backend so Testcontainers Docker output is visible during test runs
+  "ch.qos.logback"                 % "logback-classic"                      % "1.5.6"             % Test,
 )
 
 // ── Main project ──────────────────────────────────────────────
@@ -110,6 +112,13 @@ lazy val backend = (project in file("."))
 
     // ── Test classloader — needed for H2 driver discovery ─────
     Test / classLoaderLayeringStrategy := ClassLoaderLayeringStrategy.ScalaLibrary,
+
+    // ── Integration tests: run spec classes one at a time ─────
+    // Without this, all 6 specs spin up Docker containers simultaneously,
+    // overwhelming Docker and causing "Connection refused" from Flyway.
+    Test / parallelExecution := false,
+    Test / logBuffered := false,
+    Test / testOptions += Tests.Argument(TestFrameworks.ScalaTest, "-oF"),
 
     // ── Code coverage (sbt-scoverage) ─────────────────────────
     // Unit + Integration combined (90% gate):  sbt coverage test coverageReport
