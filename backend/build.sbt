@@ -66,6 +66,8 @@ lazy val testDeps = Seq(
   "org.scalatest"                 %% "scalatest"                            % scalatestVersion    % Test,
   "io.cucumber"                   %% "cucumber-scala"                       % cucumberScalaVersion % Test,
   "io.cucumber"                    % "cucumber-junit"                       % cucumberJvmVersion  % Test,
+  // Bridge so sbt can discover and run JUnit 4 tests (required by CucumberRunner)
+  "com.github.sbt"                 % "junit-interface"                      % "0.13.3"            % Test,
   // Required for ZConnectionPool.h2test used in unit tests
   "com.h2database"                 % "h2"                                   % "2.3.232"           % Test,
   // SLF4J backend so Testcontainers Docker output is visible during test runs
@@ -159,5 +161,7 @@ lazy val backend = (project in file("."))
 // Threshold is checked by scripts/check-e2e-coverage.sh, not enforced in build.sbt.
 addCommandAlias(
   "coverageE2e",
-  """;set coverageDataDir := (baseDirectory.value / "target" / "e2e-scoverage");coverage;testOnly com.myassistant.e2e.*;coverageReport;set coverageDataDir := (target.value / "scoverage-data")""",
+  // Temporarily disable the minimum threshold — E2E coverage is checked separately
+  // by scripts/check-e2e-coverage.sh, not by this build gate.
+  """;set coverageDataDir := (baseDirectory.value / "target" / "e2e-scoverage");set coverageFailOnMinimum := false;coverage;testOnly com.myassistant.e2e.*;coverageReport;set coverageDataDir := (target.value / "scoverage-data");set coverageFailOnMinimum := true""",
 )
