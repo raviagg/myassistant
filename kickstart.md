@@ -46,7 +46,8 @@ If you don't export these, the server uses the defaults in `backend/src/main/res
 
 ## Quickstart: spin up a local DB
 
-If you don't have a PostgreSQL 16 + pgvector instance already:
+If you don't have a PostgreSQL 16 + pgvector instance already, run it in Docker.
+The `-v` flag mounts a **named volume** so data survives container restarts and `docker rm`.
 
 ```bash
 docker run -d \
@@ -55,10 +56,113 @@ docker run -d \
   -e POSTGRES_USER=myassistant \
   -e POSTGRES_PASSWORD=changeme \
   -p 5432:5432 \
+  -v myassistant-pgdata:/var/lib/postgresql/data \
   pgvector/pgvector:pg16
 ```
 
+Without `-v`, all data is stored inside the container's ephemeral layer and is lost on `docker rm`.
+
+Useful container management commands:
+
+```bash
+docker stop myassistant-db      # stop (data kept in volume)
+docker start myassistant-db     # restart — data is still there
+docker rm myassistant-db        # remove container (volume survives)
+docker volume rm myassistant-pgdata  # permanently delete all data
+docker volume inspect myassistant-pgdata  # show volume metadata
+```
+
 Flyway runs migrations automatically on server start, so no manual schema setup is needed.
+
+---
+
+## Connecting via pgAdmin (or any SQL client)
+
+Use these connection details in pgAdmin, TablePlus, DBeaver, DataGrip, or any other client:
+
+| Field | Value |
+|-------|-------|
+| Host | `localhost` |
+| Port | `5432` |
+| Database | `myassistant` |
+| Username | `myassistant` |
+| Password | `changeme` |
+| SSL | disabled (local dev) |
+
+**pgAdmin step-by-step:**
+1. Open pgAdmin → right-click **Servers** → **Register → Server**
+2. **General** tab: Name = `myassistant-local`
+3. **Connection** tab: fill in the table above
+4. Click **Save**
+
+Tables only appear after migrations have run. Either start the server once (`sbt run`) or run migrations standalone:
+
+```bash
+cd backend
+sbt "runMain com.myassistant.db.MigrationRunner"
+```
+
+Alternatively, run the SQL files directly in pgAdmin's query tool in order:
+`V1__create_extensions.sql` → `V8__audit.sql` (found in `backend/src/main/resources/db/migration/`).
+
+---
+
+## Migrating to a remote PostgreSQL
+
+When moving to a hosted DB (AWS RDS, Supabase, Neon, etc.) you have two paths:
+
+### Option A — Let Flyway migrate the schema (recommended for a fresh remote DB)
+
+Just point the server at the remote DB. Flyway detects no migrations have run and applies V1–V8 automatically:
+
+```bash
+DB_URL="jdbc:postgresql://<remote-host>:5432/myassistant" \
+DB_USER="<remote-user>" \
+DB_PASSWORD="<remote-password>" \
+AUTH_TOKEN="<your-token>" \
+sbt run
+```
+
+> **pgvector on remote:** ensure the `vector` extension is available before starting.
+> - **RDS:** enable the `pgvector` parameter in your parameter group (PostgreSQL 15+)
+> - **Supabase / Neon:** `vector` is enabled by default
+> - **Self-hosted:** `CREATE EXTENSION IF NOT EXISTS vector;` (requires the pgvector package installed)
+
+### Option B — Dump local data and restore to remote
+
+Use this when you want to carry existing local data across.
+
+```bash
+# 1. Dump from the local Docker container (schema + data, custom format)
+docker exec myassistant-db pg_dump \
+  -U myassistant \
+  -d myassistant \
+  -Fc \
+  -f /tmp/myassistant.dump
+
+# 2. Copy the dump file out of the container to your host
+docker cp myassistant-db:/tmp/myassistant.dump ./myassistant.dump
+
+# 3. Restore to remote
+pg_restore \
+  --no-owner \
+  --no-privileges \
+  -d "postgresql://<remote-user>:<remote-password>@<remote-host>:5432/myassistant" \
+  ./myassistant.dump
+```
+
+Schema-only dump (no data, if you only want the table structure):
+
+```bash
+docker exec myassistant-db pg_dump \
+  -U myassistant \
+  -d myassistant \
+  --schema-only \
+  -Fc \
+  -f /tmp/myassistant-schema.dump
+
+docker cp myassistant-db:/tmp/myassistant-schema.dump ./myassistant-schema.dump
+```
 
 ---
 
