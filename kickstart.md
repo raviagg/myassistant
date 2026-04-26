@@ -214,124 +214,147 @@ curl http://localhost:8080/health
 
 ---
 
-## Unit Tests
+## Unit & Integration Tests
 
-In-memory only — no Docker, no DB required.
+Unit tests run entirely in-memory (no Docker, no DB). Integration tests use [Testcontainers](https://www.testcontainers.org/) — Docker must be running; a `pgvector/pgvector:pg16` container is started automatically before each suite and torn down after. Flyway migrations run inside the container, so no external DB setup is needed.
 
 ```bash
 cd backend
 
-# Run all unit tests
+# Run unit tests only (fast, no Docker)
 sbt "testOnly com.myassistant.unit.*"
 
-# Watch mode (re-runs on file change)
+# Run integration tests only (requires Docker)
+sbt "testOnly com.myassistant.integration.*"
+
+# Run both together
+sbt test
+
+# Watch mode for unit tests during development
 sbt ~"testOnly com.myassistant.unit.*"
 ```
 
-Test files:
-- `src/test/scala/com/myassistant/unit/services/PersonServiceSpec.scala`
-- `src/test/scala/com/myassistant/unit/services/RelationshipServiceSpec.scala`
-- `src/test/scala/com/myassistant/unit/services/KinshipResolverSpec.scala`
-- `src/test/scala/com/myassistant/unit/services/HouseholdServiceSpec.scala`
-- `src/test/scala/com/myassistant/unit/services/SchemaServiceSpec.scala`
-- `src/test/scala/com/myassistant/unit/services/ReferenceServiceSpec.scala`
-- `src/test/scala/com/myassistant/unit/services/AuditServiceSpec.scala`
-- `src/test/scala/com/myassistant/unit/routes/PersonRoutesSpec.scala`
-- `src/test/scala/com/myassistant/unit/middleware/ErrorMiddlewareSpec.scala`
-- `src/test/scala/com/myassistant/unit/middleware/MetricsMiddlewareSpec.scala`
-- `src/test/scala/com/myassistant/unit/LogFormatSpec.scala`
-- `src/test/scala/com/myassistant/unit/FileRepositorySpec.scala`
+**Unit test files** (`unit.*` — all in-memory, mock repositories):
 
----
+| File | What it covers |
+|---|---|
+| `unit/services/PersonServiceSpec.scala` | Person CRUD business logic |
+| `unit/services/RelationshipServiceSpec.scala` | Relationship validation and lookup |
+| `unit/services/KinshipResolverSpec.scala` | BFS kinship chain resolution |
+| `unit/services/HouseholdServiceSpec.scala` | Household CRUD + membership lifecycle |
+| `unit/services/SchemaServiceSpec.scala` | Schema proposal, versioning, deactivation |
+| `unit/services/ReferenceServiceSpec.scala` | Domains, source types, kinship aliases |
+| `unit/services/AuditServiceSpec.scala` | Audit log validation (exactly one of personId/jobType) |
+| `unit/routes/PersonRoutesSpec.scala` | HTTP routes called in-process via `routes.runZIO` — no server |
+| `unit/middleware/ErrorMiddlewareSpec.scala` | All `AppError` → HTTP status mappings |
+| `unit/middleware/MetricsMiddlewareSpec.scala` | Prometheus counter increment on request |
+| `unit/LogFormatSpec.scala` | Structured log format output |
+| `unit/FileRepositorySpec.scala` | File register validation + filesystem existence check |
 
-## Code Coverage
+**Integration test files** (`integration.*` — Testcontainers, real PostgreSQL):
 
-Two separate coverage tracks:
+| File | What it covers |
+|---|---|
+| `integration/PersonRepositorySpec.scala` | Person + Relationship CRUD + referential integrity |
+| `integration/FactRepositorySpec.scala` | Fact append-only writes + document/entity-scoped reads |
+| `integration/HouseholdRepositorySpec.scala` | Household CRUD + person_household membership |
+| `integration/SchemaRepositorySpec.scala` | Schema creation, versioning, deactivation, seeded data |
+| `integration/ReferenceRepositorySpec.scala` | Seeded domains/source types + kinship alias filtering |
+| `integration/AuditRepositorySpec.scala` | Audit log persistence + pagination |
 
-| Track | Command | Gate | Report |
-|---|---|---|---|
-| Unit + Integration | `sbt coverage test coverageReport` | **90% in build.sbt** — build fails if not met | `target/scala-3.4.2/scoverage-report/index.html` |
-| E2E only | `sbt coverageE2e` (from `backend/`) | **70% via script** — CI-enforced | `target/e2e-scoverage-report/index.html` |
+### Coverage gate (unit + integration combined)
+
+`sbt test` runs both unit and integration tests. Their statement coverage is combined into one number and compared against a **90% minimum enforced in `build.sbt`** — the build fails if it isn't met.
 
 ```bash
-# ── Unit + Integration (guarded) ──────────────────────────────────────────────
 cd backend
+
+# Run all tests with coverage instrumentation and generate the HTML report
 sbt coverage test coverageReport
-# Build fails if statement coverage < 90%
 
-# ── E2E only (separate report) ────────────────────────────────────────────────
-cd backend
-sbt coverageE2e                      # starts embedded server, runs Cucumber, generates report
-
-# Check E2E threshold (from repo root — run after sbt coverageE2e):
-./scripts/check-e2e-coverage.sh      # fails if < 70%
-
-# Override E2E threshold:
-E2E_COVERAGE_THRESHOLD=80 ./scripts/check-e2e-coverage.sh
+# The 90% check runs automatically. To re-check without re-running tests:
+sbt coverageAggregate
 ```
 
-### What is and isn't tracked
+**Report:** `backend/target/scala-3.4.2/scoverage-report/index.html`
 
-| Package | Unit+Integration | E2E | Excluded? |
-|---|---|---|---|
-| `services.*` | ✅ unit tests (mock repos) | ✅ via routes | No |
-| `db.repositories.*` | ✅ Testcontainers (all 9 repos) | ✅ via routes | No |
-| `db.DatabaseModule`, `MigrationRunner` | ✅ Testcontainers | — | No |
-| `api.routes.*`, `api.middleware.*` | ✅ in-process `routes.runZIO` | ✅ Cucumber | No |
-| `logging.*`, `monitoring.*` | ✅ unit tests | — | No |
-| `config.*`, `domain.*`, `Main` | — | — | **Yes** — pure data/wiring |
+**What is measured:**
 
-### Threshold settings
+| Package | How it's covered |
+|---|---|
+| `services.*` | Unit tests (mock repositories) |
+| `db.repositories.*` | Testcontainers integration tests (all 9 repos) |
+| `db.DatabaseModule`, `db.MigrationRunner` | Testcontainers (called in every integration test) |
+| `api.routes.*`, `api.middleware.*` | In-process route tests via `routes.runZIO` |
+| `logging.*`, `monitoring.*` | Unit tests (LogFormat, MetricsMiddleware) |
 
-`coverageMinimumStmtTotal := 90` and `coverageFailOnMinimum := true` live in `backend/build.sbt`.
+**Excluded from measurement** (pure data classes and ZLayer wiring — no testable logic):
+`config.*`, `domain.*`, `Main`
 
-E2E threshold lives in `scripts/check-e2e-coverage.sh` (`THRESHOLD` default 70, override via env var).
-
----
-
-## Integration Tests
-
-Requires Docker — Testcontainers spins up `pgvector/pgvector:pg16` automatically.
-
-```bash
-cd backend
-
-# Run all integration tests
-sbt "testOnly com.myassistant.integration.*"
+Threshold configuration in `backend/build.sbt`:
+```scala
+coverageMinimumStmtTotal := 90
+coverageFailOnMinimum    := true
 ```
-
-The container starts before the first test and is torn down after the suite. Flyway migrations run inside the container. No external DB needed.
-
-Test files:
-- `src/test/scala/com/myassistant/integration/PersonRepositorySpec.scala`
-- `src/test/scala/com/myassistant/integration/FactRepositorySpec.scala`
-- `src/test/scala/com/myassistant/integration/HouseholdRepositorySpec.scala`
-- `src/test/scala/com/myassistant/integration/SchemaRepositorySpec.scala`
-- `src/test/scala/com/myassistant/integration/ReferenceRepositorySpec.scala`
-- `src/test/scala/com/myassistant/integration/AuditRepositorySpec.scala`
 
 ---
 
 ## End-to-End Tests (Cucumber)
 
-Requires Docker (same Testcontainers approach) and a running server, OR uses the embedded server started by the test harness.
+Cucumber scenarios describe full user journeys and run against a live HTTP server. The test harness can start its own embedded server automatically, or point at any running instance.
+
+### Configuration
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `TEST_BASE_URL` | `http://localhost:8181` | URL of the server under test |
+| `TEST_AUTH_TOKEN` | `test-token` | Bearer token sent with every request |
+
+When `TEST_BASE_URL` is **not set**, `CucumberServer` starts an embedded ZIO HTTP server on port **8181** before any scenarios run — no manual server setup needed.
+
+When `TEST_BASE_URL` **is set**, tests target that URL instead (use this for CI against a deployed instance or a locally started server on a different port).
+
+### Running
 
 ```bash
 cd backend
 
-# Run all Cucumber E2E scenarios
+# Run all scenarios (embedded server starts automatically)
 sbt "testOnly com.myassistant.e2e.*"
+
+# Run against an already-running server
+TEST_BASE_URL=http://localhost:8080 \
+TEST_AUTH_TOKEN=dev-token-change-me-in-production \
+sbt "testOnly com.myassistant.e2e.*"
+
+# Run a specific tag only
+sbt "testOnly com.myassistant.e2e.* -- -tags @smoke"
 ```
 
-Feature files:
+**Feature files:**
 - `src/test/scala/com/myassistant/e2e/PersonFeature.feature`
 - `src/test/scala/com/myassistant/e2e/FactFeature.feature`
 
-To run a specific scenario by tag:
+### E2E Coverage (separate from unit + integration gate)
+
+E2E coverage is tracked in its own report and is **not** combined with the 90% unit+integration gate. It is enforced by a shell script rather than `build.sbt`, so a flaky E2E run doesn't block a source build.
 
 ```bash
-sbt "testOnly com.myassistant.e2e.* -- -tags @smoke"
+cd backend
+
+# 1. Run E2E tests with coverage instrumentation (embedded server starts automatically)
+sbt coverageE2e
+
+# 2. Check the threshold from the repo root (default: 70%)
+./scripts/check-e2e-coverage.sh
+
+# Override the threshold
+E2E_COVERAGE_THRESHOLD=80 ./scripts/check-e2e-coverage.sh
 ```
+
+**Report:** `backend/target/e2e-scoverage-report/index.html`
+
+The threshold default (70%) and override mechanism live in `scripts/check-e2e-coverage.sh`. In CI, call the script as a separate step after `sbt coverageE2e` and treat its exit code as the gate.
 
 ---
 
@@ -371,10 +394,21 @@ k6 run \
 ```bash
 cd backend
 
-# 1. Unit + integration + E2E
-sbt test
+# ── Unit + integration with coverage gate (90%) ───────────────────────────────
+sbt coverage test coverageReport
+# Fails the build if statement coverage < 90%
+# Report: target/scala-3.4.2/scoverage-report/index.html
 
-# 2. Then smoke test (server must be running in another terminal)
+# ── E2E with separate coverage report ────────────────────────────────────────
+sbt coverageE2e
+# Report: target/e2e-scoverage-report/index.html
+
+# ── Check E2E threshold (70% default) ────────────────────────────────────────
+cd ..
+./scripts/check-e2e-coverage.sh
+
+# ── Performance smoke test (server must be running in another terminal) ───────
+cd backend
 k6 run --env AUTH_TOKEN=dev-token-change-me-in-production k6/smoke.js
 ```
 
