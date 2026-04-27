@@ -52,7 +52,7 @@ object RelationshipServiceSpec extends ZIOSpecDefault:
 
   /** Provide a fresh in-memory RelationshipService to each sub-suite independently. */
   private def withFreshService[E](spec: Spec[RelationshipService & ZConnectionPool, E]): Spec[Any, E] =
-    spec.provide(mockRepoLayer, RelationshipService.live, ZConnectionPool.h2test)
+    spec.provide(mockRepoLayer, RelationshipService.live, ZConnectionPool.h2test.orDie)
 
   def spec: Spec[Any, Any] =
     suite("RelationshipServiceSpec")(
@@ -139,6 +139,31 @@ object RelationshipServiceSpec extends ZIOSpecDefault:
               list <- svc.listRelationships(personId)
             yield assertTrue(list.size == 2) &&
                   assertTrue(list.forall(r => r.fromPersonId == personId || r.toPersonId == personId))
+          },
+
+        )
+      ),
+
+      withFreshService(
+        suite("updateRelationship")(
+
+          test("fails with NotFound when relationship does not exist") {
+            for
+              svc    <- ZIO.service[RelationshipService]
+              result <- svc.updateRelationship(UUID.randomUUID(), RelationType.Wife).exit
+            yield assert(result)(fails(isSubtype[AppError.NotFound](anything)))
+          },
+
+          test("replaces the relation type and returns the updated relationship") {
+            val from = UUID.randomUUID()
+            val to   = UUID.randomUUID()
+            for
+              svc     <- ZIO.service[RelationshipService]
+              created <- svc.createRelationship(CreateRelationship(from, to, RelationType.Brother))
+              updated <- svc.updateRelationship(created.id, RelationType.Sister)
+            yield assertTrue(updated.fromPersonId == from) &&
+                  assertTrue(updated.toPersonId == to) &&
+                  assertTrue(updated.relationType == RelationType.Sister)
           },
 
         )

@@ -1,7 +1,6 @@
 package com.myassistant.logging
 
 import zio.*
-import zio.logging.*
 import zio.logging.backend.SLF4J
 
 /** Application-wide logger configuration.

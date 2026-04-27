@@ -21,6 +21,7 @@ class FactSteps extends ScalaDsl with EN with Matchers:
   private var lastDocumentId: String       = ""
   private var lastSchemaId: String         = ""
   private var lastEntityInstanceId: String = ""
+  private var lastFactId: String           = ""
 
   // ── Given: create prerequisite person, schema, and document ─────────────
 
@@ -55,11 +56,18 @@ class FactSteps extends ScalaDsl with EN with Matchers:
       s"""{"documentId":"$lastDocumentId","schemaId":"$lastSchemaId","operationType":"$opType","fields":{"title":"Test task","status":"open"}}"""
     doPost("/api/v1/facts", body)
     extractJsonStringField(lastBody, "entityInstanceId").foreach(id => lastEntityInstanceId = id)
+    extractJsonStringField(lastBody, "id").foreach(id => lastFactId = id)
   }
 
   When("I POST an update fact for the same entity instance with status {string}") { (status: String) =>
     val body =
       s"""{"documentId":"$lastDocumentId","schemaId":"$lastSchemaId","entityInstanceId":"$lastEntityInstanceId","operationType":"update","fields":{"status":"$status"}}"""
+    doPost("/api/v1/facts", body)
+  }
+
+  When("I POST a fact with non-existent document ID") {
+    val body =
+      s"""{"documentId":"00000000-0000-0000-0000-000000000000","schemaId":"$lastSchemaId","operationType":"create","fields":{"title":"Test"}}"""
     doPost("/api/v1/facts", body)
   }
 
@@ -70,8 +78,15 @@ class FactSteps extends ScalaDsl with EN with Matchers:
   }
 
   When("I GET facts for the document") {
-    // Use the search endpoint with the document id as the query
     doPost("/api/v1/facts/search", s"""{"query":"$lastDocumentId"}""")
+  }
+
+  When("I GET the current fact for the entity instance") {
+    doGet(s"/api/v1/facts/$lastFactId/current")
+  }
+
+  When("I GET facts by schema") {
+    doGet(s"/api/v1/facts/current?schemaId=$lastSchemaId")
   }
 
   // ── Fact-specific assertions ──────────────────────────────────────────────

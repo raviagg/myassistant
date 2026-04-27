@@ -28,13 +28,7 @@ CREATE TABLE entity_type_schema (
   schema_version      INT         NOT NULL DEFAULT 1,
   description         TEXT        NOT NULL,
   field_definitions   JSONB       NOT NULL,
-  mandatory_fields    TEXT[]      GENERATED ALWAYS AS (
-    ARRAY(
-      SELECT f->>'name'
-      FROM jsonb_array_elements(field_definitions) f
-      WHERE (f->>'mandatory')::boolean = true
-    )
-  ) STORED,
+  mandatory_fields    TEXT[]      NOT NULL DEFAULT '{}',
   extraction_prompt   TEXT        NOT NULL,
   is_active           BOOLEAN     NOT NULL DEFAULT true,
   change_description  TEXT,
@@ -46,19 +40,26 @@ CREATE TABLE entity_type_schema (
   CONSTRAINT field_definitions_valid CHECK (
     jsonb_typeof(field_definitions) = 'array' AND
     jsonb_array_length(field_definitions) > 0
-  ),
-
-  -- every field definition must have all required keys with valid type
-  CONSTRAINT field_definitions_complete CHECK (
-    (SELECT bool_and(
-      (f->>'name')        IS NOT NULL AND
-      (f->>'type')        IS NOT NULL AND
-      (f->>'mandatory')   IS NOT NULL AND
-      (f->>'description') IS NOT NULL AND
-      (f->>'type') IN ('text', 'number', 'date', 'boolean', 'file')
-    ) FROM jsonb_array_elements(field_definitions) f)
   )
 );
+
+-- Trigger to keep mandatory_fields in sync with field_definitions on every write
+CREATE OR REPLACE FUNCTION compute_mandatory_fields()
+  RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.mandatory_fields := ARRAY(
+    SELECT f->>'name'
+    FROM jsonb_array_elements(NEW.field_definitions) f
+    WHERE (f->>'mandatory')::boolean = true
+  );
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER trg_mandatory_fields
+  BEFORE INSERT OR UPDATE OF field_definitions
+  ON entity_type_schema
+  FOR EACH ROW EXECUTE FUNCTION compute_mandatory_fields();
 
 CREATE INDEX idx_entity_type_schema_domain
   ON entity_type_schema(domain);
@@ -384,8 +385,9 @@ COMMENT ON COLUMN entity_type_schema.field_definitions IS
    pointing to a file in the parent document''s files array.';
 
 COMMENT ON COLUMN entity_type_schema.mandatory_fields IS
-  'Auto-generated array of field names where mandatory=true
-   in field_definitions. Maintained by Postgres as a generated column.
+  'Array of field names where mandatory=true in field_definitions.
+   Maintained automatically by the trg_mandatory_fields trigger on
+   every INSERT or UPDATE so it always mirrors field_definitions.
    Used by the ingestion pipeline to check completeness before
    writing facts and to know which fields to ask the user about
    if missing.

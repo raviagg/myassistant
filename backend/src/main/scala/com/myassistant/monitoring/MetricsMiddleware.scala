@@ -5,30 +5,22 @@ import zio.http.*
 
 /** ZIO HTTP middleware that records Prometheus request metrics.
  *
- *  Uses `HandlerAspect.interceptHandler` to capture both the incoming request
- *  (for method/path labels) and the outgoing response (for status label) and
- *  increments the `http_requests_total` Prometheus counter.
+ *  Uses `HandlerAspect.interceptIncomingHandler` to capture the incoming request
+ *  and increments the `http_requests_total` Prometheus counter.
+ *  ZIO HTTP 3.0.1 does not support stateful two-phase intercept, so response
+ *  status is not available as a label here.
  */
 object MetricsMiddleware:
 
-  /** HandlerAspect that increments the Prometheus http_requests_total counter.
-   *
-   *  Passes `(method, path)` as state from the incoming handler so the outgoing
-   *  handler can label the counter with all three dimensions.
-   */
-  val instrument: HandlerAspect[Any, (String, String)] =
-    HandlerAspect.interceptHandler(
+  /** HandlerAspect that increments the Prometheus http_requests_total counter. */
+  val instrument: HandlerAspect[Any, Unit] =
+    HandlerAspect.interceptIncomingHandler {
       Handler.fromFunctionZIO[Request] { req =>
-        val method = req.method.name
-        val path   = req.path.encode
-        ZIO.succeed((req, (method, path)))
-      },
-      Handler.fromFunctionZIO[((String, String), Response)] { case ((method, path), res) =>
         ZIO.succeed {
           Metrics.httpRequestsTotal
-            .labels(method, path, res.status.code.toString)
+            .labels(req.method.name, req.path.encode)
             .inc()
-          res
+          (req, ())
         }
-      },
-    )
+      }
+    }

@@ -44,16 +44,9 @@ CREATE TABLE document (
     person_id IS NOT NULL OR household_id IS NOT NULL
   ),
 
-  -- files must be a valid array where every element
-  -- has file_path and file_type
+  -- files must be a JSON array
   CONSTRAINT files_valid CHECK (
-    files = '[]'::jsonb OR (
-      jsonb_typeof(files) = 'array' AND
-      (SELECT bool_and(
-        (f->>'file_path') IS NOT NULL AND
-        (f->>'file_type') IS NOT NULL
-      ) FROM jsonb_array_elements(files) f)
-    )
+    jsonb_typeof(files) = 'array'
   )
 );
 

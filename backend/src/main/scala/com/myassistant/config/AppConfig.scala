@@ -23,7 +23,7 @@ object AppConfig:
   /** ZLayer that loads the full AppConfig from application.conf. */
   val live: ZLayer[Any, Config.Error, AppConfig] =
     ZLayer.fromZIO(
-      ZIO.config[AppConfig](
-        deriveConfig[AppConfig].nested("myassistant")
-      )
+      TypesafeConfigProvider
+        .fromResourcePath()
+        .load(deriveConfig[AppConfig].nested("myassistant"))
     )

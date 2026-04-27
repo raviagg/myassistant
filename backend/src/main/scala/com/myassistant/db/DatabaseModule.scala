@@ -25,8 +25,14 @@ object DatabaseModule:
       val host     = uri.getHost
       val port     = if uri.getPort > 0 then uri.getPort else 5432
       val database = uri.getPath.stripPrefix("/")
-      val props    = Map("user" -> cfg.user, "password" -> cfg.password)
-      ZConnectionPool.postgres(
-        ZConnectionPoolConfig.default.copy(maxConnections = cfg.poolSize)
-      )(host, port, database, props)
+      val props    = Map(
+        "user"           -> cfg.user,
+        "password"       -> cfg.password,
+        "connectTimeout" -> (cfg.connectionTimeout / 1000).toString,
+        "socketTimeout"  -> "30",
+      )
+      // minConnections must be <= maxConnections; default.minConnections is 8 which would
+      // exceed poolSize=2 in tests, causing ZPool to deadlock during eager initialisation.
+      ZLayer.succeed(ZConnectionPoolConfig.default.copy(minConnections = 1, maxConnections = cfg.poolSize)) >>>
+        ZConnectionPool.postgres(host, port, database, props)
     }

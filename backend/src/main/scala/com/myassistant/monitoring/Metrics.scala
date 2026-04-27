@@ -19,7 +19,7 @@ object Metrics:
     Counter.build()
       .name("http_requests_total")
       .help("Total number of HTTP requests")
-      .labelNames("method", "path", "status")
+      .labelNames("method", "path")
       .register()
 
   /** Histogram tracking HTTP request duration in seconds. */
