@@ -92,6 +92,16 @@ object SharedHttpContext:
     lastBody   = resp.body()
     client.close()
 
+  def doPut(path: String): Unit =
+    val conn = java.net.URI.create(s"$baseUrl$path").toURL().openConnection().asInstanceOf[HttpURLConnection]
+    conn.setRequestMethod("PUT")
+    conn.setRequestProperty("Authorization", s"Bearer $authToken")
+    conn.setRequestProperty("Content-Length", "0")
+    conn.connect()
+    lastStatus = conn.getResponseCode()
+    lastBody   = readBody(conn)
+    conn.disconnect()
+
   def doDelete(path: String): Unit =
     val conn = java.net.URI.create(s"$baseUrl$path").toURL().openConnection().asInstanceOf[HttpURLConnection]
     conn.setRequestMethod("DELETE")
