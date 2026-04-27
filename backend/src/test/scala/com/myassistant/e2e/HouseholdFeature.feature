@@ -79,3 +79,55 @@ Feature: Household Management
     When I GET households for the person
     Then the response status is 200
     And the household list contains the household id
+
+  Scenario: Add duplicate household member returns 409
+    Given a person and household exist for membership tests
+    When I add the person to the household
+    Then the response status is 204
+    When I add the person to the household
+    Then the response status is 409
+
+  Scenario: Update household with empty patch returns unchanged household
+    When I POST to "/api/v1/households" with body:
+      """
+      {"name": "Stable Household"}
+      """
+    Then the response status is 201
+    When I PATCH the created household with body:
+      """
+      {}
+      """
+    Then the response status is 200
+    And the response body contains "Stable Household"
+
+  Scenario: Delete household with members returns 409
+    Given a person and household exist for membership tests
+    When I add the person to the household
+    Then the response status is 204
+    When I DELETE the created household by id
+    Then the response status is 409
+
+  Scenario: Update non-existent household returns 404
+    When I PATCH "/api/v1/households/00000000-0000-0000-0000-000000000000" with body:
+      """
+      {"name": "Ghost Household"}
+      """
+    Then the response status is 404
+
+  Scenario: Delete non-existent household returns 404
+    When I DELETE "/api/v1/households/00000000-0000-0000-0000-000000000000"
+    Then the response status is 404
+
+  Scenario: Delete household with document returns 409
+    Given a household with a document exists for delete constraint tests
+    When I DELETE the household with document dependency
+    Then the response status is 409
+
+  Scenario: Add non-existent person to household returns 409
+    When I POST to "/api/v1/households" with body:
+      """
+      {"name": "FK Test Household"}
+      """
+    Then the response status is 201
+    When I add a non-existent person to the created household
+    Then the response status is 409

@@ -152,6 +152,12 @@ lazy val backend = (project in file("."))
         "com.myassistant.api.middleware",
         "com.myassistant.errors",
         "com.myassistant.logging.AppLogger",
+        // Infrastructure with no testable logic reachable via HTTP
+        "com.myassistant.monitoring",
+        "com.myassistant.logging.LogFormat",
+        "com.myassistant.db.MigrationRunner",
+        "com.myassistant.db.repositories.FileRepository",
+        "com.myassistant.services.FileService",
       ).mkString(","),
   )
 

@@ -68,3 +68,28 @@ Feature: Audit Log Interactions
       }
       """
     Then the response status is 422
+
+  Scenario: Log interaction with non-existent person returns 409
+    When I POST to "/api/v1/audit/interactions" with body:
+      """
+      {
+        "personId": "00000000-0000-0000-0000-000000000001",
+        "message": "FK violation audit",
+        "toolCalls": [],
+        "status": "success"
+      }
+      """
+    Then the response status is 409
+
+  Scenario: Log interaction with both personId and jobType returns 422
+    When I POST to "/api/v1/audit/interactions" with body:
+      """
+      {
+        "personId": "00000000-0000-0000-0000-000000000001",
+        "jobType": "user_input",
+        "message": "Both owner fields set",
+        "toolCalls": [],
+        "status": "success"
+      }
+      """
+    Then the response status is 422

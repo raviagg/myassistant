@@ -13,3 +13,10 @@ class SchemaSteps extends ScalaDsl with EN with Matchers:
       .getOrElse(fail("Could not extract schema id from previous response"))
     doGet(s"/api/v1/schemas/$schemaId")
   }
+
+  When("I deactivate the proposed schema for {string} {string}") { (domain: String, entityType: String) =>
+    val schemaId = extractJsonStringField(lastBody, "id").getOrElse(
+      fail("Could not extract schema id from previous response")
+    )
+    doDelete(s"/api/v1/schemas/$domain/$entityType/active?id=$schemaId")
+  }

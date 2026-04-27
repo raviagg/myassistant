@@ -67,3 +67,26 @@ Feature: Schema Governance
       {"entityType": "foo"}
       """
     Then the response status is 400
+
+  Scenario: Deactivate a schema
+    When I POST to "/api/v1/schemas" with body:
+      """
+      {
+        "domain": "finance",
+        "entityType": "expense",
+        "description": "A single expense",
+        "fieldDefinitions": [{"name": "amount", "type": "number", "mandatory": true}],
+        "extractionPrompt": "Extract expense details"
+      }
+      """
+    Then the response status is 201
+    When I deactivate the proposed schema for "finance" "expense"
+    Then the response status is 204
+
+  Scenario: Get current schema returns 404 after deactivation
+    When I GET "/api/v1/schemas/current?domain=finance&entityType=expense"
+    Then the response status is 404
+
+  Scenario: Deactivate non-existent schema returns 404
+    When I DELETE "/api/v1/schemas/todo/todo_item/active?id=00000000-0000-0000-0000-000000000000"
+    Then the response status is 404
