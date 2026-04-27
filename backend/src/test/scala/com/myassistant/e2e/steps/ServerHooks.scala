@@ -10,7 +10,7 @@ class ServerHooks extends ScalaDsl with EN:
 
   Before { _ =>
     val _ = CucumberServer
-    waitForPort(CucumberServer.TestPort, maxRetries = 40, delayMs = 500)
+    waitForPort(CucumberServer.TestPort, maxRetries = 120, delayMs = 500)
   }
 
   private def waitForPort(port: Int, maxRetries: Int, delayMs: Long): Unit =
