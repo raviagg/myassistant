@@ -38,19 +38,17 @@ The system covers seven life domains out of the box, and new ones can be added a
 
 ## Sources of Information
 
-Information enters the system through two kinds of sources, treated identically:
+Information enters the system through distinct source types, all treated identically by the agent:
 
-**Chatbot (human-initiated)**
-The primary interface. A person types a message, uploads a file, or pastes content. The agent processes it, extracts facts, and responds. Every interaction is logged.
+| Source type | Origin |
+|---|---|
+| `user_input` | Text typed directly in the chatbot |
+| `file_upload` | PDF, image, or document uploaded by the user |
+| `ai_extracted` | Content extracted by the AI from another document (re-extraction jobs) |
+| `plaid_poll` | Bank and credit card transactions via Plaid API |
+| `gmail_poll` | Bills, receipts, payslips from Gmail |
 
-**Scheduled polling jobs (system-initiated)**
-Automated jobs connect to external services and send formatted messages to the same agent pipeline:
-
-- **Plaid** — bank and credit card transactions
-- **Gmail** — bills, receipts, payslips from email
-- **Apple Health / calendar** — health metrics, appointments (future)
-
-Both sources go through the exact same ingestion pipeline. The `source_type` field on each document records the origin — chatbot, plaid_poll, gmail_poll, etc. — but the agent handles them identically.
+All of these go through the same ingestion pipeline. The `source_type` field on each document records the origin for audit and provenance, but the agent's behaviour is identical regardless of source. New source types (calendar, Apple Health, etc.) are just new rows — no code change required.
 
 ---
 
@@ -116,6 +114,16 @@ Both sources go through the exact same ingestion pipeline. The `source_type` fie
 
 **PostgreSQL + pgvector** stores everything: people, relationships, documents, facts, schemas, and audit records. Vector embeddings live alongside structured data in the same database — no separate vector store.
 
+The database has five logical layers:
+
+| Layer | Tables |
+|---|---|
+| Spine | person, household, person_household, relationship, kinship_alias |
+| Reference | source_type, domain |
+| Schema Governance | entity_type_schema |
+| Core Data | document, fact |
+| Observability | audit_log |
+
 ---
 
 ## How the Agent Thinks
@@ -125,8 +133,13 @@ The system prompt given to Claude defines a strict two-phase protocol for handli
 **Phase 1 — Gather (no writes)**
 Before touching any data, the agent reads everything relevant: does this person already exist? Is there an existing entity instance for this fact? Does a schema exist for this type of information? What document would this supersede? Only after all reads are complete does it propose what it plans to write, and ask the user to confirm.
 
+A key part of gathering is **entity instance resolution** — when the user says "update my passport renewal", the agent searches existing facts semantically (not by exact ID) to find the right entity instance. A similarity score above a threshold means "update this entity"; below it means "create a new one". The `entity_instance_id` that groups all operations on the same logical entity is never typed by the user — it is always resolved by the agent from context.
+
 **Phase 2 — Write (after confirmation)**
 Once the user says "yes", the agent executes writes in a fixed order: spine first (create person/household/relationship if needed), then document, then fact. Every turn — read or write — ends with `log_interaction` to the audit log.
+
+**Mandatory fields**
+Each schema defines which fields are mandatory. During extraction, if the agent finds that required fields are missing from what the user provided, it asks clarifying questions before proceeding to the write phase. This is driven by a `mandatory_fields` column on the schema, not hard-coded per entity type.
 
 This prevents hallucinated writes, ensures deduplication, and gives the user a review step before anything is persisted.
 
@@ -138,7 +151,9 @@ This prevents hallucinated writes, ensures deduplication, and gives the user a r
 
 Nothing is ever updated or deleted in place. When information changes — a salary raise, an insurance renewal — a new document is created pointing to (`supersedes_ids`) the old one, and a new fact with `operation_type=update` is appended. This gives a complete audit trail for free and makes re-extraction safe (any document can be replayed).
 
-**Why:** Simpler than UPDATE/DELETE logic, full history without extra effort, and every fact has provenance back to the original natural language that produced it.
+Facts use **patch semantics** — only changed fields are sent on an update, not the full entity. Current state is reconstructed at read time by merging the operation stream in chronological order. This keeps individual fact records small and makes partial updates natural.
+
+**Why:** Simpler than UPDATE/DELETE logic, full history without extra effort, every fact has provenance back to the original natural language, and re-extraction jobs can safely replay any document without corrupting state.
 
 ### Depth-1 relationships only, kinship derived at query time
 
@@ -150,7 +165,9 @@ Only 8 atomic relation types are stored: father, mother, son, daughter, brother,
 
 `entity_type_schema` defines what fields exist for each (domain, entity_type) pair. When the agent encounters information it has no schema for (a gym membership, a blood pressure reading), it proposes a new schema in text, gets user confirmation, then creates it — and the new fact type is immediately available. Schema evolution increments a version number; all old versions and their facts are retained.
 
-**Why:** The system needs to handle any kind of personal information, including types that don't exist yet. Dynamic DDL (CREATE TABLE per entity type) was rejected in favour of a single JSONB fact table governed by schema definitions.
+Four entity types are seeded at startup — `todo_item`, `insurance_card`, `job`, `payslip` — and the system grows from there based on what users actually store.
+
+**Why:** The system needs to handle any kind of personal information, including types that don't exist yet. Dynamic DDL (CREATE TABLE per entity type) was rejected in favour of a single JSONB fact table governed by schema definitions. New sources and new domains are likewise just new rows — no DDL change, no deployment.
 
 ### Hybrid storage — documents and facts from the same source
 
@@ -163,3 +180,9 @@ Every fact traces back to a document. Documents carry the original natural langu
 A Plaid transaction feed and a human saying "I spent $80 at the gym" go through the same pipeline. The `source_type` distinguishes origin for audit and provenance, but the agent's behaviour is identical. This means the polling job infrastructure is just a message sender — it doesn't need its own extraction logic.
 
 **Why:** A single ingestion pipeline is simpler to reason about, test, and extend. New data sources are just new rows in `source_type`.
+
+### Documents must have an owner; facts must have a source document
+
+Every document must belong to at least one person or household — both are allowed simultaneously for shared information (e.g. a household utility bill also attached to a specific person). Every fact must trace back to a document. This chain — fact → document → original natural language — is the system's provenance guarantee: any stored fact can be explained by showing the exact text it came from.
+
+**Why:** Prevents orphaned data and makes the system auditable end-to-end. "Why does it think my deductible is $2,000?" always has a traceable answer.
