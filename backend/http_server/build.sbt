@@ -128,7 +128,7 @@ lazy val backend = (project in file("."))
     // Report locations:
     //   unit+integration → target/scala-3.4.2/scoverage-report/index.html
     //   e2e              → target/e2e-scoverage-report/index.html
-    // E2E threshold is enforced by scripts/check-e2e-coverage.sh (not build.sbt)
+    // E2E threshold is enforced by backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh (not build.sbt)
     coverageMinimumStmtTotal  := 88,
     coverageFailOnMinimum     := true,
     // Excluded from unit+integration gate:
@@ -164,10 +164,10 @@ lazy val backend = (project in file("."))
 // ── E2E coverage alias ────────────────────────────────────────────────────────
 // Runs only the Cucumber E2E suite with scoverage instrumentation, outputting
 // to a separate directory so it does not interfere with the unit+integration gate.
-// Threshold is checked by scripts/check-e2e-coverage.sh, not enforced in build.sbt.
+// Threshold is checked by backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh, not enforced in build.sbt.
 addCommandAlias(
   "coverageE2e",
   // Temporarily disable the minimum threshold — E2E coverage is checked separately
-  // by scripts/check-e2e-coverage.sh, not by this build gate.
+  // by backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh, not by this build gate.
   """;set coverageDataDir := (baseDirectory.value / "target" / "e2e-scoverage");set coverageFailOnMinimum := false;coverage;testOnly com.myassistant.e2e.*;coverageReport;set coverageDataDir := (target.value / "scoverage-data");set coverageFailOnMinimum := true""",
 )

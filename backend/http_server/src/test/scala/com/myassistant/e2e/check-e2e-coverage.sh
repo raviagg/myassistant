@@ -5,8 +5,8 @@
 # if statement coverage is below E2E_COVERAGE_THRESHOLD (default 70%).
 #
 # Usage:
-#   ./scripts/check-e2e-coverage.sh           # uses default threshold 70
-#   E2E_COVERAGE_THRESHOLD=80 ./scripts/check-e2e-coverage.sh
+#   ./backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh           # uses default threshold 70
+#   E2E_COVERAGE_THRESHOLD=80 ./backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh
 
 set -euo pipefail
 

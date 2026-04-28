@@ -346,15 +346,15 @@ cd backend/http_server
 sbt coverageE2e
 
 # 2. Check the threshold from the repo root (default: 70%)
-./scripts/check-e2e-coverage.sh
+./backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh
 
 # Override the threshold
-E2E_COVERAGE_THRESHOLD=80 ./scripts/check-e2e-coverage.sh
+E2E_COVERAGE_THRESHOLD=80 ./backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh
 ```
 
 **Report:** `backend/http_server/target/e2e-scoverage-report/index.html`
 
-The threshold default (70%) and override mechanism live in `scripts/check-e2e-coverage.sh`. In CI, call the script as a separate step after `sbt coverageE2e` and treat its exit code as the gate.
+The threshold default (70%) and override mechanism live in `backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh`. In CI, call the script as a separate step after `sbt coverageE2e` and treat its exit code as the gate.
 
 ---
 
@@ -405,7 +405,7 @@ sbt coverageE2e
 
 # ── Check E2E threshold (70% default) ────────────────────────────────────────
 cd ..
-./scripts/check-e2e-coverage.sh
+./backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh
 
 # ── Performance smoke test (server must be running in another terminal) ───────
 cd backend/http_server
