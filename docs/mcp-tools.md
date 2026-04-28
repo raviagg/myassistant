@@ -512,7 +512,7 @@ Text-based search is intentionally omitted — the table is small enough that `l
 |---|---|---|---|
 | `domain_id` | UUID | yes | |
 | `entity_type` | string | yes | Snake_case name e.g. `blood_pressure_reading` |
-| `field_definitions` | object[] | yes | Array of field objects: `name`, `type`, `required`, `description` |
+| `field_definitions` | object[] | yes | Array of field objects: `name`, `type`, `mandatory`, `description` |
 | `description` | string | no | Human-readable description of this entity type |
 
 **Returns:** Schema row with `is_active = true` and `schema_version = 1`.
