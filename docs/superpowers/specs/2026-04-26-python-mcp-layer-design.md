@@ -11,7 +11,8 @@ A thin Python MCP server that exposes every Scala HTTP endpoint as an MCP tool. 
 
 ```
 myassistant/
-  backend/                    ← Scala backend (unchanged)
+  backend/                    ← top-level backend folder
+    http_server/              ← Scala HTTP server (ZIO + zio-http)
   mcp/                        ← new top-level folder
     server.py                 ← FastMCP app, imports and registers all tool modules
     client.py                 ← shared httpx.Client + auth config

@@ -11,12 +11,12 @@
 set -euo pipefail
 
 THRESHOLD="${E2E_COVERAGE_THRESHOLD:-70}"
-REPORT_XML="backend/target/e2e-scoverage/scoverage.xml"
-REPORT_HTML="backend/target/e2e-scoverage-report/index.html"
+REPORT_XML="backend/http_server/target/e2e-scoverage/scoverage.xml"
+REPORT_HTML="backend/http_server/target/e2e-scoverage-report/index.html"
 
 if [ ! -f "$REPORT_XML" ]; then
   echo "ERROR: E2E coverage report not found at $REPORT_XML"
-  echo "       Run 'sbt coverageE2e' first (from the backend/ directory)."
+  echo "       Run 'sbt coverageE2e' first (from the backend/http_server/ directory)."
   exit 1
 fi
 
