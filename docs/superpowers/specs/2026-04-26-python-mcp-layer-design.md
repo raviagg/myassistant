@@ -11,8 +11,9 @@ A thin Python MCP server that exposes every Scala HTTP endpoint as an MCP tool. 
 
 ```
 myassistant/
-  backend/                    ← Scala backend (unchanged)
-  mcp/                        ← new top-level folder
+  backend/                    ← top-level backend folder
+    http_server/              ← Scala HTTP server (ZIO + zio-http)
+  mcp_server/               ← Python MCP server (FastMCP)
     server.py                 ← FastMCP app, imports and registers all tool modules
     client.py                 ← shared httpx.Client + auth config
     tools/
@@ -61,7 +62,7 @@ Claude / MCP client
   Scala backend  :8080
 ```
 
-Transport is **stdio** (default for local MCP servers). The FastMCP app is started with `python -m mcp.server` or via `mcp run mcp/server.py`.
+Transport is **stdio** (default for local MCP servers). The FastMCP app is started with `python -m mcp.server` or via `mcp run backend/mcp_server/server.py`.
 
 ---
 

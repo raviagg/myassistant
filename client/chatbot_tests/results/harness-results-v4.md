@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-25  
 **Model:** claude-opus-4-7 (via `claude -p` subprocess)  
-**Harness:** `tests/tool_harness/harness.py`  
+**Harness:** `client/chatbot_tests/tool_harness/harness.py`  
 **Tools defined:** 44 across 6 groups  
 **Scenarios run:** 25
 

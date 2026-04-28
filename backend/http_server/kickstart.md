@@ -40,7 +40,7 @@ export SERVER_PORT=8080          # optional, default 8080
 export FILE_STORAGE_BASE_PATH="/tmp/myassistant/files"  # optional
 ```
 
-If you don't export these, the server uses the defaults in `backend/src/main/resources/application.conf`.
+If you don't export these, the server uses the defaults in `backend/http_server/src/main/resources/application.conf`.
 
 ---
 
@@ -98,12 +98,12 @@ Use these connection details in pgAdmin, TablePlus, DBeaver, DataGrip, or any ot
 Tables only appear after migrations have run. Either start the server once (`sbt run`) or run migrations standalone:
 
 ```bash
-cd backend
+cd backend/http_server
 sbt "runMain com.myassistant.db.MigrationRunner"
 ```
 
 Alternatively, run the SQL files directly in pgAdmin's query tool in order:
-`V1__create_extensions.sql` → `V8__audit.sql` (found in `backend/src/main/resources/db/migration/`).
+`V1__create_extensions.sql` → `V8__audit.sql` (found in `backend/http_server/src/main/resources/db/migration/`).
 
 ---
 
@@ -169,7 +169,7 @@ docker cp myassistant-db:/tmp/myassistant-schema.dump ./myassistant-schema.dump
 ## Build
 
 ```bash
-cd backend
+cd backend/http_server
 
 # Compile main sources
 sbt compile
@@ -187,7 +187,7 @@ sbt assembly
 ## Start the Server
 
 ```bash
-cd backend
+cd backend/http_server
 
 # Using defaults (local DB on localhost:5432)
 sbt run
@@ -219,7 +219,7 @@ curl http://localhost:8080/health
 Unit tests run entirely in-memory (no Docker, no DB). Integration tests use [Testcontainers](https://www.testcontainers.org/) — Docker must be running; a `pgvector/pgvector:pg16` container is started automatically before each suite and torn down after. Flyway migrations run inside the container, so no external DB setup is needed.
 
 ```bash
-cd backend
+cd backend/http_server
 
 # Run unit tests only (fast, no Docker)
 sbt "testOnly com.myassistant.unit.*"
@@ -267,7 +267,7 @@ sbt ~"testOnly com.myassistant.unit.*"
 `sbt test` runs both unit and integration tests. Their statement coverage is combined into one number and compared against a **90% minimum enforced in `build.sbt`** — the build fails if it isn't met.
 
 ```bash
-cd backend
+cd backend/http_server
 
 # Run all tests with coverage instrumentation and generate the HTML report
 sbt coverage test coverageReport
@@ -276,7 +276,7 @@ sbt coverage test coverageReport
 sbt coverageAggregate
 ```
 
-**Report:** `backend/target/scala-3.4.2/scoverage-report/index.html`
+**Report:** `backend/http_server/target/scala-3.4.2/scoverage-report/index.html`
 
 **What is measured:**
 
@@ -291,7 +291,7 @@ sbt coverageAggregate
 **Excluded from measurement** (pure data classes and ZLayer wiring — no testable logic):
 `config.*`, `domain.*`, `Main`
 
-Threshold configuration in `backend/build.sbt`:
+Threshold configuration in `backend/http_server/build.sbt`:
 ```scala
 coverageMinimumStmtTotal := 90
 coverageFailOnMinimum    := true
@@ -317,7 +317,7 @@ When `TEST_BASE_URL` **is set**, tests target that URL instead (use this for CI 
 ### Running
 
 ```bash
-cd backend
+cd backend/http_server
 
 # Run all scenarios (embedded server starts automatically)
 sbt "testOnly com.myassistant.e2e.*"
@@ -340,21 +340,21 @@ sbt "testOnly com.myassistant.e2e.* -- -tags @smoke"
 E2E coverage is tracked in its own report and is **not** combined with the 90% unit+integration gate. It is enforced by a shell script rather than `build.sbt`, so a flaky E2E run doesn't block a source build.
 
 ```bash
-cd backend
+cd backend/http_server
 
 # 1. Run E2E tests with coverage instrumentation (embedded server starts automatically)
 sbt coverageE2e
 
 # 2. Check the threshold from the repo root (default: 70%)
-./scripts/check-e2e-coverage.sh
+./backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh
 
 # Override the threshold
-E2E_COVERAGE_THRESHOLD=80 ./scripts/check-e2e-coverage.sh
+E2E_COVERAGE_THRESHOLD=80 ./backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh
 ```
 
-**Report:** `backend/target/e2e-scoverage-report/index.html`
+**Report:** `backend/http_server/target/e2e-scoverage-report/index.html`
 
-The threshold default (70%) and override mechanism live in `scripts/check-e2e-coverage.sh`. In CI, call the script as a separate step after `sbt coverageE2e` and treat its exit code as the gate.
+The threshold default (70%) and override mechanism live in `backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh`. In CI, call the script as a separate step after `sbt coverageE2e` and treat its exit code as the gate.
 
 ---
 
@@ -365,7 +365,7 @@ Requires k6 installed and a running server.
 ```bash
 # Start the server first (see above), then:
 
-cd backend/k6
+cd backend/http_server/k6
 
 # Smoke test — 1 VU, 1 iteration, verifies basic connectivity
 k6 run \
@@ -392,7 +392,7 @@ k6 run \
 ## Run Everything in One Go
 
 ```bash
-cd backend
+cd backend/http_server
 
 # ── Unit + integration with coverage gate (90%) ───────────────────────────────
 sbt coverage test coverageReport
@@ -405,10 +405,10 @@ sbt coverageE2e
 
 # ── Check E2E threshold (70% default) ────────────────────────────────────────
 cd ..
-./scripts/check-e2e-coverage.sh
+./backend/http_server/src/test/scala/com/myassistant/e2e/check-e2e-coverage.sh
 
 # ── Performance smoke test (server must be running in another terminal) ───────
-cd backend
+cd backend/http_server
 k6 run --env AUTH_TOKEN=dev-token-change-me-in-production k6/smoke.js
 ```
 
