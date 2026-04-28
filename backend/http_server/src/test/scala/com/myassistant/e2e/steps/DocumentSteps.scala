@@ -19,8 +19,9 @@ class DocumentSteps extends ScalaDsl with EN with Matchers:
   }
 
   When("I POST a document for the person with content {string}") { (content: String) =>
+    val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     val body =
-      s"""{"personId":"$lastPersonId","contentText":"$content","sourceType":"user_input","files":[],"supersedesIds":[]}"""
+      s"""{"personId":"$lastPersonId","contentText":"$content","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":[]}"""
     doPost("/api/v1/documents", body)
     lastDocumentId = extractJsonStringField(lastBody, "id").getOrElse("")
   }
@@ -35,8 +36,25 @@ class DocumentSteps extends ScalaDsl with EN with Matchers:
 
   When("I POST a document superseding the created document with content {string}") { (content: String) =>
     val supersededId = lastDocumentId
+    val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     val body =
-      s"""{"personId":"$lastPersonId","contentText":"$content","sourceType":"user_input","files":[],"supersedesIds":["$supersededId"]}"""
+      s"""{"personId":"$lastPersonId","contentText":"$content","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":["$supersededId"]}"""
+    doPost("/api/v1/documents", body)
+  }
+
+  When("I search documents by embedding") {
+    doPost("/api/v1/documents/search", s"""{"embedding":$zeroEmbedding1536}""")
+  }
+
+  When("I GET documents with source type filter {string}") { (sourceTypeName: String) =>
+    val stId = sourceTypeIdByName.getOrElse(sourceTypeName, fail(s"source type '$sourceTypeName' not found"))
+    doGet(s"/api/v1/documents?sourceTypeId=$stId")
+  }
+
+  When("I POST a document with non-existent person for constraint test") {
+    val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
+    val body =
+      s"""{"personId":"00000000-0000-0000-0000-000000000001","contentText":"FK violation document","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":[]}"""
     doPost("/api/v1/documents", body)
   }
 
@@ -51,8 +69,9 @@ class DocumentSteps extends ScalaDsl with EN with Matchers:
   }
 
   When("I POST a document for the household with content {string}") { (content: String) =>
+    val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     val body =
-      s"""{"householdId":"$lastHouseholdId","contentText":"$content","sourceType":"user_input","files":[],"supersedesIds":[]}"""
+      s"""{"householdId":"$lastHouseholdId","contentText":"$content","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":[]}"""
     doPost("/api/v1/documents", body)
     lastDocumentId = extractJsonStringField(lastBody, "id").getOrElse("")
   }
@@ -62,9 +81,12 @@ class DocumentSteps extends ScalaDsl with EN with Matchers:
   }
 
   When("I GET documents for the household filtered by source type") {
-    doGet(s"/api/v1/documents?householdId=$lastHouseholdId&sourceType=user_input")
+    val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
+    doGet(s"/api/v1/documents?householdId=$lastHouseholdId&sourceTypeId=$stId")
   }
 
   When("I POST a document without any owner") {
-    doPost("/api/v1/documents", """{"contentText":"Orphan document","sourceType":"user_input","files":[],"supersedesIds":[]}""")
+    val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
+    doPost("/api/v1/documents",
+      s"""{"contentText":"Orphan document","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":[]}""")
   }

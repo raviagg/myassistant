@@ -8,9 +8,9 @@ Feature: Audit Log Interactions
       """
       {
         "jobType": "user_input",
-        "message": "User asked about health insurance",
-        "response": "Here is your insurance information",
-        "toolCalls": [],
+        "messageText": "User asked about health insurance",
+        "responseText": "Here is your insurance information",
+        "toolCallsJson": [],
         "status": "success"
       }
       """
@@ -34,14 +34,15 @@ Feature: Audit Log Interactions
       """
       {
         "jobType": "gmail_poll",
-        "message": "Failed operation",
-        "toolCalls": [],
-        "status": "failed",
-        "error": "Something went wrong"
+        "messageText": "Failed operation",
+        "responseText": "",
+        "toolCallsJson": [],
+        "status": "error",
+        "errorMessage": "Something went wrong"
       }
       """
     Then the response status is 201
-    And the response body contains "failed"
+    And the response body contains "error"
     And the response body contains "Something went wrong"
 
   Scenario: Log a job interaction
@@ -49,8 +50,9 @@ Feature: Audit Log Interactions
       """
       {
         "jobType": "plaid_poll",
-        "message": "Fetched 5 transactions",
-        "toolCalls": [],
+        "messageText": "Fetched 5 transactions",
+        "responseText": "",
+        "toolCallsJson": [],
         "status": "success"
       }
       """
@@ -62,8 +64,9 @@ Feature: Audit Log Interactions
       """
       {
         "jobType": "user_input",
-        "message": "Bad request",
-        "toolCalls": [],
+        "messageText": "Bad request",
+        "responseText": "",
+        "toolCallsJson": [],
         "status": "invalid_status"
       }
       """
@@ -74,8 +77,9 @@ Feature: Audit Log Interactions
       """
       {
         "personId": "00000000-0000-0000-0000-000000000001",
-        "message": "FK violation audit",
-        "toolCalls": [],
+        "messageText": "FK violation audit",
+        "responseText": "",
+        "toolCallsJson": [],
         "status": "success"
       }
       """
@@ -87,8 +91,9 @@ Feature: Audit Log Interactions
       {
         "personId": "00000000-0000-0000-0000-000000000001",
         "jobType": "user_input",
-        "message": "Both owner fields set",
-        "toolCalls": [],
+        "messageText": "Both owner fields set",
+        "responseText": "",
+        "toolCallsJson": [],
         "status": "success"
       }
       """

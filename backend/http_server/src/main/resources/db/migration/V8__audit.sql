@@ -20,16 +20,16 @@
 -- ------------------------------------------------------------
 
 CREATE TABLE audit_log (
-  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  person_id   UUID        REFERENCES person(id),
-  job_type    TEXT        REFERENCES source_type(name),
-  message     TEXT        NOT NULL,
-  response    TEXT,
-  tool_calls  JSONB       NOT NULL DEFAULT '[]',
-  status      TEXT        NOT NULL DEFAULT 'success'
+  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  person_id      UUID        REFERENCES person(id),
+  job_type       TEXT,
+  message_text   TEXT        NOT NULL,
+  response_text  TEXT        NOT NULL DEFAULT '',
+  tool_calls_json JSONB,
+  status         TEXT        NOT NULL DEFAULT 'success'
     CHECK (status IN ('success', 'partial', 'failed')),
-  error       TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  error_message  TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   -- exactly one actor: either a person chatting or a system job
   -- never both, never neither

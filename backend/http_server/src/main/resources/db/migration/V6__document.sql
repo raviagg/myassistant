@@ -29,7 +29,7 @@ CREATE TABLE document (
   household_id    UUID        REFERENCES household(id),
 
   content_text    TEXT        NOT NULL,
-  source_type     TEXT        NOT NULL REFERENCES source_type(name),
+  source_type_id  UUID        NOT NULL REFERENCES source_type(id),
 
   files           JSONB       NOT NULL DEFAULT '[]',
 

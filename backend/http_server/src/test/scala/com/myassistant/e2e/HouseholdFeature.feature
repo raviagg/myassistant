@@ -18,15 +18,19 @@ Feature: Household Management
     When I GET "/api/v1/households/00000000-0000-0000-0000-000000000000"
     Then the response status is 404
 
-  Scenario: List households
+  Scenario: Search households by name
     When I POST to "/api/v1/households" with body:
       """
       {"name": "Listed Household"}
       """
     Then the response status is 201
-    When I GET "/api/v1/households"
+    When I GET "/api/v1/households?name=Listed"
     Then the response status is 200
     And the response body contains "Listed Household"
+
+  Scenario: Search households without name returns 400
+    When I GET "/api/v1/households"
+    Then the response status is 400
 
   Scenario: Create household requires name
     When I POST to "/api/v1/households" with body:

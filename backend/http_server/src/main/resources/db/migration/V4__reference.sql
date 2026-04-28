@@ -15,7 +15,8 @@
 -- ------------------------------------------------------------
 
 CREATE TABLE source_type (
-  name        TEXT        PRIMARY KEY,
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        TEXT        NOT NULL UNIQUE,
   description TEXT        NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -23,7 +24,8 @@ CREATE TABLE source_type (
 -- ------------------------------------------------------------
 
 CREATE TABLE domain (
-  name        TEXT        PRIMARY KEY,
+  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        TEXT        NOT NULL UNIQUE,
   description TEXT        NOT NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );

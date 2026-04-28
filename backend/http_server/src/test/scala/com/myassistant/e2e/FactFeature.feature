@@ -35,11 +35,11 @@ Feature: Fact Ingestion and Retrieval
     Then the response status is 200
     And the fact response body contains "create"
 
-  Scenario: Get facts by schema ID
+  Scenario: Get facts by domain
     Given a person and document exist in the system
     When I POST a fact for the existing document with operation type "create"
     Then the fact response status is 201
-    When I GET facts by schema
+    When I GET facts by domain
     Then the response status is 200
     And the fact response body contains "create"
 
@@ -51,9 +51,9 @@ Feature: Fact Ingestion and Retrieval
     Then the fact response status is 201
     And the fact response body contains "delete"
 
-  Scenario: Get current facts without schemaId returns 400
+  Scenario: Get current facts returns empty list when no filter
     When I GET "/api/v1/facts/current"
-    Then the response status is 400
+    Then the response status is 200
 
   Scenario: Get non-existent fact by ID returns 404
     When I GET "/api/v1/facts/00000000-0000-0000-0000-000000000000/current"

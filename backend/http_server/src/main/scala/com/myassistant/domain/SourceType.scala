@@ -1,16 +1,11 @@
 package com.myassistant.domain
 
 import java.time.Instant
+import java.util.UUID
 
-/** Reference record for a data source in the governed vocabulary.
- *
- *  New sources (calendar_poll, apple_health_poll, …) are added as rows.
- */
 final case class SourceType(
-    /** Machine-readable identifier, snake_case lowercase. */
-    name: String,
-    /** Human-readable explanation of how documents from this source are produced. */
+    id:          UUID,
+    name:        String,
     description: String,
-    /** Timestamp of record creation. */
-    createdAt: Instant,
+    createdAt:   Instant,
 )
