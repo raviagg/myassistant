@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a thin Python MCP server in `mcp_server/` that exposes every Scala backend REST endpoint as a FastMCP tool — one tool per endpoint, same arguments.
+**Goal:** Build a thin Python MCP server in `backend/mcp_server/` that exposes every Scala backend REST endpoint as a FastMCP tool — one tool per endpoint, same arguments.
 
-**Architecture:** `FastMCP` (stdio transport) → `httpx.Client` with Bearer auth → Scala HTTP at `localhost:8080`. Each tool group lives in its own module under `mcp_server/tools/`. Implementation functions take `http` as first arg for direct testability; `register(mcp, http)` wraps them as MCP tools with closures.
+**Architecture:** `FastMCP` (stdio transport) → `httpx.Client` with Bearer auth → Scala HTTP at `localhost:8080`. Each tool group lives in its own module under `backend/mcp_server/tools/`. Implementation functions take `http` as first arg for direct testability; `register(mcp, http)` wraps them as MCP tools with closures.
 
 **Tech Stack:** Python ≥3.11, `mcp` (FastMCP), `httpx`, `pytest`, `respx` (HTTP mock)
 
-> **Note on folder name:** The directory is `mcp_server/` (not `mcp/`) to avoid shadowing the installed `mcp` package on `sys.path`.
+> **Note on folder name:** The directory is `backend/mcp_server/` (not `mcp/`) to avoid shadowing the installed `mcp` package on `sys.path`.
 
 ---
 
@@ -16,50 +16,50 @@
 
 | File | Responsibility |
 |---|---|
-| `mcp_server/pyproject.toml` | Package metadata + dependencies |
-| `mcp_server/client.py` | `make_client()`, `_check(resp)` helper |
-| `mcp_server/server.py` | `FastMCP` instance, imports all tool modules, `mcp.run()` |
-| `mcp_server/tools/__init__.py` | Empty |
-| `mcp_server/tools/persons.py` | 5 tools (list, create, get, update, delete) |
-| `mcp_server/tools/households.py` | 5 tools |
-| `mcp_server/tools/person_household.py` | 4 tools |
-| `mcp_server/tools/relationships.py` | 6 tools |
-| `mcp_server/tools/documents.py` | 4 tools |
-| `mcp_server/tools/facts.py` | 5 tools |
-| `mcp_server/tools/schemas.py` | 6 tools |
-| `mcp_server/tools/reference.py` | 3 tools |
-| `mcp_server/tools/audit.py` | 1 tool |
-| `mcp_server/tools/files.py` | 4 tools |
-| `mcp_server/tests/__init__.py` | Empty |
-| `mcp_server/tests/conftest.py` | Shared `http_client` pytest fixture |
-| `mcp_server/tests/test_persons.py` | 7 tests |
-| `mcp_server/tests/test_households.py` | 6 tests |
-| `mcp_server/tests/test_person_household.py` | 5 tests |
-| `mcp_server/tests/test_relationships.py` | 7 tests |
-| `mcp_server/tests/test_documents.py` | 5 tests |
-| `mcp_server/tests/test_facts.py` | 6 tests |
-| `mcp_server/tests/test_schemas.py` | 7 tests |
-| `mcp_server/tests/test_reference.py` | 4 tests |
-| `mcp_server/tests/test_audit.py` | 2 tests |
-| `mcp_server/tests/test_files.py` | 5 tests |
+| `backend/mcp_server/pyproject.toml` | Package metadata + dependencies |
+| `backend/mcp_server/client.py` | `make_client()`, `_check(resp)` helper |
+| `backend/mcp_server/server.py` | `FastMCP` instance, imports all tool modules, `mcp.run()` |
+| `backend/mcp_server/tools/__init__.py` | Empty |
+| `backend/mcp_server/tools/persons.py` | 5 tools (list, create, get, update, delete) |
+| `backend/mcp_server/tools/households.py` | 5 tools |
+| `backend/mcp_server/tools/person_household.py` | 4 tools |
+| `backend/mcp_server/tools/relationships.py` | 6 tools |
+| `backend/mcp_server/tools/documents.py` | 4 tools |
+| `backend/mcp_server/tools/facts.py` | 5 tools |
+| `backend/mcp_server/tools/schemas.py` | 6 tools |
+| `backend/mcp_server/tools/reference.py` | 3 tools |
+| `backend/mcp_server/tools/audit.py` | 1 tool |
+| `backend/mcp_server/tools/files.py` | 4 tools |
+| `backend/mcp_server/tests/__init__.py` | Empty |
+| `backend/mcp_server/tests/conftest.py` | Shared `http_client` pytest fixture |
+| `backend/mcp_server/tests/test_persons.py` | 7 tests |
+| `backend/mcp_server/tests/test_households.py` | 6 tests |
+| `backend/mcp_server/tests/test_person_household.py` | 5 tests |
+| `backend/mcp_server/tests/test_relationships.py` | 7 tests |
+| `backend/mcp_server/tests/test_documents.py` | 5 tests |
+| `backend/mcp_server/tests/test_facts.py` | 6 tests |
+| `backend/mcp_server/tests/test_schemas.py` | 7 tests |
+| `backend/mcp_server/tests/test_reference.py` | 4 tests |
+| `backend/mcp_server/tests/test_audit.py` | 2 tests |
+| `backend/mcp_server/tests/test_files.py` | 5 tests |
 
 ---
 
 ## Task 0: Project Scaffold
 
 **Files:**
-- Create: `mcp_server/pyproject.toml`
-- Create: `mcp_server/tools/__init__.py`
-- Create: `mcp_server/tests/__init__.py`
+- Create: `backend/mcp_server/pyproject.toml`
+- Create: `backend/mcp_server/tools/__init__.py`
+- Create: `backend/mcp_server/tests/__init__.py`
 
 - [ ] **Step 1: Create directory structure**
 
 ```bash
-mkdir -p mcp_server/tools mcp_server/tests
-touch mcp_server/tools/__init__.py mcp_server/tests/__init__.py
+mkdir -p backend/mcp_server/tools mcp_server/tests
+touch backend/mcp_server/tools/__init__.py mcp_server/tests/__init__.py
 ```
 
-- [ ] **Step 2: Write `mcp_server/pyproject.toml`**
+- [ ] **Step 2: Write `backend/mcp_server/pyproject.toml`**
 
 ```toml
 [build-system]
@@ -85,7 +85,7 @@ testpaths = ["tests"]
 - [ ] **Step 3: Install dependencies**
 
 ```bash
-cd mcp_server
+cd backend/mcp_server
 pip install -e ".[dev]"
 ```
 
@@ -103,10 +103,10 @@ git commit -m "chore: scaffold mcp_server Python package"
 ## Task 1: HTTP Client + Test Fixture
 
 **Files:**
-- Create: `mcp_server/client.py`
-- Create: `mcp_server/tests/conftest.py`
+- Create: `backend/mcp_server/client.py`
+- Create: `backend/mcp_server/tests/conftest.py`
 
-- [ ] **Step 1: Write `mcp_server/client.py`**
+- [ ] **Step 1: Write `backend/mcp_server/client.py`**
 
 ```python
 import os
@@ -128,7 +128,7 @@ def _check(resp: httpx.Response) -> None:
         raise RuntimeError(f"{resp.status_code}: {resp.text}")
 ```
 
-- [ ] **Step 2: Write `mcp_server/tests/conftest.py`**
+- [ ] **Step 2: Write `backend/mcp_server/tests/conftest.py`**
 
 ```python
 import pytest
@@ -142,7 +142,7 @@ def http():
 - [ ] **Step 3: Verify import works**
 
 ```bash
-cd mcp_server
+cd backend/mcp_server
 python -c "from client import make_client, _check; print('ok')"
 ```
 
@@ -160,10 +160,10 @@ git commit -m "feat(mcp): add http client and test fixture"
 ## Task 2: Persons Tools
 
 **Files:**
-- Create: `mcp_server/tools/persons.py`
-- Create: `mcp_server/tests/test_persons.py`
+- Create: `backend/mcp_server/tools/persons.py`
+- Create: `backend/mcp_server/tests/test_persons.py`
 
-- [ ] **Step 1: Write failing tests in `mcp_server/tests/test_persons.py`**
+- [ ] **Step 1: Write failing tests in `backend/mcp_server/tests/test_persons.py`**
 
 ```python
 import json
@@ -251,12 +251,12 @@ def test_create_person_raises_on_4xx(http):
 - [ ] **Step 2: Run tests — verify they fail**
 
 ```bash
-cd mcp_server && pytest tests/test_persons.py -v
+cd backend/mcp_server && pytest tests/test_persons.py -v
 ```
 
 Expected: `ImportError: cannot import name 'list_persons' from 'tools.persons'`
 
-- [ ] **Step 3: Write `mcp_server/tools/persons.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/persons.py`**
 
 ```python
 import httpx
@@ -384,7 +384,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run tests — verify they pass**
 
 ```bash
-cd mcp_server && pytest tests/test_persons.py -v
+cd backend/mcp_server && pytest tests/test_persons.py -v
 ```
 
 Expected: `8 passed`
@@ -401,10 +401,10 @@ git commit -m "feat(mcp): add persons tools with tests"
 ## Task 3: Household Tools
 
 **Files:**
-- Create: `mcp_server/tools/households.py`
-- Create: `mcp_server/tests/test_households.py`
+- Create: `backend/mcp_server/tools/households.py`
+- Create: `backend/mcp_server/tests/test_households.py`
 
-- [ ] **Step 1: Write `mcp_server/tests/test_households.py`**
+- [ ] **Step 1: Write `backend/mcp_server/tests/test_households.py`**
 
 ```python
 import json
@@ -473,12 +473,12 @@ def test_get_household_raises_on_404(http):
 - [ ] **Step 2: Run — verify fail**
 
 ```bash
-cd mcp_server && pytest tests/test_households.py -v
+cd backend/mcp_server && pytest tests/test_households.py -v
 ```
 
 Expected: `ImportError`
 
-- [ ] **Step 3: Write `mcp_server/tools/households.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/households.py`**
 
 ```python
 import httpx
@@ -553,7 +553,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run — verify pass**
 
 ```bash
-cd mcp_server && pytest tests/test_households.py -v
+cd backend/mcp_server && pytest tests/test_households.py -v
 ```
 
 Expected: `6 passed`
@@ -570,10 +570,10 @@ git commit -m "feat(mcp): add households tools with tests"
 ## Task 4: Person-Household Tools
 
 **Files:**
-- Create: `mcp_server/tools/person_household.py`
-- Create: `mcp_server/tests/test_person_household.py`
+- Create: `backend/mcp_server/tools/person_household.py`
+- Create: `backend/mcp_server/tests/test_person_household.py`
 
-- [ ] **Step 1: Write `mcp_server/tests/test_person_household.py`**
+- [ ] **Step 1: Write `backend/mcp_server/tests/test_person_household.py`**
 
 ```python
 import pytest
@@ -633,12 +633,12 @@ def test_add_raises_on_404(http):
 - [ ] **Step 2: Run — verify fail**
 
 ```bash
-cd mcp_server && pytest tests/test_person_household.py -v
+cd backend/mcp_server && pytest tests/test_person_household.py -v
 ```
 
 Expected: `ImportError`
 
-- [ ] **Step 3: Write `mcp_server/tools/person_household.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/person_household.py`**
 
 ```python
 import httpx
@@ -698,7 +698,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run — verify pass**
 
 ```bash
-cd mcp_server && pytest tests/test_person_household.py -v
+cd backend/mcp_server && pytest tests/test_person_household.py -v
 ```
 
 Expected: `5 passed`
@@ -715,10 +715,10 @@ git commit -m "feat(mcp): add person-household tools with tests"
 ## Task 5: Relationship Tools
 
 **Files:**
-- Create: `mcp_server/tools/relationships.py`
-- Create: `mcp_server/tests/test_relationships.py`
+- Create: `backend/mcp_server/tools/relationships.py`
+- Create: `backend/mcp_server/tests/test_relationships.py`
 
-- [ ] **Step 1: Write `mcp_server/tests/test_relationships.py`**
+- [ ] **Step 1: Write `backend/mcp_server/tests/test_relationships.py`**
 
 ```python
 import json
@@ -802,12 +802,12 @@ def test_resolve_kinship_with_language(http):
 - [ ] **Step 2: Run — verify fail**
 
 ```bash
-cd mcp_server && pytest tests/test_relationships.py -v
+cd backend/mcp_server && pytest tests/test_relationships.py -v
 ```
 
 Expected: `ImportError`
 
-- [ ] **Step 3: Write `mcp_server/tools/relationships.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/relationships.py`**
 
 ```python
 import httpx
@@ -905,7 +905,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run — verify pass**
 
 ```bash
-cd mcp_server && pytest tests/test_relationships.py -v
+cd backend/mcp_server && pytest tests/test_relationships.py -v
 ```
 
 Expected: `7 passed`
@@ -922,10 +922,10 @@ git commit -m "feat(mcp): add relationship tools with tests"
 ## Task 6: Document Tools
 
 **Files:**
-- Create: `mcp_server/tools/documents.py`
-- Create: `mcp_server/tests/test_documents.py`
+- Create: `backend/mcp_server/tools/documents.py`
+- Create: `backend/mcp_server/tests/test_documents.py`
 
-- [ ] **Step 1: Write `mcp_server/tests/test_documents.py`**
+- [ ] **Step 1: Write `backend/mcp_server/tests/test_documents.py`**
 
 ```python
 import json
@@ -996,12 +996,12 @@ def test_search_documents(http):
 - [ ] **Step 2: Run — verify fail**
 
 ```bash
-cd mcp_server && pytest tests/test_documents.py -v
+cd backend/mcp_server && pytest tests/test_documents.py -v
 ```
 
 Expected: `ImportError`
 
-- [ ] **Step 3: Write `mcp_server/tools/documents.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/documents.py`**
 
 ```python
 import httpx
@@ -1124,7 +1124,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run — verify pass**
 
 ```bash
-cd mcp_server && pytest tests/test_documents.py -v
+cd backend/mcp_server && pytest tests/test_documents.py -v
 ```
 
 Expected: `5 passed`
@@ -1141,10 +1141,10 @@ git commit -m "feat(mcp): add document tools with tests"
 ## Task 7: Fact Tools
 
 **Files:**
-- Create: `mcp_server/tools/facts.py`
-- Create: `mcp_server/tests/test_facts.py`
+- Create: `backend/mcp_server/tools/facts.py`
+- Create: `backend/mcp_server/tests/test_facts.py`
 
-- [ ] **Step 1: Write `mcp_server/tests/test_facts.py`**
+- [ ] **Step 1: Write `backend/mcp_server/tests/test_facts.py`**
 
 ```python
 import json
@@ -1225,12 +1225,12 @@ def test_search_facts(http):
 - [ ] **Step 2: Run — verify fail**
 
 ```bash
-cd mcp_server && pytest tests/test_facts.py -v
+cd backend/mcp_server && pytest tests/test_facts.py -v
 ```
 
 Expected: `ImportError`
 
-- [ ] **Step 3: Write `mcp_server/tools/facts.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/facts.py`**
 
 ```python
 import httpx
@@ -1338,7 +1338,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run — verify pass**
 
 ```bash
-cd mcp_server && pytest tests/test_facts.py -v
+cd backend/mcp_server && pytest tests/test_facts.py -v
 ```
 
 Expected: `6 passed`
@@ -1355,10 +1355,10 @@ git commit -m "feat(mcp): add fact tools with tests"
 ## Task 8: Schema Tools
 
 **Files:**
-- Create: `mcp_server/tools/schemas.py`
-- Create: `mcp_server/tests/test_schemas.py`
+- Create: `backend/mcp_server/tools/schemas.py`
+- Create: `backend/mcp_server/tests/test_schemas.py`
 
-- [ ] **Step 1: Write `mcp_server/tests/test_schemas.py`**
+- [ ] **Step 1: Write `backend/mcp_server/tests/test_schemas.py`**
 
 ```python
 import json
@@ -1453,12 +1453,12 @@ def test_create_schema_raises_on_conflict(http):
 - [ ] **Step 2: Run — verify fail**
 
 ```bash
-cd mcp_server && pytest tests/test_schemas.py -v
+cd backend/mcp_server && pytest tests/test_schemas.py -v
 ```
 
 Expected: `ImportError`
 
-- [ ] **Step 3: Write `mcp_server/tools/schemas.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/schemas.py`**
 
 ```python
 import httpx
@@ -1584,7 +1584,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run — verify pass**
 
 ```bash
-cd mcp_server && pytest tests/test_schemas.py -v
+cd backend/mcp_server && pytest tests/test_schemas.py -v
 ```
 
 Expected: `7 passed`
@@ -1601,10 +1601,10 @@ git commit -m "feat(mcp): add schema tools with tests"
 ## Task 9: Reference Tools
 
 **Files:**
-- Create: `mcp_server/tools/reference.py`
-- Create: `mcp_server/tests/test_reference.py`
+- Create: `backend/mcp_server/tools/reference.py`
+- Create: `backend/mcp_server/tests/test_reference.py`
 
-- [ ] **Step 1: Write `mcp_server/tests/test_reference.py`**
+- [ ] **Step 1: Write `backend/mcp_server/tests/test_reference.py`**
 
 ```python
 import pytest
@@ -1652,12 +1652,12 @@ def test_list_domains_raises_on_500(http):
 - [ ] **Step 2: Run — verify fail**
 
 ```bash
-cd mcp_server && pytest tests/test_reference.py -v
+cd backend/mcp_server && pytest tests/test_reference.py -v
 ```
 
 Expected: `ImportError`
 
-- [ ] **Step 3: Write `mcp_server/tools/reference.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/reference.py`**
 
 ```python
 import httpx
@@ -1705,7 +1705,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run — verify pass**
 
 ```bash
-cd mcp_server && pytest tests/test_reference.py -v
+cd backend/mcp_server && pytest tests/test_reference.py -v
 ```
 
 Expected: `4 passed`
@@ -1722,10 +1722,10 @@ git commit -m "feat(mcp): add reference tools with tests"
 ## Task 10: Audit Tool
 
 **Files:**
-- Create: `mcp_server/tools/audit.py`
-- Create: `mcp_server/tests/test_audit.py`
+- Create: `backend/mcp_server/tools/audit.py`
+- Create: `backend/mcp_server/tests/test_audit.py`
 
-- [ ] **Step 1: Write `mcp_server/tests/test_audit.py`**
+- [ ] **Step 1: Write `backend/mcp_server/tests/test_audit.py`**
 
 ```python
 import json
@@ -1769,12 +1769,12 @@ def test_log_interaction_for_job(http):
 - [ ] **Step 2: Run — verify fail**
 
 ```bash
-cd mcp_server && pytest tests/test_audit.py -v
+cd backend/mcp_server && pytest tests/test_audit.py -v
 ```
 
 Expected: `ImportError`
 
-- [ ] **Step 3: Write `mcp_server/tools/audit.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/audit.py`**
 
 ```python
 import httpx
@@ -1824,7 +1824,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run — verify pass**
 
 ```bash
-cd mcp_server && pytest tests/test_audit.py -v
+cd backend/mcp_server && pytest tests/test_audit.py -v
 ```
 
 Expected: `2 passed`
@@ -1841,13 +1841,13 @@ git commit -m "feat(mcp): add audit tool with tests"
 ## Task 11: File Tools
 
 **Files:**
-- Create: `mcp_server/tools/files.py`
-- Create: `mcp_server/tests/test_files.py`
+- Create: `backend/mcp_server/tools/files.py`
+- Create: `backend/mcp_server/tests/test_files.py`
 
 > **Note on `save_file`:** The Scala endpoint accepts either raw body or multipart. We send raw body bytes (decoded from base64) with `fileName`, `mimeType`, `personId`, `householdId` as query params — simpler than multipart and fully supported.
 > **Note on `get_file`:** The endpoint returns raw bytes. The tool base64-encodes them for the MCP response.
 
-- [ ] **Step 1: Write `mcp_server/tests/test_files.py`**
+- [ ] **Step 1: Write `backend/mcp_server/tests/test_files.py`**
 
 ```python
 import base64
@@ -1916,12 +1916,12 @@ def test_save_file_raises_on_400(http):
 - [ ] **Step 2: Run — verify fail**
 
 ```bash
-cd mcp_server && pytest tests/test_files.py -v
+cd backend/mcp_server && pytest tests/test_files.py -v
 ```
 
 Expected: `ImportError`
 
-- [ ] **Step 3: Write `mcp_server/tools/files.py`**
+- [ ] **Step 3: Write `backend/mcp_server/tools/files.py`**
 
 ```python
 import base64
@@ -2002,7 +2002,7 @@ def register(mcp, http: httpx.Client) -> None:
 - [ ] **Step 4: Run — verify pass**
 
 ```bash
-cd mcp_server && pytest tests/test_files.py -v
+cd backend/mcp_server && pytest tests/test_files.py -v
 ```
 
 Expected: `5 passed`
@@ -2019,9 +2019,9 @@ git commit -m "feat(mcp): add file tools with tests"
 ## Task 12: Server Entry Point
 
 **Files:**
-- Create: `mcp_server/server.py`
+- Create: `backend/mcp_server/server.py`
 
-- [ ] **Step 1: Write `mcp_server/server.py`**
+- [ ] **Step 1: Write `backend/mcp_server/server.py`**
 
 ```python
 from mcp.server.fastmcp import FastMCP
@@ -2052,7 +2052,7 @@ if __name__ == "__main__":
 - [ ] **Step 2: Verify server imports without error**
 
 ```bash
-cd mcp_server && python -c "from server import mcp; print('server ok')"
+cd backend/mcp_server && python -c "from server import mcp; print('server ok')"
 ```
 
 Expected output: `server ok`
@@ -2060,7 +2060,7 @@ Expected output: `server ok`
 - [ ] **Step 3: Run full test suite**
 
 ```bash
-cd mcp_server && pytest tests/ -v
+cd backend/mcp_server && pytest tests/ -v
 ```
 
 Expected: all tests pass (60+ total across all modules)
@@ -2079,7 +2079,7 @@ git commit -m "feat(mcp): add server entry point, wire all 43 tools"
 - [ ] **Step 1: Run full test suite one final time**
 
 ```bash
-cd mcp_server && pytest tests/ -v --tb=short
+cd backend/mcp_server && pytest tests/ -v --tb=short
 ```
 
 Expected: all tests pass, zero failures
@@ -2087,7 +2087,7 @@ Expected: all tests pass, zero failures
 - [ ] **Step 2: Verify server can be described via MCP CLI (optional smoke test)**
 
 ```bash
-cd mcp_server && python server.py &
+cd backend/mcp_server && python server.py &
 # In another terminal or after a brief pause:
 # mcp list-tools --server "python server.py"  (if mcp CLI supports it)
 kill %1

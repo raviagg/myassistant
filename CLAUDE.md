@@ -31,7 +31,7 @@ to Claude, which orchestrates reads and writes conversationally.
 ```
 myassistant/
   backend/
-    http_server/
+    http_server/              Scala HTTP server (ZIO + zio-http)
       schema/
         01_spine.sql              person, household, person_household
         02_relationships.sql      relationship, kinship_alias
@@ -40,6 +40,7 @@ myassistant/
         05_document.sql           document
         06_fact.sql               fact, current_facts view
         07_audit.sql              audit_log
+    mcp_server/               Python MCP server (FastMCP + httpx)
   CLAUDE.md                   this file
   README.md                   project overview
 ```
