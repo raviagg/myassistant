@@ -366,3 +366,65 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
     countByPerson should be >= 2L
     countBySource shouldBe 2L
   }
+
+  test("count — filters by householdId") {
+    val count = run {
+      for
+        householdEnv <- (ZLayer.succeed(sharedPool) >>> HouseholdRepository.live).build
+        docEnv       <- (ZLayer.succeed(sharedPool) >>> DocumentRepository.live).build
+        household    <- householdEnv.get[HouseholdRepository]
+                          .create(CreateHousehold("Count Household"))
+                          .provideEnvironment(ZEnvironment(sharedPool))
+        _            <- docEnv.get[DocumentRepository]
+                          .create(CreateDocument(
+                            personId      = None,
+                            householdId   = Some(household.id),
+                            contentText   = "Household count doc",
+                            sourceTypeId  = userInputSourceTypeId,
+                            embedding     = emptyEmbedding,
+                            files         = Json.arr(),
+                            supersedesIds = Nil,
+                          ))
+                          .provideEnvironment(ZEnvironment(sharedPool))
+        c <- docEnv.get[DocumentRepository].count(None, Some(household.id), None).provideEnvironment(ZEnvironment(sharedPool))
+      yield c
+    }
+    count shouldBe 1L
+  }
+
+  test("searchBySimilarity — returns matching documents, supports personId filter") {
+    val nonZeroEmbedding = 0.1 :: List.fill(1535)(0.0)
+    val (allMatches, personAMatches, personAId) = run {
+      for
+        personEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        docEnv    <- (ZLayer.succeed(sharedPool) >>> DocumentRepository.live).build
+        personA   <- personEnv.get[PersonRepository]
+                       .create(CreatePerson("Search Person A", Gender.Male, None, None, None))
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        personB   <- personEnv.get[PersonRepository]
+                       .create(CreatePerson("Search Person B", Gender.Female, None, None, None))
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        _         <- docEnv.get[DocumentRepository]
+                       .create(CreateDocument(
+                         personId = Some(personA.id), householdId = None,
+                         contentText = "Searchable doc A", sourceTypeId = userInputSourceTypeId,
+                         embedding = nonZeroEmbedding, files = Json.arr(), supersedesIds = Nil))
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        _         <- docEnv.get[DocumentRepository]
+                       .create(CreateDocument(
+                         personId = Some(personB.id), householdId = None,
+                         contentText = "Searchable doc B", sourceTypeId = userInputSourceTypeId,
+                         embedding = nonZeroEmbedding, files = Json.arr(), supersedesIds = Nil))
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        all       <- docEnv.get[DocumentRepository]
+                       .searchBySimilarity(nonZeroEmbedding, None, None, None, 10, 0.5)
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        filtered  <- docEnv.get[DocumentRepository]
+                       .searchBySimilarity(nonZeroEmbedding, Some(personA.id), None, None, 10, 0.5)
+                       .provideEnvironment(ZEnvironment(sharedPool))
+      yield (all, filtered, personA.id)
+    }
+    allMatches should not be empty
+    personAMatches should not be empty
+    personAMatches.forall { case (doc, _) => doc.personId.contains(personAId) } shouldBe true
+  }

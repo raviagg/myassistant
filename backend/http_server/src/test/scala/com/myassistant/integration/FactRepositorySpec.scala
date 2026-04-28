@@ -4,8 +4,8 @@ import com.dimafeng.testcontainers.PostgreSQLContainer
 import com.dimafeng.testcontainers.scalatest.TestContainerForAll
 import com.myassistant.config.DatabaseConfig
 import com.myassistant.db.{DatabaseModule, MigrationRunner}
-import com.myassistant.db.repositories.{DocumentRepository, FactRepository, PersonRepository}
-import com.myassistant.domain.{CreateDocument, CreateFact, CreatePerson, Gender, OperationType}
+import com.myassistant.db.repositories.{DocumentRepository, FactRepository, HouseholdRepository, PersonRepository}
+import com.myassistant.domain.{CreateDocument, CreateFact, CreateHousehold, CreatePerson, Gender, OperationType}
 import com.myassistant.errors.AppError
 import io.circe.Json
 import org.scalatest.funsuite.AnyFunSuite
@@ -81,7 +81,8 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
 
   private val emptyEmbedding = List.fill(1536)(0.0)
 
-  private def seedPrerequisites(): (UUID, UUID) =
+  // Returns (docId, schemaId, personId, domainId, entityType)
+  private def seedFull(): (UUID, UUID, UUID, UUID, String) =
     run {
       for
         personEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
@@ -89,14 +90,16 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
         person    <- personEnv.get[PersonRepository]
                        .create(CreatePerson("Fact Test Person", Gender.Male, None, None, None))
                        .provideEnvironment(ZEnvironment(sharedPool))
-        schemaIdStr <- transaction(
-                         sql"SELECT id::text FROM entity_type_schema LIMIT 1"
-                           .query[String].selectOne
+        schemaRow   <- transaction(
+                         sql"SELECT id::text, domain_id::text, entity_type FROM entity_type_schema LIMIT 1"
+                           .query[(String, String, String)].selectOne
                        ).mapError(AppError.DatabaseError(_))
                         .flatMap(ZIO.fromOption(_).mapError(_ =>
                           AppError.InternalError(new RuntimeException("No schema seed found"))))
                         .provideEnvironment(ZEnvironment(sharedPool))
+        (schemaIdStr, domainIdStr, entityType) = schemaRow
         schemaId     = UUID.fromString(schemaIdStr)
+        domainId     = UUID.fromString(domainIdStr)
         sourceTypeIdStr <- transaction(
                              sql"SELECT id::text FROM source_type WHERE name = 'user_input'".query[String].selectOne
                            ).mapError(AppError.DatabaseError(_))
@@ -115,8 +118,12 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
                            supersedesIds = Nil,
                          ))
                          .provideEnvironment(ZEnvironment(sharedPool))
-      yield (doc.id, schemaId)
+      yield (doc.id, schemaId, person.id, domainId, entityType)
     }
+
+  private def seedPrerequisites(): (UUID, UUID) =
+    val (docId, schemaId, _, _, _) = seedFull()
+    (docId, schemaId)
 
   // ── Tests ─────────────────────────────────────────────────────────────────
 
@@ -232,4 +239,155 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
     fact.operationType       shouldBe OperationType.Delete
     found.isDefined          shouldBe true
     found.get.operationType  shouldBe OperationType.Delete
+  }
+
+  test("findCurrentByEntityInstance — returns current merged state, None after delete") {
+    val (docId, schemaId) = seedPrerequisites()
+    val entityId          = UUID.randomUUID()
+    val (current, afterDelete) = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
+        repo     = repoEnv.get[FactRepository]
+        _       <- repo.create(CreateFact(docId, schemaId, entityId, OperationType.Create,
+                     Json.obj("title" -> Json.fromString("Buy groceries")), emptyEmbedding))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        _       <- repo.create(CreateFact(docId, schemaId, entityId, OperationType.Update,
+                     Json.obj("status" -> Json.fromString("done")), emptyEmbedding))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        current <- repo.findCurrentByEntityInstance(entityId).provideEnvironment(ZEnvironment(sharedPool))
+        deletedEntityId = UUID.randomUUID()
+        _       <- repo.create(CreateFact(docId, schemaId, deletedEntityId, OperationType.Create,
+                     Json.obj("title" -> Json.fromString("Deleted task")), emptyEmbedding))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        _       <- repo.create(CreateFact(docId, schemaId, deletedEntityId, OperationType.Delete,
+                     Json.obj(), emptyEmbedding))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        afterDelete <- repo.findCurrentByEntityInstance(deletedEntityId).provideEnvironment(ZEnvironment(sharedPool))
+      yield (current, afterDelete)
+    }
+    current.isDefined              shouldBe true
+    current.get.entityInstanceId  shouldBe entityId
+    current.get.fields.noSpaces   should include("done")
+    afterDelete                    shouldBe None
+  }
+
+  test("listCurrent — no filters returns all non-deleted entity states") {
+    val (docId, schemaId) = seedPrerequisites()
+    val entityId          = UUID.randomUUID()
+    val facts = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
+        repo     = repoEnv.get[FactRepository]
+        _       <- repo.create(CreateFact(docId, schemaId, entityId, OperationType.Create,
+                     Json.obj("title" -> Json.fromString("Unfiltered task")), emptyEmbedding))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.listCurrent(None, None, None, None, 100, 0).provideEnvironment(ZEnvironment(sharedPool))
+      yield list
+    }
+    facts should not be empty
+    facts.map(_.entityInstanceId) should contain(entityId)
+  }
+
+  test("listCurrent — filtered by personId returns only that person's facts") {
+    val (docId, schemaId, personId, _, _) = seedFull()
+    val entityId                           = UUID.randomUUID()
+    val facts = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
+        repo     = repoEnv.get[FactRepository]
+        _       <- repo.create(CreateFact(docId, schemaId, entityId, OperationType.Create,
+                     Json.obj("title" -> Json.fromString("Person-filtered task")), emptyEmbedding))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.listCurrent(Some(personId), None, None, None, 100, 0).provideEnvironment(ZEnvironment(sharedPool))
+      yield list
+    }
+    facts should not be empty
+    facts.map(_.entityInstanceId) should contain(entityId)
+  }
+
+  test("listCurrent — filtered by entityType returns only matching facts") {
+    val (docId, schemaId, _, _, entityType) = seedFull()
+    val entityId                             = UUID.randomUUID()
+    val facts = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
+        repo     = repoEnv.get[FactRepository]
+        _       <- repo.create(CreateFact(docId, schemaId, entityId, OperationType.Create,
+                     Json.obj("title" -> Json.fromString("EntityType-filtered task")), emptyEmbedding))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.listCurrent(None, None, None, Some(entityType), 100, 0).provideEnvironment(ZEnvironment(sharedPool))
+      yield list
+    }
+    facts should not be empty
+    facts.map(_.entityInstanceId) should contain(entityId)
+  }
+
+  test("countCurrent — returns correct total and filtered counts") {
+    val (docId, schemaId, personId, domainId, _) = seedFull()
+    val entityId                                  = UUID.randomUUID()
+    val (total, byPerson, byDomain, byPersonAndDomain) = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
+        repo     = repoEnv.get[FactRepository]
+        _       <- repo.create(CreateFact(docId, schemaId, entityId, OperationType.Create,
+                     Json.obj("title" -> Json.fromString("Counted task")), emptyEmbedding))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        total              <- repo.countCurrent(None, None, None, None).provideEnvironment(ZEnvironment(sharedPool))
+        byPerson           <- repo.countCurrent(Some(personId), None, None, None).provideEnvironment(ZEnvironment(sharedPool))
+        byDomain           <- repo.countCurrent(None, None, Some(domainId), None).provideEnvironment(ZEnvironment(sharedPool))
+        byPersonAndDomain  <- repo.countCurrent(Some(personId), None, Some(domainId), None).provideEnvironment(ZEnvironment(sharedPool))
+      yield (total, byPerson, byDomain, byPersonAndDomain)
+    }
+    total              should be >= 1L
+    byPerson           should be >= 1L
+    byDomain           should be >= 1L
+    byPersonAndDomain  should be >= 1L
+  }
+
+  test("listCurrent — filtered by householdId returns only that household's facts") {
+    run {
+      for
+        schemaRow <- transaction(
+                       sql"SELECT id::text, entity_type FROM entity_type_schema LIMIT 1"
+                         .query[(String, String)].selectOne
+                     ).mapError(AppError.DatabaseError(_))
+                      .flatMap(ZIO.fromOption(_).mapError(_ =>
+                        AppError.InternalError(new RuntimeException("No schema found"))))
+                      .provideEnvironment(ZEnvironment(sharedPool))
+        (schemaIdStr, _) = schemaRow
+        schemaId          = UUID.fromString(schemaIdStr)
+        sourceTypeIdStr <- transaction(
+                             sql"SELECT id::text FROM source_type WHERE name = 'user_input'".query[String].selectOne
+                           ).mapError(AppError.DatabaseError(_))
+                            .flatMap(ZIO.fromOption(_).mapError(_ =>
+                              AppError.InternalError(new RuntimeException("No source type found"))))
+                            .provideEnvironment(ZEnvironment(sharedPool))
+        sourceTypeId      = UUID.fromString(sourceTypeIdStr)
+        householdEnv     <- (ZLayer.succeed(sharedPool) >>> HouseholdRepository.live).build
+        docEnv           <- (ZLayer.succeed(sharedPool) >>> DocumentRepository.live).build
+        factEnv          <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
+        household        <- householdEnv.get[HouseholdRepository]
+                              .create(CreateHousehold("Fact Household"))
+                              .provideEnvironment(ZEnvironment(sharedPool))
+        doc              <- docEnv.get[DocumentRepository]
+                              .create(CreateDocument(
+                                personId      = None,
+                                householdId   = Some(household.id),
+                                contentText   = "Household fact doc",
+                                sourceTypeId  = sourceTypeId,
+                                embedding     = emptyEmbedding,
+                                files         = Json.arr(),
+                                supersedesIds = Nil,
+                              ))
+                              .provideEnvironment(ZEnvironment(sharedPool))
+        entityId          = UUID.randomUUID()
+        _                <- factEnv.get[FactRepository]
+                              .create(CreateFact(doc.id, schemaId, entityId, OperationType.Create,
+                                Json.obj("title" -> Json.fromString("Household task")), emptyEmbedding))
+                              .provideEnvironment(ZEnvironment(sharedPool))
+        list             <- factEnv.get[FactRepository]
+                              .listCurrent(None, Some(household.id), None, None, 100, 0)
+                              .provideEnvironment(ZEnvironment(sharedPool))
+      yield list.map(_.entityInstanceId) should contain(entityId)
+    }
   }

@@ -288,3 +288,38 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
     updated.isDefined        shouldBe true
     updated.get.fullName     shouldBe "EmptyPatch"
   }
+
+  test("search — with name and gender filters covers filter lambdas and reduce path") {
+    val results = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        repo     = repoEnv.get[PersonRepository]
+        _       <- repo.create(CreatePerson("Alice Finder", Gender.Female, None, None, None))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        _       <- repo.create(CreatePerson("Bob Irrelevant", Gender.Male, None, None, None))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.search(Some("Alice"), Some("female"), None, None, None, None, 10, 0)
+                     .provideEnvironment(ZEnvironment(sharedPool))
+      yield list
+    }
+    results should not be empty
+    results.forall(_.fullName.contains("Alice")) shouldBe true
+  }
+
+  test("update — updates userIdentifier field") {
+    val updated = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        repo     = repoEnv.get[PersonRepository]
+        created <- repo.create(CreatePerson("UpdateUID", Gender.Male, None, None, None))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        updated <- repo.update(
+                     created.id,
+                     UpdatePerson(fullName = None, gender = None, dateOfBirth = None,
+                                  preferredName = None, userIdentifier = Some("new-uid"))
+                   ).provideEnvironment(ZEnvironment(sharedPool))
+      yield updated
+    }
+    updated.isDefined                shouldBe true
+    updated.get.userIdentifier       shouldBe Some("new-uid")
+  }
