@@ -49,7 +49,7 @@ BEGIN
   NEW.mandatory_fields := ARRAY(
     SELECT f->>'name'
     FROM jsonb_array_elements(NEW.field_definitions) f
-    WHERE (f->>'required')::boolean = true
+    WHERE (f->>'mandatory')::boolean = true
   );
   RETURN NEW;
 END;
@@ -91,15 +91,15 @@ INSERT INTO entity_type_schema (
 SELECT id, 'insurance_card', 1,
   'Health insurance card details including provider, plan name, deductible, premium and coverage dates.',
   '[
-    {"name":"provider",    "type":"text",   "required":true,  "description":"Insurance provider company name. Example: BlueCross, Aetna, UnitedHealth"},
-    {"name":"plan_name",   "type":"text",   "required":false, "description":"Name of the specific insurance plan. Example: BlueShield PPO 500, Gold Plan"},
-    {"name":"member_id",   "type":"text",   "required":false, "description":"Member ID or policy number printed on the insurance card. Example: XYZ123456789"},
-    {"name":"group_number","type":"text",   "required":false, "description":"Group number on the insurance card, typically from employer. Example: GRP-98765"},
-    {"name":"deductible",  "type":"number", "required":false, "description":"Annual deductible amount in USD. Example: 500, 1500, 3000"},
-    {"name":"premium",     "type":"number", "required":false, "description":"Monthly premium amount in USD. Example: 450, 820"},
-    {"name":"valid_from",  "type":"date",   "required":false, "description":"Date coverage started. Example: 2024-01-01"},
-    {"name":"valid_to",    "type":"date",   "required":false, "description":"Date coverage ends. Example: 2024-12-31"},
-    {"name":"card_image",  "type":"file",   "required":false, "description":"Photo or scan of the physical insurance card front"}
+    {"name":"provider",    "type":"text",   "mandatory":true,  "description":"Insurance provider company name. Example: BlueCross, Aetna, UnitedHealth"},
+    {"name":"plan_name",   "type":"text",   "mandatory":false, "description":"Name of the specific insurance plan. Example: BlueShield PPO 500, Gold Plan"},
+    {"name":"member_id",   "type":"text",   "mandatory":false, "description":"Member ID or policy number printed on the insurance card. Example: XYZ123456789"},
+    {"name":"group_number","type":"text",   "mandatory":false, "description":"Group number on the insurance card, typically from employer. Example: GRP-98765"},
+    {"name":"deductible",  "type":"number", "mandatory":false, "description":"Annual deductible amount in USD. Example: 500, 1500, 3000"},
+    {"name":"premium",     "type":"number", "mandatory":false, "description":"Monthly premium amount in USD. Example: 450, 820"},
+    {"name":"valid_from",  "type":"date",   "mandatory":false, "description":"Date coverage started. Example: 2024-01-01"},
+    {"name":"valid_to",    "type":"date",   "mandatory":false, "description":"Date coverage ends. Example: 2024-12-31"},
+    {"name":"card_image",  "type":"file",   "mandatory":false, "description":"Photo or scan of the physical insurance card front"}
   ]'::jsonb
 FROM domain WHERE name = 'health';
 
@@ -110,12 +110,12 @@ INSERT INTO entity_type_schema (
 SELECT id, 'todo_item', 1,
   'A task or reminder to be completed, either one-off or recurring.',
   '[
-    {"name":"title",      "type":"text",    "required":true,  "description":"Short description of what needs to be done. Example: Renew passport"},
-    {"name":"status",     "type":"text",    "required":true,  "description":"Current status of the task. Allowed values: open, in_progress, done"},
-    {"name":"due_date",   "type":"date",    "required":false, "description":"Date by which the task should be completed. Example: 2024-06-01"},
-    {"name":"priority",   "type":"text",    "required":false, "description":"Importance level. Allowed values: low, medium, high"},
-    {"name":"is_recurring","type":"boolean","required":false, "description":"Whether this task repeats on a schedule"},
-    {"name":"recurrence", "type":"text",    "required":false, "description":"Recurrence pattern if is_recurring is true. Example: daily, weekly"}
+    {"name":"title",      "type":"text",    "mandatory":true,  "description":"Short description of what needs to be done. Example: Renew passport"},
+    {"name":"status",     "type":"text",    "mandatory":true,  "description":"Current status of the task. Allowed values: open, in_progress, done"},
+    {"name":"due_date",   "type":"date",    "mandatory":false, "description":"Date by which the task should be completed. Example: 2024-06-01"},
+    {"name":"priority",   "type":"text",    "mandatory":false, "description":"Importance level. Allowed values: low, medium, high"},
+    {"name":"is_recurring","type":"boolean","mandatory":false, "description":"Whether this task repeats on a schedule"},
+    {"name":"recurrence", "type":"text",    "mandatory":false, "description":"Recurrence pattern if is_recurring is true. Example: daily, weekly"}
   ]'::jsonb
 FROM domain WHERE name = 'todo';
 
@@ -126,11 +126,11 @@ INSERT INTO entity_type_schema (
 SELECT id, 'job', 1,
   'An employment record capturing a job held by a person.',
   '[
-    {"name":"employer",   "type":"text",   "required":true,  "description":"Name of the employer or company. Example: Acme Corp, Google"},
-    {"name":"role",       "type":"text",   "required":false, "description":"Job title or role at the employer. Example: Senior Engineer"},
-    {"name":"salary",     "type":"number", "required":false, "description":"Annual salary in USD. Example: 120000"},
-    {"name":"start_date", "type":"date",   "required":false, "description":"Date employment started. Example: 2022-03-01"},
-    {"name":"end_date",   "type":"date",   "required":false, "description":"Date employment ended. Null if currently employed"}
+    {"name":"employer",   "type":"text",   "mandatory":true,  "description":"Name of the employer or company. Example: Acme Corp, Google"},
+    {"name":"role",       "type":"text",   "mandatory":false, "description":"Job title or role at the employer. Example: Senior Engineer"},
+    {"name":"salary",     "type":"number", "mandatory":false, "description":"Annual salary in USD. Example: 120000"},
+    {"name":"start_date", "type":"date",   "mandatory":false, "description":"Date employment started. Example: 2022-03-01"},
+    {"name":"end_date",   "type":"date",   "mandatory":false, "description":"Date employment ended. Null if currently employed"}
   ]'::jsonb
 FROM domain WHERE name = 'employment';
 
@@ -141,12 +141,12 @@ INSERT INTO entity_type_schema (
 SELECT id, 'payslip', 1,
   'A payslip record capturing income for a specific pay period.',
   '[
-    {"name":"employer",     "type":"text",   "required":true,  "description":"Name of the employer who issued this payslip. Example: Acme Corp"},
-    {"name":"pay_period",   "type":"date",   "required":true,  "description":"The date or month this payslip covers. Example: 2024-03-31"},
-    {"name":"gross_income", "type":"number", "required":true,  "description":"Total gross income before deductions in USD. Example: 10000"},
-    {"name":"tax",          "type":"number", "required":false, "description":"Total tax deducted in USD. Example: 2200"},
-    {"name":"net_income",   "type":"number", "required":false, "description":"Take-home pay after all deductions in USD. Example: 7800"},
-    {"name":"payslip_file", "type":"file",   "required":false, "description":"The original payslip document — PDF or image"}
+    {"name":"employer",     "type":"text",   "mandatory":true,  "description":"Name of the employer who issued this payslip. Example: Acme Corp"},
+    {"name":"pay_period",   "type":"date",   "mandatory":true,  "description":"The date or month this payslip covers. Example: 2024-03-31"},
+    {"name":"gross_income", "type":"number", "mandatory":true,  "description":"Total gross income before deductions in USD. Example: 10000"},
+    {"name":"tax",          "type":"number", "mandatory":false, "description":"Total tax deducted in USD. Example: 2200"},
+    {"name":"net_income",   "type":"number", "mandatory":false, "description":"Take-home pay after all deductions in USD. Example: 7800"},
+    {"name":"payslip_file", "type":"file",   "mandatory":false, "description":"The original payslip document — PDF or image"}
   ]'::jsonb
 FROM domain WHERE name = 'finance';
 

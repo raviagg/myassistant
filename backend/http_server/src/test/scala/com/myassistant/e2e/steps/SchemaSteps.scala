@@ -37,7 +37,7 @@ class SchemaSteps extends ScalaDsl with EN with Matchers:
     (domainName: String, entityType: String) =>
       val domainId = domainIdByName.getOrElse(domainName, fail(s"Unknown domain: $domainName"))
       val body =
-        s"""{"domainId":"$domainId","entityType":"$entityType","description":"A schema for $entityType","fieldDefinitions":[{"name":"value","type":"text","required":true}]}"""
+        s"""{"domainId":"$domainId","entityType":"$entityType","description":"A schema for $entityType","fieldDefinitions":[{"name":"value","type":"text","mandatory":true}]}"""
       doPost("/api/v1/schemas", body)
   }
 

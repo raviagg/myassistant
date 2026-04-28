@@ -28,14 +28,19 @@ object PersonRoutes:
     Routes(
       Method.GET / "api" / "v1" / "persons" ->
         handler { (req: Request) =>
-          val householdId = req.queryParam("householdId")
-            .flatMap(s => Try(UUID.fromString(s)).toOption)
-          ZIO.serviceWithZIO[PersonService](_.listPersons(householdId))
+          import java.time.LocalDate
+          val name            = req.queryParam("name")
+          val gender          = req.queryParam("gender")
+          val dateOfBirth     = req.queryParam("dateOfBirth").flatMap(s => scala.util.Try(LocalDate.parse(s)).toOption)
+          val dateOfBirthFrom = req.queryParam("dateOfBirthFrom").flatMap(s => scala.util.Try(LocalDate.parse(s)).toOption)
+          val dateOfBirthTo   = req.queryParam("dateOfBirthTo").flatMap(s => scala.util.Try(LocalDate.parse(s)).toOption)
+          val householdId     = req.queryParam("householdId").flatMap(s => Try(UUID.fromString(s)).toOption)
+          val limit           = req.queryParam("limit").flatMap(_.toIntOption).getOrElse(50)
+          val offset          = req.queryParam("offset").flatMap(_.toIntOption).getOrElse(0)
+          ZIO.serviceWithZIO[PersonService](_.searchPersons(name, gender, dateOfBirth, dateOfBirthFrom, dateOfBirthTo, householdId, limit, offset))
             .foldZIO(
               err     => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
               persons =>
-                val offset = req.queryParam("offset").flatMap(_.toIntOption).getOrElse(0)
-                val limit  = req.queryParam("limit").flatMap(_.toIntOption).getOrElse(50)
                 ZIO.succeed(Response.json(
                   PagedResponse(
                     items  = persons.map(PersonResponse.fromDomain),

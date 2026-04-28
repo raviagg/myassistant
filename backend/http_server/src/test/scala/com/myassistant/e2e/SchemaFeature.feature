@@ -36,7 +36,7 @@ Feature: Schema Governance
       """
       {
         "description": "Updated todo item schema",
-        "fieldDefinitions": [{"name": "title", "type": "text", "required": true}, {"name": "status", "type": "text", "required": false}, {"name": "notes", "type": "text", "required": false}]
+        "fieldDefinitions": [{"name": "title", "type": "text", "mandatory": true}, {"name": "status", "type": "text", "mandatory": false}, {"name": "notes", "type": "text", "mandatory": false}]
       }
       """
     Then the response status is 201

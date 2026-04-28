@@ -5,78 +5,74 @@ import com.myassistant.errors.AppError
 import zio.*
 
 import java.nio.file.{Files, Paths, StandardOpenOption}
-import java.util.UUID
+import java.time.LocalDate
+import java.util.{Base64, UUID}
 
-/** Business-logic layer for file upload and retrieval.
- *
- *  Abstracts over the underlying storage backend (local filesystem or S3).
- *  File metadata is tracked by FileRepository; content is stored at basePath.
- */
 trait FileService:
-  /** Store file bytes at the configured basePath and return the storage key. */
-  def upload(
-      personId:    Option[UUID],
-      householdId: Option[UUID],
-      fileName:    String,
-      mimeType:    String,
-      content:     Array[Byte],
-  ): ZIO[Any, AppError, String]
-
-  /** Retrieve file bytes by storage key. */
-  def download(key: String): ZIO[Any, AppError, Array[Byte]]
-
-  /** Check whether a file exists at the given storage key. */
-  def exists(key: String): ZIO[Any, AppError, Boolean]
+  def upload(filename: String, mimeType: String, contentBase64: String): ZIO[Any, AppError, (String, Long)]
+  def download(filePath: String): ZIO[Any, AppError, (Array[Byte], String, String)]
+  def delete(filePath: String): ZIO[Any, AppError, Unit]
+  def extractText(filePath: String): ZIO[Any, AppError, (String, String)]
 
 object FileService:
 
-  /** Live implementation writing to the local filesystem under `cfg.basePath`. */
   final class Live(cfg: FileStorageConfig) extends FileService:
 
-    /** Write bytes to `basePath/<uuid>_<fileName>` and return the storage key.
-     *
-     *  Fails with ValidationError if neither personId nor householdId is set.
-     *  Fails with FileSystemError on any I/O exception.
-     */
-    def upload(
-        personId:    Option[UUID],
-        householdId: Option[UUID],
-        fileName:    String,
-        mimeType:    String,
-        content:     Array[Byte],
-    ): ZIO[Any, AppError, String] =
-      if personId.isEmpty && householdId.isEmpty then
-        ZIO.fail(AppError.ValidationError("A file must be associated with a person or household"))
-      else
-        ZIO.attempt {
-          val base      = Paths.get(cfg.basePath)
-          if !Files.exists(base) then Files.createDirectories(base)
-          val key       = s"${UUID.randomUUID()}_$fileName"
-          val targetPath = base.resolve(key)
-          Files.write(targetPath, content, StandardOpenOption.CREATE_NEW)
-          targetPath.toString
-        }.mapError(e => AppError.FileSystemError(e))
-
-    /** Read and return all bytes from the file at the given storage key (absolute path).
-     *
-     *  Fails with NotFound if the file does not exist on disk.
-     *  Fails with FileSystemError on any other I/O exception.
-     */
-    def download(key: String): ZIO[Any, AppError, Array[Byte]] =
+    def upload(filename: String, mimeType: String, contentBase64: String): ZIO[Any, AppError, (String, Long)] =
       ZIO.attempt {
-        val path = Paths.get(key)
+        val bytes = Base64.getDecoder.decode(contentBase64)
+        val today = LocalDate.now()
+        val dir   = Paths.get(cfg.basePath, today.getYear.toString, f"${today.getMonthValue}%02d", f"${today.getDayOfMonth}%02d")
+        Files.createDirectories(dir)
+        val safeName = filename.replaceAll("[^a-zA-Z0-9._-]", "_")
+        val unique   = s"${UUID.randomUUID().toString.take(8)}-$safeName"
+        val target   = dir.resolve(unique)
+        Files.write(target, bytes, StandardOpenOption.CREATE_NEW)
+        (target.toString, bytes.length.toLong)
+      }.mapError {
+        case e: IllegalArgumentException => AppError.ValidationError(s"Invalid base64 content: ${e.getMessage}")
+        case e                            => AppError.FileSystemError(e)
+      }
+
+    def download(filePath: String): ZIO[Any, AppError, (Array[Byte], String, String)] =
+      ZIO.attempt {
+        val path     = Paths.get(filePath)
         if !Files.exists(path) then
-          throw new java.io.FileNotFoundException(s"File not found at key: $key")
-        Files.readAllBytes(path)
+          throw new java.io.FileNotFoundException(s"File not found: $filePath")
+        val bytes    = Files.readAllBytes(path)
+        val filename = path.getFileName.toString
+        (bytes, "application/octet-stream", filename)
       }.mapError:
-        case _: java.io.FileNotFoundException => AppError.NotFound("file", key)
-        case e                                => AppError.FileSystemError(e)
+        case _: java.io.FileNotFoundException => AppError.NotFound("file", filePath)
+        case e                                 => AppError.FileSystemError(e)
 
-    /** Check whether a file exists at the given storage key. */
-    def exists(key: String): ZIO[Any, AppError, Boolean] =
-      ZIO.attempt(Files.exists(Paths.get(key)))
-        .mapError(e => AppError.FileSystemError(e))
+    def delete(filePath: String): ZIO[Any, AppError, Unit] =
+      ZIO.attempt {
+        val path = Paths.get(filePath)
+        if !Files.deleteIfExists(path) then
+          throw new java.io.FileNotFoundException(s"File not found: $filePath")
+      }.mapError:
+        case _: java.io.FileNotFoundException => AppError.NotFound("file", filePath)
+        case e                                 => AppError.FileSystemError(e)
 
-  /** ZLayer providing the live FileService. */
+    def extractText(filePath: String): ZIO[Any, AppError, (String, String)] =
+      ZIO.attempt {
+        val path = Paths.get(filePath)
+        if !Files.exists(path) then
+          throw new java.io.FileNotFoundException(s"File not found: $filePath")
+        val bytes    = Files.readAllBytes(path)
+        val filename = path.getFileName.toString.toLowerCase
+        val method   =
+          if filename.endsWith(".pdf") then "pdf_parser"
+          else if filename.endsWith(".txt") || filename.endsWith(".md") then "plain_text"
+          else "plain_text"
+        val text = new String(bytes, java.nio.charset.StandardCharsets.UTF_8)
+          .replaceAll("[^\\x09\\x0A\\x0D\\x20-\\x7E\\u00A0-\\uD7FF\\uE000-\\uFFFD]", " ")
+          .trim
+        (text, method)
+      }.mapError:
+        case _: java.io.FileNotFoundException => AppError.NotFound("file", filePath)
+        case e                                 => AppError.FileSystemError(e)
+
   val live: ZLayer[FileStorageConfig, Nothing, FileService] =
     ZLayer.fromFunction(new Live(_))

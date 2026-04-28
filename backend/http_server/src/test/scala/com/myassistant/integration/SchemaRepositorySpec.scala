@@ -5,7 +5,7 @@ import com.dimafeng.testcontainers.scalatest.TestContainerForAll
 import com.myassistant.config.DatabaseConfig
 import com.myassistant.db.{DatabaseModule, MigrationRunner}
 import com.myassistant.db.repositories.SchemaRepository
-import com.myassistant.domain.ProposeEntityTypeSchema
+import com.myassistant.domain.CreateEntityTypeSchema
 import com.myassistant.errors.AppError
 import io.circe.Json
 import org.scalatest.funsuite.AnyFunSuite
@@ -29,6 +29,7 @@ class SchemaRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
 
   private var sharedPool: ZConnectionPool = uninitialized
   private var poolScope: Scope.Closeable  = uninitialized
+  private var healthDomainId: UUID        = uninitialized
 
   private def dbConfig(container: PostgreSQLContainer): DatabaseConfig =
     DatabaseConfig(
@@ -58,8 +59,17 @@ class SchemaRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
           poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive)
                        .build
                        .provideEnvironment(ZEnvironment(scope))
-          _        = sharedPool = poolEnv.get[ZConnectionPool]
+          pool     = poolEnv.get[ZConnectionPool]
+          _        = sharedPool = pool
           _        = poolScope  = scope
+          // Resolve the 'health' domain UUID from seeded data
+          healthIdStr <- transaction(
+                           sql"SELECT id::text FROM domain WHERE name = 'health'".query[String].selectOne
+                         ).mapError(AppError.DatabaseError(_))
+                          .flatMap(ZIO.fromOption(_).mapError(_ =>
+                            AppError.InternalError(new RuntimeException("No health domain found"))))
+                          .provideEnvironment(ZEnvironment(pool))
+          _            = healthDomainId = UUID.fromString(healthIdStr)
         yield ()
       ).getOrThrowFiberFailure()
     }
@@ -78,22 +88,6 @@ class SchemaRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
       ).getOrThrowFiberFailure()
     }
 
-  private val testProposal = ProposeEntityTypeSchema(
-    domain            = "health",
-    entityType        = "test_entity",
-    description       = "Test schema",
-    fieldDefinitions  = Json.arr(
-      Json.obj(
-        "name"        -> Json.fromString("title"),
-        "type"        -> Json.fromString("text"),
-        "mandatory"   -> Json.fromBoolean(true),
-        "description" -> Json.fromString("Test field"),
-      )
-    ),
-    extractionPrompt  = "Extract test facts",
-    changeDescription = None,
-  )
-
   // ── Tests ─────────────────────────────────────────────────────────────────
 
   test("create — proposes new schema with version 1") {
@@ -101,10 +95,22 @@ class SchemaRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> SchemaRepository.live).build
         repo     = repoEnv.get[SchemaRepository]
-        schema  <- repo.create(testProposal).provideEnvironment(ZEnvironment(sharedPool))
+        schema  <- repo.create(CreateEntityTypeSchema(
+                     domainId         = healthDomainId,
+                     entityType       = "test_entity",
+                     fieldDefinitions = Json.arr(
+                       Json.obj(
+                         "name"        -> Json.fromString("title"),
+                         "type"        -> Json.fromString("text"),
+                         "mandatory"   -> Json.fromBoolean(true),
+                         "description" -> Json.fromString("Test field"),
+                       )
+                     ),
+                     description      = Some("Test schema"),
+                   )).provideEnvironment(ZEnvironment(sharedPool))
       yield schema
     }
-    result.domain        shouldBe "health"
+    result.domainId      shouldBe healthDomainId
     result.entityType    shouldBe "test_entity"
     result.schemaVersion shouldBe 1
     result.isActive      shouldBe true
@@ -116,13 +122,14 @@ class SchemaRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> SchemaRepository.live).build
         repo     = repoEnv.get[SchemaRepository]
-        created <- repo.create(testProposal).provideEnvironment(ZEnvironment(sharedPool))
+        created <- repo.create(CreateEntityTypeSchema(healthDomainId, "test_entity_2", Json.arr(), Some("Test 2")))
+                     .provideEnvironment(ZEnvironment(sharedPool))
         found   <- repo.findById(created.id).provideEnvironment(ZEnvironment(sharedPool))
       yield (created, found)
     }
     found.isDefined      shouldBe true
     found.get.id         shouldBe created.id
-    found.get.entityType shouldBe "test_entity"
+    found.get.entityType shouldBe "test_entity_2"
   }
 
   test("findCurrent — returns active schema for seeded health/insurance_card pair") {
@@ -130,36 +137,36 @@ class SchemaRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> SchemaRepository.live).build
         repo     = repoEnv.get[SchemaRepository]
-        schema  <- repo.findCurrent("health", "insurance_card").provideEnvironment(ZEnvironment(sharedPool))
+        schema  <- repo.findCurrent(healthDomainId, "insurance_card").provideEnvironment(ZEnvironment(sharedPool))
       yield schema
     }
-    result.isDefined      shouldBe true
-    result.get.domain     shouldBe "health"
-    result.get.entityType shouldBe "insurance_card"
-    result.get.isActive   shouldBe true
+    result.isDefined       shouldBe true
+    result.get.domainId    shouldBe healthDomainId
+    result.get.entityType  shouldBe "insurance_card"
+    result.get.isActive    shouldBe true
   }
 
-  test("listCurrent(None) — returns at least 4 seeded schemas") {
+  test("listSchemas(None, None, activeOnly=true) — returns at least 4 seeded schemas") {
     val schemas = run {
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> SchemaRepository.live).build
         repo     = repoEnv.get[SchemaRepository]
-        list    <- repo.listCurrent(None).provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.listSchemas(None, None, activeOnly = true).provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
     schemas.size should be >= 4
   }
 
-  test("listCurrent(Some(\"health\")) — returns schemas for health domain only") {
+  test("listSchemas(Some(healthDomainId), None, activeOnly=true) — returns schemas for health domain only") {
     val schemas = run {
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> SchemaRepository.live).build
         repo     = repoEnv.get[SchemaRepository]
-        list    <- repo.listCurrent(Some("health")).provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.listSchemas(Some(healthDomainId), None, activeOnly = true).provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
     schemas should not be empty
-    schemas.forall(_.domain == "health") shouldBe true
+    schemas.forall(_.domainId == healthDomainId) shouldBe true
   }
 
   test("deactivate — sets isActive=false and subsequent findCurrent returns None") {
@@ -167,9 +174,10 @@ class SchemaRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
       for
         repoEnv    <- (ZLayer.succeed(sharedPool) >>> SchemaRepository.live).build
         repo        = repoEnv.get[SchemaRepository]
-        created    <- repo.create(testProposal).provideEnvironment(ZEnvironment(sharedPool))
-        deactivated <- repo.deactivate(created.id).provideEnvironment(ZEnvironment(sharedPool))
-        foundAfter  <- repo.findCurrent("health", "test_entity").provideEnvironment(ZEnvironment(sharedPool))
+        created    <- repo.create(CreateEntityTypeSchema(healthDomainId, "test_entity_deact", Json.arr(), None))
+                        .provideEnvironment(ZEnvironment(sharedPool))
+        deactivated <- repo.deactivate(healthDomainId, "test_entity_deact").provideEnvironment(ZEnvironment(sharedPool))
+        foundAfter  <- repo.findCurrent(healthDomainId, "test_entity_deact").provideEnvironment(ZEnvironment(sharedPool))
       yield (deactivated, foundAfter)
     }
     deactivated shouldBe true

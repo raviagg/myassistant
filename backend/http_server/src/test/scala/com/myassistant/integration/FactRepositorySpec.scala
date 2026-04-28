@@ -79,6 +79,8 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
       ).getOrThrowFiberFailure()
     }
 
+  private val emptyEmbedding = List.fill(1536)(0.0)
+
   private def seedPrerequisites(): (UUID, UUID) =
     run {
       for
@@ -95,12 +97,20 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
                           AppError.InternalError(new RuntimeException("No schema seed found"))))
                         .provideEnvironment(ZEnvironment(sharedPool))
         schemaId     = UUID.fromString(schemaIdStr)
+        sourceTypeIdStr <- transaction(
+                             sql"SELECT id::text FROM source_type WHERE name = 'user_input'".query[String].selectOne
+                           ).mapError(AppError.DatabaseError(_))
+                            .flatMap(ZIO.fromOption(_).mapError(_ =>
+                              AppError.InternalError(new RuntimeException("No user_input source_type found"))))
+                            .provideEnvironment(ZEnvironment(sharedPool))
+        sourceTypeId = UUID.fromString(sourceTypeIdStr)
         doc         <- docEnv.get[DocumentRepository]
                          .create(CreateDocument(
                            personId      = Some(person.id),
                            householdId   = None,
                            contentText   = "Test document for fact tests",
-                           sourceType    = "user_input",
+                           sourceTypeId  = sourceTypeId,
+                           embedding     = emptyEmbedding,
                            files         = Json.arr(),
                            supersedesIds = Nil,
                          ))
@@ -119,12 +129,13 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
         result  <- repo.create(CreateFact(
                      documentId       = docId,
                      schemaId         = schemaId,
-                     entityInstanceId = None,
+                     entityInstanceId = UUID.randomUUID(),
                      operationType    = OperationType.Create,
                      fields           = Json.obj(
                        "title"  -> Json.fromString("Test task"),
                        "status" -> Json.fromString("open"),
                      ),
+                     embedding        = emptyEmbedding,
                    )).provideEnvironment(ZEnvironment(sharedPool))
       yield result
     }
@@ -141,12 +152,14 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
         repo     = repoEnv.get[FactRepository]
-        _       <- repo.create(CreateFact(docId, schemaId, Some(entityId), OperationType.Create,
+        _       <- repo.create(CreateFact(docId, schemaId, entityId, OperationType.Create,
                      Json.obj("title"  -> Json.fromString("Renew passport"),
-                              "status" -> Json.fromString("open"))))
+                              "status" -> Json.fromString("open")),
+                     emptyEmbedding))
                      .provideEnvironment(ZEnvironment(sharedPool))
-        _       <- repo.create(CreateFact(docId, schemaId, Some(entityId), OperationType.Update,
-                     Json.obj("status" -> Json.fromString("in_progress"))))
+        _       <- repo.create(CreateFact(docId, schemaId, entityId, OperationType.Update,
+                     Json.obj("status" -> Json.fromString("in_progress")),
+                     emptyEmbedding))
                      .provideEnvironment(ZEnvironment(sharedPool))
         list    <- repo.findByEntityInstance(entityId).provideEnvironment(ZEnvironment(sharedPool))
       yield list
@@ -163,15 +176,17 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
         repo     = repoEnv.get[FactRepository]
-        _       <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
+        _       <- repo.create(CreateFact(docId, schemaId, UUID.randomUUID(), OperationType.Create,
                      Json.obj("employer"     -> Json.fromString("Acme"),
                               "pay_period"   -> Json.fromString("2024-01-31"),
-                              "gross_income" -> Json.fromInt(10000))))
+                              "gross_income" -> Json.fromInt(10000)),
+                     emptyEmbedding))
                      .provideEnvironment(ZEnvironment(sharedPool))
-        _       <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
+        _       <- repo.create(CreateFact(docId, schemaId, UUID.randomUUID(), OperationType.Create,
                      Json.obj("employer"     -> Json.fromString("Beta Corp"),
                               "pay_period"   -> Json.fromString("2024-02-29"),
-                              "gross_income" -> Json.fromInt(11000))))
+                              "gross_income" -> Json.fromInt(11000)),
+                     emptyEmbedding))
                      .provideEnvironment(ZEnvironment(sharedPool))
         list    <- repo.findByDocument(docId).provideEnvironment(ZEnvironment(sharedPool))
       yield list
@@ -186,8 +201,9 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
         repo     = repoEnv.get[FactRepository]
-        created <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
-                     Json.obj("title" -> Json.fromString("findById fact"))))
+        created <- repo.create(CreateFact(docId, schemaId, UUID.randomUUID(), OperationType.Create,
+                     Json.obj("title" -> Json.fromString("findById fact")),
+                     emptyEmbedding))
                      .provideEnvironment(ZEnvironment(sharedPool))
         found   <- repo.findById(created.id).provideEnvironment(ZEnvironment(sharedPool))
         missing <- repo.findById(java.util.UUID.randomUUID()).provideEnvironment(ZEnvironment(sharedPool))
@@ -206,32 +222,14 @@ class FactRepositorySpec extends AnyFunSuite with Matchers with TestContainerFor
         repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
         repo     = repoEnv.get[FactRepository]
         created <- repo.create(CreateFact(
-                     docId, schemaId, Some(UUID.randomUUID()), OperationType.Delete,
+                     docId, schemaId, UUID.randomUUID(), OperationType.Delete,
                      Json.obj("reason" -> Json.fromString("superseded")),
+                     emptyEmbedding,
                    )).provideEnvironment(ZEnvironment(sharedPool))
         found   <- repo.findById(created.id).provideEnvironment(ZEnvironment(sharedPool))
       yield (created, found)
     }
-    fact.operationType  shouldBe OperationType.Delete
-    found.isDefined     shouldBe true
-    found.get.operationType shouldBe OperationType.Delete
-  }
-
-  test("findBySchema — returns facts for a schema version with pagination") {
-    val (docId, schemaId) = seedPrerequisites()
-    val facts = run {
-      for
-        repoEnv <- (ZLayer.succeed(sharedPool) >>> FactRepository.live).build
-        repo     = repoEnv.get[FactRepository]
-        _       <- repo.create(CreateFact(docId, schemaId, None, OperationType.Create,
-                     Json.obj("status" -> Json.fromString("open"))))
-                     .provideEnvironment(ZEnvironment(sharedPool))
-        _       <- repo.create(CreateFact(docId, schemaId, None, OperationType.Update,
-                     Json.obj("status" -> Json.fromString("done"))))
-                     .provideEnvironment(ZEnvironment(sharedPool))
-        list    <- repo.findBySchema(schemaId, 10, 0).provideEnvironment(ZEnvironment(sharedPool))
-      yield list
-    }
-    facts.size should be >= 2
-    facts.forall(_.schemaId == schemaId) shouldBe true
+    fact.operationType       shouldBe OperationType.Delete
+    found.isDefined          shouldBe true
+    found.get.operationType  shouldBe OperationType.Delete
   }

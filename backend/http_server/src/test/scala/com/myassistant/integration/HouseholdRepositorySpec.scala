@@ -105,18 +105,20 @@ class HouseholdRepositorySpec extends AnyFunSuite with Matchers with TestContain
     found.get.name  shouldBe "FindById Family"
   }
 
-  test("listAll — returns all households") {
+  test("searchByName — returns households matching name substring") {
     val households = run {
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> HouseholdRepository.live).build
         repo     = repoEnv.get[HouseholdRepository]
         _       <- repo.create(CreateHousehold("Alpha Family")).provideEnvironment(ZEnvironment(sharedPool))
         _       <- repo.create(CreateHousehold("Beta Family")).provideEnvironment(ZEnvironment(sharedPool))
-        list    <- repo.listAll.provideEnvironment(ZEnvironment(sharedPool))
+        _       <- repo.create(CreateHousehold("Gamma Crew")).provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.searchByName("Family").provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
     households.size should be >= 2
     households.map(_.name) should contain allOf ("Alpha Family", "Beta Family")
+    households.map(_.name) should not contain "Gamma Crew"
   }
 
   test("update — modifies name and returns updated record") {

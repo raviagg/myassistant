@@ -21,8 +21,17 @@ trait PersonService:
   /** Retrieve a person by id; fails with NotFound if absent. */
   def getPerson(id: UUID): ZIO[ZConnectionPool, AppError, Person]
 
-  /** List all persons, optionally scoped to a household. */
-  def listPersons(householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, List[Person]]
+  /** Search persons with optional filters. */
+  def searchPersons(
+      name:            Option[String],
+      gender:          Option[String],
+      dateOfBirth:     Option[java.time.LocalDate],
+      dateOfBirthFrom: Option[java.time.LocalDate],
+      dateOfBirthTo:   Option[java.time.LocalDate],
+      householdId:     Option[UUID],
+      limit:           Int,
+      offset:          Int,
+  ): ZIO[ZConnectionPool, AppError, List[Person]]
 
   /** Apply a partial update; fails with NotFound if absent. */
   def updatePerson(id: UUID, patch: UpdatePerson): ZIO[ZConnectionPool, AppError, Person]
@@ -45,9 +54,18 @@ object PersonService:
         case Some(p) => ZIO.succeed(p)
         case None    => ZIO.fail(AppError.NotFound("person", id.toString))
 
-    /** List all persons, optionally scoped to a household. */
-    def listPersons(householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, List[Person]] =
-      repo.listAll(householdId)
+    /** Search persons with optional filters. */
+    def searchPersons(
+        name:            Option[String],
+        gender:          Option[String],
+        dateOfBirth:     Option[java.time.LocalDate],
+        dateOfBirthFrom: Option[java.time.LocalDate],
+        dateOfBirthTo:   Option[java.time.LocalDate],
+        householdId:     Option[UUID],
+        limit:           Int,
+        offset:          Int,
+    ): ZIO[ZConnectionPool, AppError, List[Person]] =
+      repo.search(name, gender, dateOfBirth, dateOfBirthFrom, dateOfBirthTo, householdId, limit, offset)
 
     /** Apply a partial update; fails with NotFound if no record matched. */
     def updatePerson(id: UUID, patch: UpdatePerson): ZIO[ZConnectionPool, AppError, Person] =

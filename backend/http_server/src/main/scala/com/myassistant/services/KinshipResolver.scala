@@ -30,7 +30,6 @@ trait KinshipResolver:
   def resolve(
       fromPersonId: UUID,
       toPersonId:   UUID,
-      language:     String,
   ): ZIO[ZConnectionPool, AppError, Option[KinshipResult]]
 
 object KinshipResolver:
@@ -60,7 +59,6 @@ object KinshipResolver:
     def resolve(
         fromPersonId: UUID,
         toPersonId:   UUID,
-        language:     String,
     ): ZIO[ZConnectionPool, AppError, Option[KinshipResult]] =
       if fromPersonId == toPersonId then
         ZIO.succeed(None)
@@ -70,7 +68,7 @@ object KinshipResolver:
           case Some(chain) =>
             val chainStrings = chain.map(relTypeToString)
             val description  = chainToDescription(chain)
-            refRepo.listKinshipAliases(Some(language)).map: aliases =>
+            refRepo.listKinshipAliases(None).map: aliases =>
               val matchedAlias = aliases.find(_.relationChain == chainStrings).map(_.alias)
               Some(KinshipResult(chain, matchedAlias, description))
 

@@ -41,7 +41,16 @@ object PersonRoutesSpec extends ZIOSpecDefault:
     def findByUserIdentifier(identifier: String): ZIO[ZConnectionPool, AppError, Option[Person]] =
       store.get.map(_.values.find(_.userIdentifier.contains(identifier)))
 
-    def listAll(householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, List[Person]] =
+    def search(
+        name:            Option[String],
+        gender:          Option[String],
+        dateOfBirth:     Option[java.time.LocalDate],
+        dateOfBirthFrom: Option[java.time.LocalDate],
+        dateOfBirthTo:   Option[java.time.LocalDate],
+        householdId:     Option[UUID],
+        limit:           Int,
+        offset:          Int,
+    ): ZIO[ZConnectionPool, AppError, List[Person]] =
       store.get.map(_.values.toList.sortBy(_.fullName))
 
     def update(id: UUID, patch: UpdatePerson): ZIO[ZConnectionPool, AppError, Option[Person]] =

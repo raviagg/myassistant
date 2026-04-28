@@ -55,13 +55,13 @@ All error responses use this shape:
 
 ### Field definitions object (used in schema tools)
 
-Each element of `field_definitions` has this shape:
+Each element of `fieldDefinitions` has this shape:
 
 ```json
 {
   "name": "premium",
   "type": "number",
-  "required": false,
+  "mandatory": false,
   "description": "Monthly premium amount"
 }
 ```
@@ -81,37 +81,37 @@ Register a new person.
 **Request body:**
 ```json
 {
-  "full_name": "Ravi Aggarwal",
+  "fullName": "Ravi Aggarwal",
   "gender": "male",
-  "date_of_birth": "1990-03-15",
-  "preferred_name": "Ravi",
-  "user_identifier": "raaggarw"
+  "dateOfBirth": "1990-03-15",
+  "preferredName": "Ravi",
+  "userIdentifier": "raaggarw"
 }
 ```
 
 | Field | Type | Required |
 |---|---|---|
-| `full_name` | string | yes |
+| `fullName` | string | yes |
 | `gender` | `"male"` \| `"female"` | yes |
-| `date_of_birth` | date (ISO 8601 `YYYY-MM-DD`) | no |
-| `preferred_name` | string | no |
-| `user_identifier` | string | no |
+| `dateOfBirth` | date (ISO 8601 `YYYY-MM-DD`) | no |
+| `preferredName` | string | no |
+| `userIdentifier` | string | no |
 
 **Response `201`:**
 ```json
 {
   "id": "uuid",
-  "full_name": "Ravi Aggarwal",
+  "fullName": "Ravi Aggarwal",
   "gender": "male",
-  "date_of_birth": "1990-03-15",
-  "preferred_name": "Ravi",
-  "user_identifier": "raaggarw",
-  "created_at": "2026-04-25T10:00:00Z",
-  "updated_at": "2026-04-25T10:00:00Z"
+  "dateOfBirth": "1990-03-15",
+  "preferredName": "Ravi",
+  "userIdentifier": "raaggarw",
+  "createdAt": "2026-04-25T10:00:00Z",
+  "updatedAt": "2026-04-25T10:00:00Z"
 }
 ```
 
-**Errors:** `400`, `409` (duplicate `user_identifier`)
+**Errors:** `400`, `409` (duplicate `userIdentifier`)
 
 ---
 
@@ -139,12 +139,12 @@ Filter-based person search. All query parameters are optional and ANDed together
 
 | Parameter | Type | Description |
 |---|---|---|
-| `name` | string | Case-insensitive partial match on `full_name` or `preferred_name` |
+| `name` | string | Case-insensitive partial match on `fullName` or `preferredName` |
 | `gender` | `male` \| `female` | Exact match |
-| `date_of_birth` | date | Exact match |
-| `date_of_birth_from` | date | Range lower bound inclusive |
-| `date_of_birth_to` | date | Range upper bound inclusive |
-| `household_id` | UUID | Only persons who are members of this household |
+| `dateOfBirth` | date | Exact match |
+| `dateOfBirthFrom` | date | Range lower bound inclusive |
+| `dateOfBirthTo` | date | Range upper bound inclusive |
+| `householdId` | UUID | Only persons who are members of this household |
 | `limit` | int | Default `50` |
 | `offset` | int | Default `0` |
 
@@ -171,17 +171,17 @@ Update mutable fields. Only supplied fields are changed (PATCH semantics).
 **Request body:** Any subset of:
 ```json
 {
-  "full_name": "Ravi K. Aggarwal",
-  "preferred_name": "Ravi",
-  "date_of_birth": "1990-03-15",
+  "fullName": "Ravi K. Aggarwal",
+  "preferredName": "Ravi",
+  "dateOfBirth": "1990-03-15",
   "gender": "male",
-  "user_identifier": "raaggarw"
+  "userIdentifier": "raaggarw"
 }
 ```
 
 **Response `200`:** Updated full person row.
 
-**Errors:** `400`, `404`, `409` (duplicate `user_identifier`)
+**Errors:** `400`, `404`, `409` (duplicate `userIdentifier`)
 
 ---
 
@@ -232,8 +232,8 @@ Create a new household.
 {
   "id": "uuid",
   "name": "Aggarwal Family",
-  "created_at": "2026-04-25T10:00:00Z",
-  "updated_at": "2026-04-25T10:00:00Z"
+  "createdAt": "2026-04-25T10:00:00Z",
+  "updatedAt": "2026-04-25T10:00:00Z"
 }
 ```
 
@@ -269,7 +269,9 @@ Find households by name (case-insensitive partial match).
 ```json
 {
   "items": [ /* household[] */ ],
-  "total": 2
+  "total": 2,
+  "limit": 2,
+  "offset": 0
 }
 ```
 
@@ -366,8 +368,8 @@ Return all person IDs who are members of a household.
 **Response `200`:**
 ```json
 {
-  "household_id": "uuid",
-  "member_ids": ["uuid1", "uuid2"]
+  "householdId": "uuid",
+  "memberIds": ["uuid1", "uuid2"]
 }
 ```
 
@@ -386,8 +388,8 @@ Return all household IDs that a person belongs to.
 **Response `200`:**
 ```json
 {
-  "person_id": "uuid",
-  "household_ids": ["uuid1"]
+  "personId": "uuid",
+  "householdIds": ["uuid1"]
 }
 ```
 
@@ -406,32 +408,33 @@ Record a directed relationship between two persons. Both persons must exist.
 **Request body:**
 ```json
 {
-  "from_person_id": "uuid",
-  "to_person_id": "uuid",
-  "relation_type": "father"
+  "fromPersonId": "uuid",
+  "toPersonId": "uuid",
+  "relationType": "father"
 }
 ```
 
 | Field | Type | Required |
 |---|---|---|
-| `from_person_id` | UUID | yes |
-| `to_person_id` | UUID | yes |
-| `relation_type` | enum | yes |
+| `fromPersonId` | UUID | yes |
+| `toPersonId` | UUID | yes |
+| `relationType` | enum | yes |
 
-Valid `relation_type` values: `father`, `mother`, `son`, `daughter`, `brother`, `sister`, `husband`, `wife`.
+Valid `relationType` values: `father`, `mother`, `son`, `daughter`, `brother`, `sister`, `husband`, `wife`.
 
 **Response `201`:**
 ```json
 {
-  "from_person_id": "uuid",
-  "to_person_id": "uuid",
-  "relation_type": "father",
-  "created_at": "2026-04-25T10:00:00Z",
-  "updated_at": "2026-04-25T10:00:00Z"
+  "id": "uuid",
+  "fromPersonId": "uuid",
+  "toPersonId": "uuid",
+  "relationType": "father",
+  "createdAt": "2026-04-25T10:00:00Z",
+  "updatedAt": "2026-04-25T10:00:00Z"
 }
 ```
 
-**Errors:** `400` (invalid relation_type), `404` (person not found), `409` (relationship already exists)
+**Errors:** `400` (invalid relationType), `404` (person not found), `409` (relationship already exists)
 
 ---
 
@@ -459,15 +462,17 @@ Return all relationships where the given person appears as either subject or obj
 
 | Parameter | Type | Required |
 |---|---|---|
-| `person_id` | UUID | yes |
+| `personId` | UUID | yes |
 
 **Response `200`:**
 ```json
 {
-  "person_id": "uuid",
   "items": [
-    { "from_person_id": "uuid", "to_person_id": "uuid", "relation_type": "father", "created_at": "...", "updated_at": "..." }
-  ]
+    { "id": "uuid", "fromPersonId": "uuid", "toPersonId": "uuid", "relationType": "father", "createdAt": "...", "updatedAt": "..." }
+  ],
+  "total": 1,
+  "limit": 1,
+  "offset": 0
 }
 ```
 
@@ -477,18 +482,18 @@ Return all relationships where the given person appears as either subject or obj
 
 **MCP tool:** `update_relationship`
 
-Change the `relation_type` on an existing directed relationship.
+Change the `relationType` on an existing directed relationship.
 
 **Path parameters:** `from_person_id`, `to_person_id` — both UUID
 
 **Request body:**
 ```json
-{ "relation_type": "brother" }
+{ "relationType": "brother" }
 ```
 
 | Field | Type | Required |
 |---|---|---|
-| `relation_type` | enum | yes |
+| `relationType` | enum | yes |
 
 **Response `200`:** Updated relationship row.
 
@@ -521,11 +526,11 @@ Derive the cultural name for the relationship between two persons via BFS graph 
 **Response `200`:**
 ```json
 {
-  "from_person_id": "uuid",
-  "to_person_id": "uuid",
+  "fromPersonId": "uuid",
+  "toPersonId": "uuid",
   "chain": ["father", "sister"],
   "alias": "bua",
-  "language": "hindi"
+  "description": "Father's sister"
 }
 ```
 
@@ -539,52 +544,52 @@ Derive the cultural name for the relationship between two persons via BFS graph 
 
 **MCP tool:** `create_document`
 
-Persist a new immutable document. At least one of `person_id` or `household_id` must be provided. The embedding is generated externally by the caller.
+Persist a new immutable document. At least one of `personId` or `householdId` must be provided. The embedding is generated externally by the caller.
 
 **Request body:**
 ```json
 {
-  "content_text": "Received salary slip for March 2026...",
-  "source_type_id": "uuid",
+  "contentText": "Received salary slip for March 2026...",
+  "sourceTypeId": "uuid",
   "embedding": [0.123, -0.456, 0.789],
-  "person_id": "uuid",
-  "household_id": null,
-  "supersedes_ids": [],
+  "personId": "uuid",
+  "householdId": null,
+  "supersedesIds": [],
   "files": [
-    { "file_path": "/data/files/slip-march-2026.pdf", "filename": "slip-march-2026.pdf", "mime_type": "application/pdf" }
+    { "filePath": "/data/files/slip-march-2026.pdf", "filename": "slip-march-2026.pdf", "mimeType": "application/pdf" }
   ]
 }
 ```
 
 | Field | Type | Required |
 |---|---|---|
-| `content_text` | string | yes |
-| `source_type_id` | UUID | yes |
+| `contentText` | string | yes |
+| `sourceTypeId` | UUID | yes |
 | `embedding` | float[] | yes |
-| `person_id` | UUID | no (one of person/household required) |
-| `household_id` | UUID | no (one of person/household required) |
-| `supersedes_ids` | UUID[] | no |
+| `personId` | UUID | no (one of personId/householdId required) |
+| `householdId` | UUID | no (one of personId/householdId required) |
+| `supersedesIds` | UUID[] | no |
 | `files` | object[] | no |
 
-Each `files` element: `{ file_path: string, filename: string, mime_type?: string }`.
+Each `files` element: `{ filePath: string, filename: string, mimeType?: string }`.
 
 **Response `201`:**
 ```json
 {
   "id": "uuid",
-  "content_text": "...",
-  "source_type_id": "uuid",
-  "person_id": "uuid",
-  "household_id": null,
-  "supersedes_ids": [],
+  "contentText": "...",
+  "sourceTypeId": "uuid",
+  "personId": "uuid",
+  "householdId": null,
+  "supersedesIds": [],
   "files": [],
-  "created_at": "2026-04-25T10:00:00Z"
+  "createdAt": "2026-04-25T10:00:00Z"
 }
 ```
 
 Note: Embedding is not returned in responses to keep payloads small.
 
-**Errors:** `400` (neither person_id nor household_id provided), `404` (person, household, or superseded document not found)
+**Errors:** `400` (neither personId nor householdId provided), `404` (person, household, or superseded document not found)
 
 ---
 
@@ -612,11 +617,11 @@ Filter-based document listing.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `person_id` | UUID | |
-| `household_id` | UUID | |
-| `source_type_id` | UUID | |
-| `created_after` | RFC 3339 timestamp | |
-| `created_before` | RFC 3339 timestamp | |
+| `personId` | UUID | |
+| `householdId` | UUID | |
+| `sourceTypeId` | UUID | |
+| `createdAfter` | RFC 3339 timestamp | |
+| `createdBefore` | RFC 3339 timestamp | |
 | `limit` | int | Default `50` |
 | `offset` | int | Default `0` |
 
@@ -642,28 +647,28 @@ Vector similarity search over documents.
 ```json
 {
   "embedding": [0.123, -0.456, 0.789],
-  "person_id": "uuid",
-  "household_id": null,
-  "source_type_id": null,
+  "personId": "uuid",
+  "householdId": null,
+  "sourceTypeId": null,
   "limit": 10,
-  "similarity_threshold": 0.7
+  "similarityThreshold": 0.7
 }
 ```
 
 | Field | Type | Required |
 |---|---|---|
 | `embedding` | float[] | yes |
-| `person_id` | UUID | no |
-| `household_id` | UUID | no |
-| `source_type_id` | UUID | no |
+| `personId` | UUID | no |
+| `householdId` | UUID | no |
+| `sourceTypeId` | UUID | no |
 | `limit` | int | no — default `10` |
-| `similarity_threshold` | float [0–1] | no — default `0.7` |
+| `similarityThreshold` | float [0–1] | no — default `0.7` |
 
 **Response `200`:**
 ```json
 {
   "items": [
-    { /* document fields */, "similarity_score": 0.93 }
+    { /* document fields */, "similarityScore": 0.93 }
   ]
 }
 ```
@@ -676,19 +681,19 @@ Vector similarity search over documents.
 
 **MCP tool:** `create_fact`
 
-Persist a single fact operation. For a new entity, the caller generates a fresh UUID for `entity_instance_id`. For updates/deletes, the caller first resolves the UUID via `POST /api/v1/facts/search`.
+Persist a single fact operation. For a new entity, the caller generates a fresh UUID for `entityInstanceId`. For updates/deletes, the caller first resolves the UUID via `POST /api/v1/facts/search`.
 
 **Request body:**
 ```json
 {
-  "document_id": "uuid",
-  "schema_id": "uuid",
-  "entity_instance_id": "uuid",
-  "operation_type": "create",
+  "documentId": "uuid",
+  "schemaId": "uuid",
+  "entityInstanceId": "uuid",
+  "operationType": "create",
   "fields": {
     "title": "Passport renewal",
     "status": "pending",
-    "due_date": "2026-05-01"
+    "dueDate": "2026-05-01"
   },
   "embedding": [0.123, -0.456, 0.789]
 }
@@ -696,10 +701,10 @@ Persist a single fact operation. For a new entity, the caller generates a fresh 
 
 | Field | Type | Required |
 |---|---|---|
-| `document_id` | UUID | yes |
-| `schema_id` | UUID | yes |
-| `entity_instance_id` | UUID | yes |
-| `operation_type` | `"create"` \| `"update"` \| `"delete"` | yes |
+| `documentId` | UUID | yes |
+| `schemaId` | UUID | yes |
+| `entityInstanceId` | UUID | yes |
+| `operationType` | `"create"` \| `"update"` \| `"delete"` | yes |
 | `fields` | object (JSONB) | yes |
 | `embedding` | float[] | yes |
 
@@ -707,12 +712,12 @@ Persist a single fact operation. For a new entity, the caller generates a fresh 
 ```json
 {
   "id": "uuid",
-  "document_id": "uuid",
-  "schema_id": "uuid",
-  "entity_instance_id": "uuid",
-  "operation_type": "create",
-  "fields": { "title": "Passport renewal", "status": "pending", "due_date": "2026-05-01" },
-  "created_at": "2026-04-25T10:00:00Z"
+  "documentId": "uuid",
+  "schemaId": "uuid",
+  "entityInstanceId": "uuid",
+  "operationType": "create",
+  "fields": { "title": "Passport renewal", "status": "pending", "dueDate": "2026-05-01" },
+  "createdAt": "2026-04-25T10:00:00Z"
 }
 ```
 
@@ -731,23 +736,23 @@ Retrieve the full operation history for a single entity instance in chronologica
 **Response `200`:**
 ```json
 {
-  "entity_instance_id": "uuid",
+  "entityInstanceId": "uuid",
   "items": [
     {
       "id": "uuid",
-      "document_id": "uuid",
-      "schema_id": "uuid",
-      "operation_type": "create",
+      "documentId": "uuid",
+      "schemaId": "uuid",
+      "operationType": "create",
       "fields": { "title": "Passport renewal", "status": "pending" },
-      "created_at": "2026-04-10T09:00:00Z"
+      "createdAt": "2026-04-10T09:00:00Z"
     },
     {
       "id": "uuid",
-      "document_id": "uuid",
-      "schema_id": "uuid",
-      "operation_type": "update",
+      "documentId": "uuid",
+      "schemaId": "uuid",
+      "operationType": "update",
       "fields": { "status": "done" },
-      "created_at": "2026-04-25T10:00:00Z"
+      "createdAt": "2026-04-25T10:00:00Z"
     }
   ]
 }
@@ -766,16 +771,16 @@ Retrieve the merged current state for a single entity instance. Returns `404` if
 **Response `200`:**
 ```json
 {
-  "entity_instance_id": "uuid",
-  "schema_id": "uuid",
-  "person_id": "uuid",
-  "household_id": null,
+  "entityInstanceId": "uuid",
+  "schemaId": "uuid",
+  "personId": "uuid",
+  "householdId": null,
   "fields": {
     "title": "Passport renewal",
     "status": "done",
-    "due_date": "2026-05-01"
+    "dueDate": "2026-05-01"
   },
-  "last_updated_at": "2026-04-25T10:00:00Z"
+  "lastUpdatedAt": "2026-04-25T10:00:00Z"
 }
 ```
 
@@ -793,10 +798,10 @@ Filter-based listing of current entity states. Only returns active (non-deleted)
 
 | Parameter | Type | Description |
 |---|---|---|
-| `person_id` | UUID | |
-| `household_id` | UUID | |
-| `domain_id` | UUID | |
-| `entity_type` | string | e.g. `todo_item`, `insurance_card` |
+| `personId` | UUID | |
+| `householdId` | UUID | |
+| `domainId` | UUID | |
+| `entityType` | string | e.g. `todo_item`, `insurance_card` |
 | `limit` | int | Default `50` |
 | `offset` | int | Default `0` |
 
@@ -805,12 +810,12 @@ Filter-based listing of current entity states. Only returns active (non-deleted)
 {
   "items": [
     {
-      "entity_instance_id": "uuid",
-      "schema_id": "uuid",
-      "person_id": "uuid",
-      "household_id": null,
+      "entityInstanceId": "uuid",
+      "schemaId": "uuid",
+      "personId": "uuid",
+      "householdId": null,
       "fields": { "title": "Passport renewal", "status": "done" },
-      "last_updated_at": "2026-04-25T10:00:00Z"
+      "lastUpdatedAt": "2026-04-25T10:00:00Z"
     }
   ],
   "total": 7,
@@ -825,43 +830,43 @@ Filter-based listing of current entity states. Only returns active (non-deleted)
 
 **MCP tool:** `search_current_facts`
 
-Vector similarity search over current entity states. Primary mechanism for resolving `entity_instance_id` from a natural language description.
+Vector similarity search over current entity states. Primary mechanism for resolving `entityInstanceId` from a natural language description.
 
 **Request body:**
 ```json
 {
   "embedding": [0.123, -0.456, 0.789],
-  "person_id": "uuid",
-  "household_id": null,
-  "domain_id": null,
-  "entity_type": "todo_item",
+  "personId": "uuid",
+  "householdId": null,
+  "domainId": null,
+  "entityType": "todo_item",
   "limit": 10,
-  "similarity_threshold": 0.7
+  "similarityThreshold": 0.7
 }
 ```
 
 | Field | Type | Required |
 |---|---|---|
 | `embedding` | float[] | yes |
-| `person_id` | UUID | no |
-| `household_id` | UUID | no |
-| `domain_id` | UUID | no |
-| `entity_type` | string | no |
+| `personId` | UUID | no |
+| `householdId` | UUID | no |
+| `domainId` | UUID | no |
+| `entityType` | string | no |
 | `limit` | int | no — default `10` |
-| `similarity_threshold` | float [0–1] | no — default `0.7` |
+| `similarityThreshold` | float [0–1] | no — default `0.7` |
 
 **Response `200`:**
 ```json
 {
   "items": [
     {
-      "entity_instance_id": "uuid",
-      "schema_id": "uuid",
-      "person_id": "uuid",
-      "household_id": null,
+      "entityInstanceId": "uuid",
+      "schemaId": "uuid",
+      "personId": "uuid",
+      "householdId": null,
       "fields": { "title": "Passport renewal", "status": "done" },
-      "last_updated_at": "2026-04-25T10:00:00Z",
-      "similarity_score": 0.91
+      "lastUpdatedAt": "2026-04-25T10:00:00Z",
+      "similarityScore": 0.91
     }
   ]
 }
@@ -881,9 +886,9 @@ List schema definitions. Default returns only active schemas.
 
 | Parameter | Type | Description |
 |---|---|---|
-| `domain_id` | UUID | |
-| `entity_type` | string | Exact match |
-| `active_only` | boolean | Default `true` |
+| `domainId` | UUID | |
+| `entityType` | string | Exact match |
+| `activeOnly` | boolean | Default `true` |
 
 **Response `200`:**
 ```json
@@ -891,26 +896,26 @@ List schema definitions. Default returns only active schemas.
   "items": [
     {
       "id": "uuid",
-      "domain_id": "uuid",
-      "entity_type": "todo_item",
-      "schema_version": 1,
-      "is_active": true,
+      "domainId": "uuid",
+      "entityType": "todo_item",
+      "schemaVersion": 1,
+      "isActive": true,
       "description": "A personal task or reminder",
-      "field_definitions": [
-        { "name": "title", "type": "text", "required": true, "description": "Task title" },
-        { "name": "status", "type": "text", "required": true, "description": "pending | done | cancelled" },
-        { "name": "due_date", "type": "date", "required": false, "description": "ISO 8601 date" },
-        { "name": "priority", "type": "text", "required": false, "description": "low | medium | high" }
+      "fieldDefinitions": [
+        { "name": "title", "type": "text", "mandatory": true, "description": "Task title" },
+        { "name": "status", "type": "text", "mandatory": true, "description": "pending | done | cancelled" },
+        { "name": "dueDate", "type": "date", "mandatory": false, "description": "ISO 8601 date" },
+        { "name": "priority", "type": "text", "mandatory": false, "description": "low | medium | high" }
       ],
-      "mandatory_fields": ["title", "status"],
-      "created_at": "2026-04-25T10:00:00Z",
-      "updated_at": "2026-04-25T10:00:00Z"
+      "mandatoryFields": ["title", "status"],
+      "createdAt": "2026-04-25T10:00:00Z",
+      "updatedAt": "2026-04-25T10:00:00Z"
     }
   ]
 }
 ```
 
-Note: `mandatory_fields` is a generated column — the server derives it from `field_definitions` where `required: true`.
+Note: `mandatoryFields` is a generated column — the server derives it from `fieldDefinitions` where `mandatory: true`.
 
 ---
 
@@ -932,18 +937,18 @@ Fetch a specific schema version by UUID (provenance lookup).
 
 **MCP tool:** `get_current_entity_type_schema`
 
-Fetch the latest active schema for a (domain, entity_type) pair. Uses the `current_entity_type_schema` view.
+Fetch the latest active schema for a (domain, entityType) pair. Uses the `current_entity_type_schema` view.
 
 **Query parameters:**
 
 | Parameter | Type | Required |
 |---|---|---|
-| `domain_id` | UUID | yes |
-| `entity_type` | string | yes |
+| `domainId` | UUID | yes |
+| `entityType` | string | yes |
 
 **Response `200`:** Full schema row.
 
-**Response `404`:** No active schema found for this (domain, entity_type) pair.
+**Response `404`:** No active schema found for this (domainId, entityType) pair.
 
 ---
 
@@ -951,17 +956,17 @@ Fetch the latest active schema for a (domain, entity_type) pair. Uses the `curre
 
 **MCP tool:** `create_entity_type_schema`
 
-Create a new schema for a (domain, entity_type) pair that does not yet exist. The schema is immediately active (`is_active = true`, `schema_version = 1`). Called in the write turn after user approval.
+Create a new schema for a (domain, entityType) pair that does not yet exist. The schema is immediately active (`isActive = true`, `schemaVersion = 1`). Called in the write turn after user approval.
 
 **Request body:**
 ```json
 {
-  "domain_id": "uuid",
-  "entity_type": "blood_pressure_reading",
-  "field_definitions": [
-    { "name": "systolic", "type": "number", "required": true, "description": "Systolic pressure mmHg" },
-    { "name": "diastolic", "type": "number", "required": true, "description": "Diastolic pressure mmHg" },
-    { "name": "recorded_at", "type": "date", "required": false, "description": "Date of measurement" }
+  "domainId": "uuid",
+  "entityType": "blood_pressure_reading",
+  "fieldDefinitions": [
+    { "name": "systolic", "type": "number", "mandatory": true, "description": "Systolic pressure mmHg" },
+    { "name": "diastolic", "type": "number", "mandatory": true, "description": "Diastolic pressure mmHg" },
+    { "name": "recordedAt", "type": "date", "mandatory": false, "description": "Date of measurement" }
   ],
   "description": "A blood pressure measurement"
 }
@@ -969,14 +974,14 @@ Create a new schema for a (domain, entity_type) pair that does not yet exist. Th
 
 | Field | Type | Required |
 |---|---|---|
-| `domain_id` | UUID | yes |
-| `entity_type` | string | yes |
-| `field_definitions` | object[] | yes |
+| `domainId` | UUID | yes |
+| `entityType` | string | yes |
+| `fieldDefinitions` | object[] | yes |
 | `description` | string | no |
 
-**Response `201`:** Full schema row with `is_active = true` and `schema_version = 1`.
+**Response `201`:** Full schema row with `isActive = true` and `schemaVersion = 1`.
 
-**Errors:** `400`, `404` (domain not found), `409` (schema already exists for this domain/entity_type pair)
+**Errors:** `400`, `404` (domain not found), `409` (schema already exists for this domainId/entityType pair)
 
 ---
 
@@ -984,18 +989,18 @@ Create a new schema for a (domain, entity_type) pair that does not yet exist. Th
 
 **MCP tool:** `update_entity_type_schema`
 
-Create a new version of an existing active schema. Increments `schema_version`, activates the new row, and deactivates the previous version. The caller must provide the **full field list** for the new version. Called in the write turn after user approval.
+Create a new version of an existing active schema. Increments `schemaVersion`, activates the new row, and deactivates the previous version. The caller must provide the **full field list** for the new version. Called in the write turn after user approval.
 
 **Path parameters:** `domain_id` (UUID), `entity_type` (string)
 
 **Request body:**
 ```json
 {
-  "field_definitions": [
-    { "name": "systolic", "type": "number", "required": true, "description": "Systolic pressure mmHg" },
-    { "name": "diastolic", "type": "number", "required": true, "description": "Diastolic pressure mmHg" },
-    { "name": "recorded_at", "type": "date", "required": false, "description": "Date of measurement" },
-    { "name": "notes", "type": "text", "required": false, "description": "Free-text notes" }
+  "fieldDefinitions": [
+    { "name": "systolic", "type": "number", "mandatory": true, "description": "Systolic pressure mmHg" },
+    { "name": "diastolic", "type": "number", "mandatory": true, "description": "Diastolic pressure mmHg" },
+    { "name": "recordedAt", "type": "date", "mandatory": false, "description": "Date of measurement" },
+    { "name": "notes", "type": "text", "mandatory": false, "description": "Free-text notes" }
   ],
   "description": "A blood pressure measurement with optional notes"
 }
@@ -1003,12 +1008,12 @@ Create a new version of an existing active schema. Increments `schema_version`, 
 
 | Field | Type | Required |
 |---|---|---|
-| `field_definitions` | object[] | yes — full list, not a diff |
+| `fieldDefinitions` | object[] | yes — full list, not a diff |
 | `description` | string | no |
 
-**Response `201`:** New schema row with incremented `schema_version` and `is_active = true`.
+**Response `201`:** New schema row with incremented `schemaVersion` and `isActive = true`.
 
-**Errors:** `404` (no active schema found for this domain/entity_type pair)
+**Errors:** `404` (no active schema found for this domain/entityType pair)
 
 ---
 
@@ -1016,7 +1021,7 @@ Create a new version of an existing active schema. Increments `schema_version`, 
 
 **MCP tool:** `deactivate_entity_type_schema`
 
-Mark the current active schema for a (domain, entity_type) pair as inactive. All historical schema versions and extracted facts are retained.
+Mark the current active schema for a (domain, entityType) pair as inactive. All historical schema versions and extracted facts are retained.
 
 **Path parameters:** `domain_id` (UUID), `entity_type` (string)
 
@@ -1040,13 +1045,13 @@ Return all life domains.
 ```json
 {
   "items": [
-    { "id": "uuid", "name": "health" },
-    { "id": "uuid", "name": "finance" },
-    { "id": "uuid", "name": "employment" },
-    { "id": "uuid", "name": "personal_details" },
-    { "id": "uuid", "name": "todo" },
-    { "id": "uuid", "name": "household" },
-    { "id": "uuid", "name": "news_preferences" }
+    { "id": "uuid", "name": "health", "description": "Health-related information", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "finance", "description": "Financial information", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "employment", "description": "Employment and career", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "personal_details", "description": "Personal contact and address", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "todo", "description": "Tasks and reminders", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "household", "description": "Household shared information", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "news_preferences", "description": "News topics and content preferences", "createdAt": "2026-04-25T10:00:00Z" }
   ]
 }
 ```
@@ -1065,11 +1070,11 @@ Return all registered source types.
 ```json
 {
   "items": [
-    { "id": "uuid", "name": "user_input" },
-    { "id": "uuid", "name": "file_upload" },
-    { "id": "uuid", "name": "ai_extracted" },
-    { "id": "uuid", "name": "plaid_poll" },
-    { "id": "uuid", "name": "gmail_poll" }
+    { "id": "uuid", "name": "user_input", "description": "Typed directly in chat", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "file_upload", "description": "PDF, image etc. uploaded by user", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "ai_extracted", "description": "Extracted by AI from another document", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "plaid_poll", "description": "Plaid banking API", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": "uuid", "name": "gmail_poll", "description": "Gmail", "createdAt": "2026-04-25T10:00:00Z" }
   ]
 }
 ```
@@ -1092,8 +1097,8 @@ Return cultural kinship name mappings.
 ```json
 {
   "items": [
-    { "id": "uuid", "chain": ["father", "sister"], "alias": "bua", "language": "hindi" },
-    { "id": "uuid", "chain": ["mother", "brother"], "alias": "mama", "language": "hindi" }
+    { "id": 1, "relationChain": ["father", "sister"], "alias": "bua", "language": "hindi", "description": "Father's sister", "createdAt": "2026-04-25T10:00:00Z" },
+    { "id": 2, "relationChain": ["mother", "brother"], "alias": "mama", "language": "hindi", "description": "Mother's brother", "createdAt": "2026-04-25T10:00:00Z" }
   ]
 }
 ```
@@ -1106,50 +1111,50 @@ Return cultural kinship name mappings.
 
 **MCP tool:** `log_interaction`
 
-Persist one interaction turn to the audit log. Exactly one of `person_id` or `job_type` must be set.
+Persist one interaction turn to the audit log. Exactly one of `personId` or `jobType` must be set.
 
 **Request body:**
 ```json
 {
-  "message_text": "Mark my passport renewal as done",
-  "response_text": "Done — I've marked your passport renewal task as completed.",
+  "messageText": "Mark my passport renewal as done",
+  "responseText": "Done — I've marked your passport renewal task as completed.",
   "status": "success",
-  "person_id": "uuid",
-  "job_type": null,
-  "tool_calls_json": [
-    { "tool": "search_current_facts", "params": { "embedding": [0.1, 0.2], "entity_type": "todo_item" } },
-    { "tool": "create_fact", "params": { "entity_instance_id": "uuid", "operation_type": "update", "fields": { "status": "done" } } }
+  "personId": "uuid",
+  "jobType": null,
+  "toolCallsJson": [
+    { "tool": "search_current_facts", "params": { "embedding": [0.1, 0.2], "entityType": "todo_item" } },
+    { "tool": "create_fact", "params": { "entityInstanceId": "uuid", "operationType": "update", "fields": { "status": "done" } } }
   ],
-  "error_message": null
+  "errorMessage": null
 }
 ```
 
 | Field | Type | Required |
 |---|---|---|
-| `message_text` | string | yes |
-| `response_text` | string | yes |
+| `messageText` | string | yes |
+| `responseText` | string | yes |
 | `status` | `"success"` \| `"error"` \| `"partial"` | yes |
-| `person_id` | UUID | no (one of person_id/job_type required) |
-| `job_type` | string | no (one of person_id/job_type required) |
-| `tool_calls_json` | object[] | no |
-| `error_message` | string | no |
+| `personId` | UUID | no (one of personId/jobType required) |
+| `jobType` | string | no (one of personId/jobType required) |
+| `toolCallsJson` | object[] | no |
+| `errorMessage` | string | no |
 
 **Response `201`:**
 ```json
 {
   "id": "uuid",
-  "message_text": "...",
-  "response_text": "...",
+  "messageText": "...",
+  "responseText": "...",
   "status": "success",
-  "person_id": "uuid",
-  "job_type": null,
-  "tool_calls_json": [],
-  "error_message": null,
-  "created_at": "2026-04-25T10:00:00Z"
+  "personId": "uuid",
+  "jobType": null,
+  "toolCallsJson": [],
+  "errorMessage": null,
+  "createdAt": "2026-04-25T10:00:00Z"
 }
 ```
 
-**Errors:** `400` (both person_id and job_type present, or neither present; status is error but error_message is null)
+**Errors:** `400` (both personId and jobType present, or neither present; status is error but errorMessage is null)
 
 ---
 
@@ -1159,30 +1164,30 @@ Persist one interaction turn to the audit log. Exactly one of `person_id` or `jo
 
 **MCP tool:** `save_file`
 
-Persist a file to local disk and return its path. The caller submits base64-encoded content. The returned `file_path` is opaque — pass it to `create_document` and/or `POST /api/v1/files/extract-text`.
+Persist a file to local disk and return its path. The caller submits base64-encoded content. The returned `filePath` is opaque — pass it to `create_document` and/or `POST /api/v1/files/extract-text`.
 
 **Request body:**
 ```json
 {
-  "content_base64": "JVBERi0xLjQK...",
+  "contentBase64": "JVBERi0xLjQK...",
   "filename": "slip-march-2026.pdf",
-  "mime_type": "application/pdf"
+  "mimeType": "application/pdf"
 }
 ```
 
 | Field | Type | Required |
 |---|---|---|
-| `content_base64` | string | yes |
+| `contentBase64` | string | yes |
 | `filename` | string | yes |
-| `mime_type` | string | no |
+| `mimeType` | string | no — defaults to `application/octet-stream` |
 
 **Response `201`:**
 ```json
 {
-  "file_path": "/data/files/2026/04/25/slip-march-2026-abc123.pdf",
+  "filePath": "/data/files/2026/04/25/slip-march-2026-abc123.pdf",
   "filename": "slip-march-2026.pdf",
-  "mime_type": "application/pdf",
-  "size_bytes": 48210
+  "mimeType": "application/pdf",
+  "sizeBytes": 48210
 }
 ```
 
@@ -1194,27 +1199,27 @@ Persist a file to local disk and return its path. The caller submits base64-enco
 
 **MCP tool:** `extract_text_from_file`
 
-Extract plain text from a previously saved file. Dispatches to PDF parser, OCR, or plain-text reader based on file type. The extracted text is what gets stored in `document.content_text`.
+Extract plain text from a previously saved file. Dispatches to PDF parser, OCR, or plain-text reader based on file type. The extracted text is what gets stored in `document.contentText`.
 
 **Request body:**
 ```json
-{ "file_path": "/data/files/2026/04/25/slip-march-2026-abc123.pdf" }
+{ "filePath": "/data/files/2026/04/25/slip-march-2026-abc123.pdf" }
 ```
 
 | Field | Type | Required |
 |---|---|---|
-| `file_path` | string | yes |
+| `filePath` | string | yes |
 
 **Response `200`:**
 ```json
 {
-  "file_path": "/data/files/2026/04/25/slip-march-2026-abc123.pdf",
+  "filePath": "/data/files/2026/04/25/slip-march-2026-abc123.pdf",
   "text": "March 2026 Salary Slip\nEmployer: Acme Corp\nGross: 5000.00\n...",
-  "extraction_method": "pdf_parser"
+  "extractionMethod": "pdf_parser"
 }
 ```
 
-`extraction_method` is one of: `pdf_parser`, `ocr`, `plain_text`.
+`extractionMethod` is one of: `pdf_parser`, `ocr`, `plain_text`.
 
 **Errors:** `404` (file not found), `422` (unsupported file type for extraction)
 
@@ -1235,9 +1240,9 @@ Retrieve a previously saved file by its path. Returns base64-encoded content.
 **Response `200`:**
 ```json
 {
-  "file_path": "/data/files/2026/04/25/slip-march-2026-abc123.pdf",
-  "content_base64": "JVBERi0xLjQK...",
-  "mime_type": "application/pdf",
+  "filePath": "/data/files/2026/04/25/slip-march-2026-abc123.pdf",
+  "contentBase64": "JVBERi0xLjQK...",
+  "mimeType": "application/pdf",
   "filename": "slip-march-2026.pdf"
 }
 ```

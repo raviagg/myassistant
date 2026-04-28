@@ -12,16 +12,8 @@ import zio.jdbc.*
 import java.util.UUID
 import scala.util.Try
 
-/** HTTP routes for document management.
- *
- *  POST   /api/v1/documents          — ingest a new document
- *  GET    /api/v1/documents          — list documents (query: personId, householdId, sourceType, limit, offset)
- *  GET    /api/v1/documents/:id      — get a document by id
- *  POST   /api/v1/documents/search   — full-text / semantic search (falls back to listDocuments)
- */
 object DocumentRoutes:
 
-  /** Build document routes requiring DocumentService and ZConnectionPool in the environment. */
   val routes: Routes[DocumentService & ZConnectionPool, Nothing] =
     Routes(
       Method.POST / "api" / "v1" / "documents" ->
@@ -44,12 +36,14 @@ object DocumentRoutes:
 
       Method.GET / "api" / "v1" / "documents" ->
         handler { (req: Request) =>
-          val personId    = req.queryParam("personId").flatMap(s => Try(UUID.fromString(s)).toOption)
-          val householdId = req.queryParam("householdId").flatMap(s => Try(UUID.fromString(s)).toOption)
-          val sourceType  = req.queryParam("sourceType")
-          val limit       = req.queryParam("limit").flatMap(_.toIntOption).getOrElse(50)
-          val offset      = req.queryParam("offset").flatMap(_.toIntOption).getOrElse(0)
-          ZIO.serviceWithZIO[DocumentService](_.listDocuments(personId, householdId, sourceType, limit, offset))
+          val personId      = req.queryParam("personId").flatMap(s => Try(UUID.fromString(s)).toOption)
+          val householdId   = req.queryParam("householdId").flatMap(s => Try(UUID.fromString(s)).toOption)
+          val sourceTypeId  = req.queryParam("sourceTypeId").flatMap(s => Try(UUID.fromString(s)).toOption)
+          val createdAfter  = req.queryParam("createdAfter")
+          val createdBefore = req.queryParam("createdBefore")
+          val limit         = req.queryParam("limit").flatMap(_.toIntOption).getOrElse(50)
+          val offset        = req.queryParam("offset").flatMap(_.toIntOption).getOrElse(0)
+          ZIO.serviceWithZIO[DocumentService](_.listDocuments(personId, householdId, sourceTypeId, createdAfter, createdBefore, limit, offset))
             .foldZIO(
               err  => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
               docs =>
@@ -89,20 +83,21 @@ object DocumentRoutes:
                   s"""{"error":"bad_request","message":"${err.getMessage.replace("\"", "'")}"}"""
                 ).status(Status.BadRequest))
               case Right(searchReq) =>
-                // DocumentService has no vector search yet; fall back to listDocuments filtered by owner
-                val limit  = searchReq.limit.getOrElse(20)
+                val limit     = searchReq.limit.getOrElse(10)
+                val threshold = searchReq.similarityThreshold.getOrElse(0.7)
                 ZIO.serviceWithZIO[DocumentService](
-                  _.listDocuments(searchReq.personId, searchReq.householdId, None, limit, 0)
+                  _.searchDocuments(searchReq.embedding, searchReq.personId, searchReq.householdId, searchReq.sourceTypeId, limit, threshold)
                 ).foldZIO(
-                  err  => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
-                  docs =>
+                  err   => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
+                  items =>
+                    import io.circe.Json
+                    val jsonItems = items.map { case (doc, score) =>
+                      DocumentResponse.fromDomain(doc).asJson.deepMerge(
+                        io.circe.parser.parse(s"""{"similarity_score":$score}""").getOrElse(Json.obj())
+                      )
+                    }
                     ZIO.succeed(Response.json(
-                      PagedResponse(
-                        items  = docs.map(DocumentResponse.fromDomain),
-                        total  = docs.size.toLong,
-                        limit  = limit,
-                        offset = 0,
-                      ).asJson.noSpaces
+                      io.circe.Json.obj("items" -> io.circe.Json.arr(jsonItems*)).noSpaces
                     ))
                 )
           yield response

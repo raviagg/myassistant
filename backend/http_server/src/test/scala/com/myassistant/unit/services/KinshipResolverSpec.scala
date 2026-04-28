@@ -116,7 +116,7 @@ object KinshipResolverSpec extends ZIOSpecDefault:
         test("returns chain [father, sister] with alias 'bua' for Arjun → Rajni path") {
           for
             resolver <- ZIO.service[KinshipResolver]
-            result   <- resolver.resolve(arjunId, rajniId, "hindi")
+            result   <- resolver.resolve(arjunId, rajniId)
           yield result match
             case None => assertTrue(false) // must find a path
             case Some(kr) =>
@@ -130,7 +130,7 @@ object KinshipResolverSpec extends ZIOSpecDefault:
           val strangerB = UUID.randomUUID()
           for
             resolver <- ZIO.service[KinshipResolver]
-            result   <- resolver.resolve(strangerA, strangerB, "hindi")
+            result   <- resolver.resolve(strangerA, strangerB)
           yield assertTrue(result.isEmpty)
         }.provide(familyRelRepoLayer, refRepoWithBuaLayer, KinshipResolver.live, ZConnectionPool.h2test),
 
@@ -138,7 +138,7 @@ object KinshipResolverSpec extends ZIOSpecDefault:
           // Arjun → Nirmala: path is [mother] — no alias seeded for this chain
           for
             resolver <- ZIO.service[KinshipResolver]
-            result   <- resolver.resolve(arjunId, nirmalaId, "hindi")
+            result   <- resolver.resolve(arjunId, nirmalaId)
           yield result match
             case None => assertTrue(false) // must find a path
             case Some(kr) =>
@@ -149,7 +149,7 @@ object KinshipResolverSpec extends ZIOSpecDefault:
         test("returns None when fromPersonId == toPersonId") {
           for
             resolver <- ZIO.service[KinshipResolver]
-            result   <- resolver.resolve(arjunId, arjunId, "hindi")
+            result   <- resolver.resolve(arjunId, arjunId)
           yield assertTrue(result.isEmpty)
         }.provide(familyRelRepoLayer, refRepoWithBuaLayer, KinshipResolver.live, ZConnectionPool.h2test),
 
@@ -169,7 +169,7 @@ object KinshipResolverSpec extends ZIOSpecDefault:
 
           def resolveWith(rt: RelationType): ZIO[Any, AppError, Option[String]] =
             ZIO.service[KinshipResolver]
-              .flatMap(_.resolve(personA, personB, "en"))
+              .flatMap(_.resolve(personA, personB))
               .map(_.map(_.description))
               .provide(layerFor(rt), emptyRefRepoLayer, KinshipResolver.live, ZConnectionPool.h2test.orDie)
 

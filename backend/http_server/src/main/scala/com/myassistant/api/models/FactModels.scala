@@ -1,21 +1,20 @@
 package com.myassistant.api.models
 
-import com.myassistant.domain.{CreateFact, Fact, OperationType}
+import com.myassistant.domain.{CreateFact, CurrentFact, Fact, OperationType}
 import io.circe.{Codec, Json}
 
 import java.time.Instant
 import java.util.UUID
 
-/** HTTP request body for POST /facts. */
 final case class CreateFactRequest(
     documentId:       UUID,
     schemaId:         UUID,
-    entityInstanceId: Option[UUID],
+    entityInstanceId: UUID,
     operationType:    String,
     fields:           Json,
+    embedding:        List[Double],
 ) derives Codec.AsObject:
 
-  /** Convert to domain CreateFact; caller must validate operationType beforehand. */
   def toDomain: Either[String, CreateFact] =
     parseOperationType(operationType).map(op =>
       CreateFact(
@@ -24,17 +23,20 @@ final case class CreateFactRequest(
         entityInstanceId = entityInstanceId,
         operationType    = op,
         fields           = fields,
+        embedding        = embedding,
       )
     )
 
-/** HTTP request body for POST /facts/search. */
-final case class SearchFactsRequest(
-    query:  String,
-    domain: Option[String],
-    limit:  Option[Int],
+final case class SearchCurrentFactsRequest(
+    embedding:           List[Double],
+    personId:            Option[UUID],
+    householdId:         Option[UUID],
+    domainId:            Option[UUID],
+    entityType:          Option[String],
+    limit:               Option[Int],
+    similarityThreshold: Option[Double],
 ) derives Codec.AsObject
 
-/** HTTP response body for a single fact operation row. */
 final case class FactResponse(
     id:               UUID,
     documentId:       UUID,
@@ -46,7 +48,6 @@ final case class FactResponse(
 ) derives Codec.AsObject
 
 object FactResponse:
-  /** Build a FactResponse from the domain Fact. */
   def fromDomain(f: Fact): FactResponse =
     FactResponse(
       id               = f.id,
@@ -58,7 +59,31 @@ object FactResponse:
       createdAt        = f.createdAt,
     )
 
-/** Parse a lowercase operation type string to a domain OperationType. */
+final case class CurrentFactResponse(
+    entityInstanceId: UUID,
+    schemaId:         UUID,
+    personId:         Option[UUID],
+    householdId:      Option[UUID],
+    fields:           Json,
+    lastUpdatedAt:    Instant,
+) derives Codec.AsObject
+
+object CurrentFactResponse:
+  def fromDomain(cf: CurrentFact): CurrentFactResponse =
+    CurrentFactResponse(
+      entityInstanceId = cf.entityInstanceId,
+      schemaId         = cf.schemaId,
+      personId         = cf.personId,
+      householdId      = cf.householdId,
+      fields           = cf.fields,
+      lastUpdatedAt    = cf.lastUpdatedAt,
+    )
+
+final case class FactHistoryResponse(
+    entityInstanceId: UUID,
+    items:            List[FactResponse],
+) derives Codec.AsObject
+
 def parseOperationType(s: String): Either[String, OperationType] =
   s.toLowerCase match
     case "create" => Right(OperationType.Create)

@@ -1,60 +1,61 @@
 package com.myassistant.api.models
 
-import com.myassistant.domain.{EntityTypeSchema, ProposeEntityTypeSchema}
+import com.myassistant.domain.{CreateEntityTypeSchema, CreateSchemaVersion, EntityTypeSchema}
 import io.circe.{Codec, Json}
 
 import java.time.Instant
 import java.util.UUID
 
-/** HTTP request body for POST /schemas (propose new entity type). */
-final case class ProposeSchemaRequest(
-    domain:            String,
-    entityType:        String,
-    description:       String,
-    fieldDefinitions:  Json,
-    extractionPrompt:  String,
-    changeDescription: Option[String],
+final case class CreateEntityTypeSchemaRequest(
+    domainId:         UUID,
+    entityType:       String,
+    fieldDefinitions: Json,
+    description:      Option[String],
 ) derives Codec.AsObject:
 
-  /** Convert to domain ProposeEntityTypeSchema. */
-  def toDomain: ProposeEntityTypeSchema =
-    ProposeEntityTypeSchema(
-      domain            = domain,
-      entityType        = entityType,
-      description       = description,
-      fieldDefinitions  = fieldDefinitions,
-      extractionPrompt  = extractionPrompt,
-      changeDescription = changeDescription,
+  def toDomain: CreateEntityTypeSchema =
+    CreateEntityTypeSchema(
+      domainId         = domainId,
+      entityType       = entityType,
+      fieldDefinitions = fieldDefinitions,
+      description      = description,
     )
 
-/** HTTP response body for a single schema version. */
+final case class UpdateEntityTypeSchemaRequest(
+    fieldDefinitions: Json,
+    description:      Option[String],
+) derives Codec.AsObject:
+
+  def toDomain: CreateSchemaVersion =
+    CreateSchemaVersion(
+      fieldDefinitions = fieldDefinitions,
+      description      = description,
+    )
+
 final case class SchemaResponse(
-    id:                UUID,
-    domain:            String,
-    entityType:        String,
-    schemaVersion:     Int,
-    description:       String,
-    fieldDefinitions:  Json,
-    mandatoryFields:   List[String],
-    extractionPrompt:  String,
-    isActive:          Boolean,
-    changeDescription: Option[String],
-    createdAt:         Instant,
+    id:               UUID,
+    domainId:         UUID,
+    entityType:       String,
+    schemaVersion:    Int,
+    isActive:         Boolean,
+    description:      Option[String],
+    fieldDefinitions: Json,
+    mandatoryFields:  List[String],
+    createdAt:        Instant,
+    updatedAt:        Instant,
 ) derives Codec.AsObject
 
 object SchemaResponse:
-  /** Build a SchemaResponse from the domain EntityTypeSchema. */
   def fromDomain(s: EntityTypeSchema): SchemaResponse =
     SchemaResponse(
-      id                = s.id,
-      domain            = s.domain,
-      entityType        = s.entityType,
-      schemaVersion     = s.schemaVersion,
-      description       = s.description,
-      fieldDefinitions  = s.fieldDefinitions,
-      mandatoryFields   = s.mandatoryFields,
-      extractionPrompt  = s.extractionPrompt,
-      isActive          = s.isActive,
-      changeDescription = s.changeDescription,
-      createdAt         = s.createdAt,
+      id               = s.id,
+      domainId         = s.domainId,
+      entityType       = s.entityType,
+      schemaVersion    = s.schemaVersion,
+      isActive         = s.isActive,
+      description      = s.description,
+      fieldDefinitions = s.fieldDefinitions,
+      mandatoryFields  = s.mandatoryFields,
+      createdAt        = s.createdAt,
+      updatedAt        = s.updatedAt,
     )

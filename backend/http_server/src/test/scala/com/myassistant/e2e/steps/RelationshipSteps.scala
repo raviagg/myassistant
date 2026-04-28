@@ -42,7 +42,7 @@ class RelationshipSteps extends ScalaDsl with EN with Matchers:
   }
 
   When("I GET relationships for person A") {
-    doGet(s"/api/v1/relationships?person_id=$personAId")
+    doGet(s"/api/v1/relationships?personId=$personAId")
   }
 
   When("I PATCH the relationship between person A and person B with type {string}") { (relType: String) =>

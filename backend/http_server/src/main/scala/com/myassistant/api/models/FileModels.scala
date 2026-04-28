@@ -2,34 +2,32 @@ package com.myassistant.api.models
 
 import io.circe.Codec
 
-import java.util.UUID
+final case class UploadFileRequest(
+    contentBase64: String,
+    filename:      String,
+    mimeType:      Option[String],
+) derives Codec.AsObject
 
-/** HTTP response body after a successful file upload. */
 final case class FileUploadResponse(
-    key:          String,
-    originalName: String,
-    mimeType:     String,
-    size:         Long,
+    filePath:  String,
+    filename:  String,
+    mimeType:  String,
+    sizeBytes: Long,
 ) derives Codec.AsObject
 
-/** HTTP request body for POST /files/extract-text. */
 final case class ExtractTextRequest(
-    key:      String,
-    mimeType: String,
+    filePath: String,
 ) derives Codec.AsObject
 
-/** HTTP response body for POST /files/extract-text. */
 final case class ExtractTextResponse(
-    key:         String,
-    extractedText: String,
+    filePath:         String,
+    text:             String,
+    extractionMethod: String,
 ) derives Codec.AsObject
 
-/** HTTP request body for GET /files — query filter. */
-final case class FileInfo(
-    key:          String,
-    originalName: String,
-    mimeType:     String,
-    size:         Long,
-    personId:     Option[UUID],
-    householdId:  Option[UUID],
+final case class GetFileResponse(
+    filePath:      String,
+    contentBase64: String,
+    mimeType:      String,
+    filename:      String,
 ) derives Codec.AsObject
