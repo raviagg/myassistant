@@ -187,10 +187,10 @@ COMMENT ON COLUMN entity_type_schema.id IS
    was active when a fact was extracted.
    Example: "d4e5f6a7-b8c9-0123-defa-234567890123"';
 
-COMMENT ON COLUMN entity_type_schema.domain IS
+COMMENT ON COLUMN entity_type_schema.domain_id IS
   'The life domain this entity type belongs to.
-   Foreign key to domain.name.
-   Example: "health", "finance", "employment", "todo"';
+   Foreign key to domain.id.
+   Example: the UUID of the "health", "finance", "employment", or "todo" domain';
 
 COMMENT ON COLUMN entity_type_schema.entity_type IS
   'Machine-readable name for this entity type within its domain.
@@ -239,22 +239,9 @@ COMMENT ON COLUMN entity_type_schema.mandatory_fields IS
    Example: ["provider"] for insurance_card
    Example: ["title", "status"] for todo_item';
 
-COMMENT ON COLUMN entity_type_schema.extraction_prompt IS
-  'Prompt fragment given to the LLM during fact extraction.
-   Describes what to look for in the source document and
-   which fields are mandatory. Used by the ingestion pipeline
-   when calling the extraction LLM for this entity type.
-   Example: "Extract health insurance card details. Look for
-   provider name, plan name, deductible amount..."';
-
 COMMENT ON COLUMN entity_type_schema.is_active IS
   'Whether this schema version is currently in use.
    False = soft deleted or superseded by a newer version.
    Facts already extracted under an inactive schema are retained.
    The current_entity_type_schema view filters to is_active=true.';
 
-COMMENT ON COLUMN entity_type_schema.change_description IS
-  'Human-readable explanation of what changed in this schema version
-   compared to the previous version. Null for version 1.
-   Example: "Added group_number field after users reported needing it"
-   Example: "Split address into street, city, state, zip"';

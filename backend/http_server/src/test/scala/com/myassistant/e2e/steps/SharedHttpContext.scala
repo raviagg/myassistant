@@ -28,7 +28,9 @@ object SharedHttpContext:
     conn.disconnect()
     result
 
-  lazy val zeroEmbedding1536: String = List.fill(1536)(0.0).mkString("[", ",", "]")
+  lazy val zeroEmbedding1536: String   = List.fill(1536)(0.0).mkString("[", ",", "]")
+  // Non-zero embedding for search (zero vector causes cosine distance division by zero in pgvector)
+  lazy val searchEmbedding1536: String = (0.1 :: List.fill(1535)(0.0)).mkString("[", ",", "]")
 
   lazy val domainIdByName: Map[String, String] =
     val body = fetchJson("/api/v1/reference/domains")

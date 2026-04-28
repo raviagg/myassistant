@@ -122,7 +122,9 @@ class SchemaRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> SchemaRepository.live).build
         repo     = repoEnv.get[SchemaRepository]
-        created <- repo.create(CreateEntityTypeSchema(healthDomainId, "test_entity_2", Json.arr(), Some("Test 2")))
+        created <- repo.create(CreateEntityTypeSchema(healthDomainId, "test_entity_2",
+                     Json.arr(Json.obj("name" -> Json.fromString("f"), "type" -> Json.fromString("text"), "mandatory" -> Json.fromBoolean(false))),
+                     Some("Test 2")))
                      .provideEnvironment(ZEnvironment(sharedPool))
         found   <- repo.findById(created.id).provideEnvironment(ZEnvironment(sharedPool))
       yield (created, found)
@@ -174,7 +176,9 @@ class SchemaRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
       for
         repoEnv    <- (ZLayer.succeed(sharedPool) >>> SchemaRepository.live).build
         repo        = repoEnv.get[SchemaRepository]
-        created    <- repo.create(CreateEntityTypeSchema(healthDomainId, "test_entity_deact", Json.arr(), None))
+        created    <- repo.create(CreateEntityTypeSchema(healthDomainId, "test_entity_deact",
+                          Json.arr(Json.obj("name" -> Json.fromString("f"), "type" -> Json.fromString("text"), "mandatory" -> Json.fromBoolean(false))),
+                          None))
                         .provideEnvironment(ZEnvironment(sharedPool))
         deactivated <- repo.deactivate(healthDomainId, "test_entity_deact").provideEnvironment(ZEnvironment(sharedPool))
         foundAfter  <- repo.findCurrent(healthDomainId, "test_entity_deact").provideEnvironment(ZEnvironment(sharedPool))

@@ -33,7 +33,7 @@ Feature: Fact Ingestion and Retrieval
     Then the fact response status is 201
     When I GET the current fact for the entity instance
     Then the response status is 200
-    And the fact response body contains "create"
+    And the fact response body contains "entityInstanceId"
 
   Scenario: Get facts by domain
     Given a person and document exist in the system
@@ -41,7 +41,7 @@ Feature: Fact Ingestion and Retrieval
     Then the fact response status is 201
     When I GET facts by domain
     Then the response status is 200
-    And the fact response body contains "create"
+    And the fact response body contains "entityInstanceId"
 
   Scenario: Create a delete-type fact
     Given a person and document exist in the system

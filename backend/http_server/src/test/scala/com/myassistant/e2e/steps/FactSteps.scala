@@ -21,14 +21,15 @@ class FactSteps extends ScalaDsl with EN with Matchers:
       fail("Could not extract person id from create person response")
     )
 
-    doGet("/api/v1/schemas")
+    val todoDomainId = domainIdByName.getOrElse("todo", fail("todo domain not found"))
+    doGet(s"/api/v1/schemas?domainId=$todoDomainId")
     lastSchemaId = extractJsonStringField(lastBody, "id")
       .orElse(extractFromItems(lastBody, "id"))
       .getOrElse(fail("Could not extract schema id from schemas response"))
 
     val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     val docBody =
-      s"""{"personId":"$personId","contentText":"Test document for E2E fact tests","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":[]}"""
+      s"""{"personId":"$personId","contentText":"Test document for E2E fact tests","sourceTypeId":"$stId","embedding":$searchEmbedding1536,"files":[],"supersedesIds":[]}"""
     doPost("/api/v1/documents", docBody)
     lastStatus shouldBe 201
     lastDocumentId = extractJsonStringField(lastBody, "id").getOrElse(
@@ -65,7 +66,7 @@ class FactSteps extends ScalaDsl with EN with Matchers:
   }
 
   When("I GET facts for the document") {
-    doPost("/api/v1/facts/search", s"""{"embedding":$zeroEmbedding1536}""")
+    doGet(s"/api/v1/facts/$lastEntityInstanceId/history")
   }
 
   When("I GET the current fact for the entity instance") {

@@ -170,20 +170,20 @@ object DocumentRepository:
         householdId.map(v  => sql"household_id = ${v.toString}::uuid"),
         sourceTypeId.map(v => sql"source_type_id = ${v.toString}::uuid"),
       )
-      val baseWhere = conds match
-        case Nil   => SqlFragment("")
-        case cs    =>
+      val filterConds = conds match
+        case Nil => SqlFragment("")
+        case cs  =>
           val joined = cs.reduce(_ ++ SqlFragment(" AND ") ++ _)
-          SqlFragment(" WHERE ") ++ joined
+          SqlFragment(" AND ") ++ joined
       // DocRow + similarity score (Double stored as String)
       type DocSimRow = (String, Option[String], Option[String], String, String, String, String, java.sql.Timestamp, String)
       val q = SqlFragment(
         s"""SELECT id::text, person_id::text, household_id::text, content_text, source_type_id::text,
                    files::text, array_to_json(supersedes_ids)::text, created_at,
                    (1 - (embedding <=> '$embStr'::vector))::text AS similarity_score
-            FROM document"""
-      ) ++ baseWhere ++
-        SqlFragment(s" AND (1 - (embedding <=> '$embStr'::vector)) >= $similarityThreshold") ++
+            FROM document
+            WHERE (1 - (embedding <=> '$embStr'::vector)) >= $similarityThreshold"""
+      ) ++ filterConds ++
         SqlFragment(s" ORDER BY embedding <=> '$embStr'::vector LIMIT $limit")
       transaction(q.query[DocSimRow].selectAll)
         .mapError(mapSqlError)

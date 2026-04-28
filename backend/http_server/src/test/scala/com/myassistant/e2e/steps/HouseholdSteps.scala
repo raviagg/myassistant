@@ -73,7 +73,7 @@ class HouseholdSteps extends ScalaDsl with EN with Matchers:
     )
     val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     doPost("/api/v1/documents",
-      s"""{"householdId":"$docConstrainedHouseholdId","contentText":"Blocking household doc","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":[]}""")
+      s"""{"householdId":"$docConstrainedHouseholdId","contentText":"Blocking household doc","sourceTypeId":"$stId","embedding":$searchEmbedding1536,"files":[],"supersedesIds":[]}""")
     lastStatus shouldBe 201
   }
 

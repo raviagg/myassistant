@@ -104,7 +104,7 @@ class PersonSteps extends ScalaDsl with EN with Matchers:
     )
     val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     doPost("/api/v1/documents",
-      s"""{"personId":"$docConstrainedPersonId","contentText":"Blocking document","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":[]}""")
+      s"""{"personId":"$docConstrainedPersonId","contentText":"Blocking document","sourceTypeId":"$stId","embedding":$searchEmbedding1536,"files":[],"supersedesIds":[]}""")
     lastStatus shouldBe 201
   }
 

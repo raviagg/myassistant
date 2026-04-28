@@ -21,7 +21,7 @@ class DocumentSteps extends ScalaDsl with EN with Matchers:
   When("I POST a document for the person with content {string}") { (content: String) =>
     val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     val body =
-      s"""{"personId":"$lastPersonId","contentText":"$content","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":[]}"""
+      s"""{"personId":"$lastPersonId","contentText":"$content","sourceTypeId":"$stId","embedding":$searchEmbedding1536,"files":[],"supersedesIds":[]}"""
     doPost("/api/v1/documents", body)
     lastDocumentId = extractJsonStringField(lastBody, "id").getOrElse("")
   }
@@ -38,12 +38,12 @@ class DocumentSteps extends ScalaDsl with EN with Matchers:
     val supersededId = lastDocumentId
     val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     val body =
-      s"""{"personId":"$lastPersonId","contentText":"$content","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":["$supersededId"]}"""
+      s"""{"personId":"$lastPersonId","contentText":"$content","sourceTypeId":"$stId","embedding":$searchEmbedding1536,"files":[],"supersedesIds":["$supersededId"]}"""
     doPost("/api/v1/documents", body)
   }
 
   When("I search documents by embedding") {
-    doPost("/api/v1/documents/search", s"""{"embedding":$zeroEmbedding1536}""")
+    doPost("/api/v1/documents/search", s"""{"embedding":$searchEmbedding1536}""")
   }
 
   When("I GET documents with source type filter {string}") { (sourceTypeName: String) =>
@@ -71,7 +71,7 @@ class DocumentSteps extends ScalaDsl with EN with Matchers:
   When("I POST a document for the household with content {string}") { (content: String) =>
     val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     val body =
-      s"""{"householdId":"$lastHouseholdId","contentText":"$content","sourceTypeId":"$stId","embedding":$zeroEmbedding1536,"files":[],"supersedesIds":[]}"""
+      s"""{"householdId":"$lastHouseholdId","contentText":"$content","sourceTypeId":"$stId","embedding":$searchEmbedding1536,"files":[],"supersedesIds":[]}"""
     doPost("/api/v1/documents", body)
     lastDocumentId = extractJsonStringField(lastBody, "id").getOrElse("")
   }
