@@ -30,14 +30,16 @@ to Claude, which orchestrates reads and writes conversationally.
 
 ```
 myassistant/
-  schema/
-    01_spine.sql              person, household, person_household
-    02_relationships.sql      relationship, kinship_alias
-    03_reference.sql          source_type, domain
-    04_schema_governance.sql  entity_type_schema, current_entity_type_schema view
-    05_document.sql           document
-    06_fact.sql               fact, current_facts view
-    07_audit.sql              audit_log
+  backend/
+    http_server/
+      schema/
+        01_spine.sql              person, household, person_household
+        02_relationships.sql      relationship, kinship_alias
+        03_reference.sql          source_type, domain
+        04_schema_governance.sql  entity_type_schema, current_entity_type_schema view
+        05_document.sql           document
+        06_fact.sql               fact, current_facts view
+        07_audit.sql              audit_log
   CLAUDE.md                   this file
   README.md                   project overview
 ```
