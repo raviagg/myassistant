@@ -398,7 +398,7 @@ class MockServer:
             return _payslip_schema()
         return {"error": "not_found", "entity_type": et}
 
-    def _h_propose_entity_type_schema(self, i):
+    def _h_create_entity_type_schema(self, i):
         return {
             "id": NEW_SCHEMA_ID,
             "domain_id": i["domain_id"],
@@ -407,21 +407,18 @@ class MockServer:
             "description": i.get("description", ""),
             "field_definitions": i["field_definitions"],
             "mandatory_fields": [f["name"] for f in i["field_definitions"] if f.get("mandatory")],
-            "is_active": False,
+            "is_active": True,
             "created_at": NOW,
         }
 
-    def _h_confirm_entity_type_schema(self, i):
-        return {"id": i["schema_id"], "is_active": True, "confirmed_at": NOW}
-
-    def _h_evolve_entity_type_schema(self, i):
+    def _h_update_entity_type_schema(self, i):
         base = _todo_schema(sid=i["schema_id"])
         return {
             **base,
             "id": NEW_SCHEMA_ID,
             "schema_version": base["schema_version"] + 1,
             "field_definitions": i["field_definitions"],
-            "is_active": False,
+            "is_active": True,
         }
 
     def _h_deactivate_entity_type_schema(self, i):
