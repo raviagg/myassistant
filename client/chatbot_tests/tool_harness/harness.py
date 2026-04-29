@@ -383,9 +383,9 @@ def main() -> None:
             n_turns = len(scenario["turns"])
             turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
             print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
-            tool_names_per_turn, error = runner.run_scenario(scenario, verbose=args.verbose)
+            tool_names_per_turn, scenario_stats, error = runner.run_scenario(scenario, verbose=args.verbose)
             print("done" if not error else "error")
-            runner.print_result(scenario, tool_names_per_turn, error)
+            runner.print_result(scenario, tool_names_per_turn, scenario_stats, error)
         print(SEP)
         return
 
@@ -399,9 +399,9 @@ def main() -> None:
                 n_turns = len(scenario["turns"])
                 turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
                 print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
-                tool_names_per_turn, error = runner.run_scenario(scenario, verbose=args.verbose)
+                tool_names_per_turn, scenario_stats, error = runner.run_scenario(scenario, verbose=args.verbose)
                 print("done" if not error else "error")
-                runner.print_result(scenario, tool_names_per_turn, error)
+                runner.print_result(scenario, tool_names_per_turn, scenario_stats, error)
         finally:
             executor.close()
     print(SEP)

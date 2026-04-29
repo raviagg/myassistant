@@ -1,3 +1,4 @@
+import json
 import sys
 import pathlib
 from unittest.mock import MagicMock, patch
@@ -8,12 +9,25 @@ from tool_harness.agentic_runner import AgenticRunner
 from tool_harness.executors import MockExecutor
 
 
-def _make_run_result(stdout: str, returncode: int = 0) -> MagicMock:
-    """Simulate a subprocess.run result."""
+def _make_envelope(result_text: str, returncode: int = 0) -> MagicMock:
+    """Simulate a subprocess.run result returning a claude --output-format json envelope."""
     r = MagicMock()
     r.returncode = returncode
-    r.stdout = stdout
     r.stderr = ""
+    r.stdout = json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "result": result_text,
+        "duration_api_ms": 950,
+        "usage": {
+            "input_tokens": 100,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "output_tokens": 20,
+        },
+        "total_cost_usd": 0.001,
+    })
     return r
 
 
@@ -25,12 +39,14 @@ def test_agentic_runner_end_turn_immediately():
         "turns": [{"user_message": "Hello", "expected_tools": []}],
     }
     with patch("tool_harness.agentic_runner.subprocess.run",
-               return_value=_make_run_result("[]")):
-        results, error = runner.run_scenario(scenario)
+               return_value=_make_envelope("[]")):
+        results, stats, error = runner.run_scenario(scenario)
 
     assert error is None
     assert results is not None
     assert results[0] == []
+    assert stats is not None
+    assert stats["total"]["num_calls"] == 1
 
 
 def test_agentic_runner_records_tool_calls():
@@ -42,13 +58,14 @@ def test_agentic_runner_records_tool_calls():
     }
     with patch("tool_harness.agentic_runner.subprocess.run") as mock_run:
         mock_run.side_effect = [
-            _make_run_result('[{"tool": "list_domains", "params": {}}]'),
-            _make_run_result("[]"),
+            _make_envelope('[{"tool": "list_domains", "params": {}}]'),
+            _make_envelope("[]"),
         ]
-        results, error = runner.run_scenario(scenario)
+        results, stats, error = runner.run_scenario(scenario)
 
     assert error is None
     assert "list_domains" in results[0]
+    assert stats["total"]["num_calls"] == 2
 
 
 def test_agentic_runner_multi_turn_accumulates_history():
@@ -62,13 +79,15 @@ def test_agentic_runner_multi_turn_accumulates_history():
         ],
     }
     with patch("tool_harness.agentic_runner.subprocess.run",
-               return_value=_make_run_result("[]")) as mock_run:
-        results, error = runner.run_scenario(scenario)
+               return_value=_make_envelope("[]")) as mock_run:
+        results, stats, error = runner.run_scenario(scenario)
 
     assert error is None
     assert len(results) == 2
     # One subprocess call per turn (no tools → single iteration each)
     assert mock_run.call_count == 2
     # Second call's prompt must include "Turn one" from conversation history
-    second_prompt = mock_run.call_args_list[1].args[0][2]  # ["claude", "-p", prompt][2]
+    # Command is ["claude", "-p", "--output-format", "json", prompt] → index 4
+    second_prompt = mock_run.call_args_list[1].args[0][4]
     assert "Turn one" in second_prompt
+    assert stats["total"]["num_turns"] == 2
