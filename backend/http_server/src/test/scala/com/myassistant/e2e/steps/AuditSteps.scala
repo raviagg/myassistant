@@ -9,6 +9,6 @@ class AuditSteps extends ScalaDsl with EN with Matchers:
 
   When("I POST an audit interaction for the created person") {
     val body =
-      s"""{"personId":"$lastCreatedId","message":"Agent processed request","toolCalls":[],"status":"partial"}"""
+      s"""{"personId":"$lastCreatedId","messageText":"Agent processed request","responseText":"","toolCallsJson":[],"status":"partial"}"""
     doPost("/api/v1/audit/interactions", body)
   }

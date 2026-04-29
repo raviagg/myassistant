@@ -44,28 +44,28 @@ object AuditServiceSpec extends ZIOSpecDefault:
 
   private def personEntry(personId: UUID): AuditLog =
     AuditLog(
-      id        = UUID.randomUUID(),
-      personId  = Some(personId),
-      jobType   = None,
-      message   = "Hello",
-      response  = Some("Hi"),
-      toolCalls = Json.arr(),
-      status    = InteractionStatus.Success,
-      error     = None,
-      createdAt = Instant.now(),
+      id            = UUID.randomUUID(),
+      personId      = Some(personId),
+      jobType       = None,
+      messageText   = "Hello",
+      responseText  = "Hi",
+      toolCallsJson = None,
+      status        = InteractionStatus.Success,
+      errorMessage  = None,
+      createdAt     = Instant.now(),
     )
 
   private def jobEntry(jobType: String): AuditLog =
     AuditLog(
-      id        = UUID.randomUUID(),
-      personId  = None,
-      jobType   = Some(jobType),
-      message   = "poll result",
-      response  = None,
-      toolCalls = Json.arr(),
-      status    = InteractionStatus.Success,
-      error     = None,
-      createdAt = Instant.now(),
+      id            = UUID.randomUUID(),
+      personId      = None,
+      jobType       = Some(jobType),
+      messageText   = "poll result",
+      responseText  = "",
+      toolCallsJson = None,
+      status        = InteractionStatus.Success,
+      errorMessage  = None,
+      createdAt     = Instant.now(),
     )
 
   private def withFreshService[E](spec: Spec[AuditService & ZConnectionPool, E]): Spec[Any, E] =
@@ -81,15 +81,15 @@ object AuditServiceSpec extends ZIOSpecDefault:
 
           test("fails when both personId and jobType are set") {
             val entry = AuditLog(
-              id        = UUID.randomUUID(),
-              personId  = Some(UUID.randomUUID()),
-              jobType   = Some("plaid_poll"),
-              message   = "bad entry",
-              response  = None,
-              toolCalls = Json.arr(),
-              status    = InteractionStatus.Failed,
-              error     = None,
-              createdAt = Instant.now(),
+              id            = UUID.randomUUID(),
+              personId      = Some(UUID.randomUUID()),
+              jobType       = Some("plaid_poll"),
+              messageText   = "bad entry",
+              responseText  = "",
+              toolCallsJson = None,
+              status        = InteractionStatus.Failed,
+              errorMessage  = None,
+              createdAt     = Instant.now(),
             )
             for
               svc    <- ZIO.service[AuditService]
@@ -99,15 +99,15 @@ object AuditServiceSpec extends ZIOSpecDefault:
 
           test("fails when neither personId nor jobType is set") {
             val entry = AuditLog(
-              id        = UUID.randomUUID(),
-              personId  = None,
-              jobType   = None,
-              message   = "bad entry",
-              response  = None,
-              toolCalls = Json.arr(),
-              status    = InteractionStatus.Failed,
-              error     = None,
-              createdAt = Instant.now(),
+              id            = UUID.randomUUID(),
+              personId      = None,
+              jobType       = None,
+              messageText   = "bad entry",
+              responseText  = "",
+              toolCallsJson = None,
+              status        = InteractionStatus.Failed,
+              errorMessage  = None,
+              createdAt     = Instant.now(),
             )
             for
               svc    <- ZIO.service[AuditService]

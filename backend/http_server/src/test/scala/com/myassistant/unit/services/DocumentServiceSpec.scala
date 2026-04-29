@@ -26,7 +26,7 @@ object DocumentServiceSpec extends ZIOSpecDefault:
         personId      = req.personId,
         householdId   = req.householdId,
         contentText   = req.contentText,
-        sourceType    = req.sourceType,
+        sourceTypeId  = req.sourceTypeId,
         files         = req.files,
         supersedesIds = req.supersedesIds,
         createdAt     = now,
@@ -37,31 +37,43 @@ object DocumentServiceSpec extends ZIOSpecDefault:
       store.get.map(_.get(id))
 
     def list(
-        personId:    Option[UUID],
-        householdId: Option[UUID],
-        sourceType:  Option[String],
-        limit:       Int,
-        offset:      Int,
+        personId:      Option[UUID],
+        householdId:   Option[UUID],
+        sourceTypeId:  Option[UUID],
+        createdAfter:  Option[String],
+        createdBefore: Option[String],
+        limit:         Int,
+        offset:        Int,
     ): ZIO[ZConnectionPool, AppError, List[Document]] =
       store.get.map: m =>
         m.values.toList
           .filter(d => personId.forall(p => d.personId.contains(p)))
           .filter(d => householdId.forall(h => d.householdId.contains(h)))
-          .filter(d => sourceType.forall(st => d.sourceType == st))
+          .filter(d => sourceTypeId.forall(st => d.sourceTypeId == st))
           .sortBy(_.createdAt).reverse
           .slice(offset, offset + limit)
 
     def count(
-        personId:    Option[UUID],
-        householdId: Option[UUID],
-        sourceType:  Option[String],
+        personId:     Option[UUID],
+        householdId:  Option[UUID],
+        sourceTypeId: Option[UUID],
     ): ZIO[ZConnectionPool, AppError, Long] =
       store.get.map: m =>
         m.values
           .filter(d => personId.forall(p => d.personId.contains(p)))
           .filter(d => householdId.forall(h => d.householdId.contains(h)))
-          .filter(d => sourceType.forall(st => d.sourceType == st))
+          .filter(d => sourceTypeId.forall(st => d.sourceTypeId == st))
           .size.toLong
+
+    def searchBySimilarity(
+        embedding:           List[Double],
+        personId:            Option[UUID],
+        householdId:         Option[UUID],
+        sourceTypeId:        Option[UUID],
+        limit:               Int,
+        similarityThreshold: Double,
+    ): ZIO[ZConnectionPool, AppError, List[(Document, Double)]] =
+      ZIO.succeed(Nil)
 
   // ── Layer factory ─────────────────────────────────────────────────────────
 
@@ -71,12 +83,16 @@ object DocumentServiceSpec extends ZIOSpecDefault:
   private def withFresh[E](spec: Spec[DocumentService & ZConnectionPool, E]): Spec[Any, E] =
     spec.provide(mockRepoLayer, DocumentService.live, ZConnectionPool.h2test.orDie)
 
+  private val sourceTypeId = UUID.fromString("11111111-1111-1111-1111-111111111111")
+  private val otherSourceTypeId = UUID.fromString("22222222-2222-2222-2222-222222222222")
+
   private def personDoc(personId: UUID, text: String = "content"): CreateDocument =
     CreateDocument(
       personId      = Some(personId),
       householdId   = None,
       contentText   = text,
-      sourceType    = "user_input",
+      sourceTypeId  = sourceTypeId,
+      embedding     = List.fill(1536)(0.0),
       files         = Json.arr(),
       supersedesIds = Nil,
     )
@@ -99,7 +115,7 @@ object DocumentServiceSpec extends ZIOSpecDefault:
           },
 
           test("fails with ValidationError when neither personId nor householdId is set") {
-            val req = CreateDocument(None, None, "orphan", "user_input", Json.arr(), Nil)
+            val req = CreateDocument(None, None, "orphan", sourceTypeId, List.fill(1536)(0.0), Json.arr(), Nil)
             for
               svc    <- ZIO.service[DocumentService]
               result <- svc.createDocument(req).exit
@@ -108,7 +124,7 @@ object DocumentServiceSpec extends ZIOSpecDefault:
 
           test("stores document for a household owner") {
             val householdId = UUID.randomUUID()
-            val req = CreateDocument(None, Some(householdId), "household doc", "user_input", Json.arr(), Nil)
+            val req = CreateDocument(None, Some(householdId), "household doc", sourceTypeId, List.fill(1536)(0.0), Json.arr(), Nil)
             for
               svc    <- ZIO.service[DocumentService]
               result <- svc.createDocument(req)
@@ -148,19 +164,19 @@ object DocumentServiceSpec extends ZIOSpecDefault:
           test("returns empty list when no documents exist") {
             for
               svc    <- ZIO.service[DocumentService]
-              result <- svc.listDocuments(Some(UUID.randomUUID()), None, None, 10, 0)
+              result <- svc.listDocuments(Some(UUID.randomUUID()), None, None, None, None, 10, 0)
             yield assertTrue(result.isEmpty)
           },
 
-          test("returns documents for a person filtered by sourceType") {
+          test("returns documents for a person filtered by sourceTypeId") {
             val personId = UUID.randomUUID()
             for
               svc  <- ZIO.service[DocumentService]
-              _    <- svc.createDocument(CreateDocument(Some(personId), None, "user doc",  "user_input",  Json.arr(), Nil))
-              _    <- svc.createDocument(CreateDocument(Some(personId), None, "plaid doc", "plaid_poll",  Json.arr(), Nil))
-              list <- svc.listDocuments(Some(personId), None, Some("user_input"), 10, 0)
+              _    <- svc.createDocument(CreateDocument(Some(personId), None, "user doc",  sourceTypeId,      List.fill(1536)(0.0), Json.arr(), Nil))
+              _    <- svc.createDocument(CreateDocument(Some(personId), None, "plaid doc", otherSourceTypeId, List.fill(1536)(0.0), Json.arr(), Nil))
+              list <- svc.listDocuments(Some(personId), None, Some(sourceTypeId), None, None, 10, 0)
             yield assertTrue(list.size == 1) &&
-                  assertTrue(list.head.sourceType == "user_input")
+                  assertTrue(list.head.sourceTypeId == sourceTypeId)
           },
 
           test("paginates with limit and offset") {
@@ -170,7 +186,7 @@ object DocumentServiceSpec extends ZIOSpecDefault:
               _    <- svc.createDocument(personDoc(personId, "doc 1"))
               _    <- svc.createDocument(personDoc(personId, "doc 2"))
               _    <- svc.createDocument(personDoc(personId, "doc 3"))
-              page <- svc.listDocuments(Some(personId), None, None, 2, 0)
+              page <- svc.listDocuments(Some(personId), None, None, None, None, 2, 0)
             yield assertTrue(page.size == 2)
           },
 

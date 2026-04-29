@@ -16,8 +16,8 @@ trait HouseholdRepository:
   /** Fetch a household by primary key. */
   def findById(id: UUID): ZIO[ZConnectionPool, AppError, Option[Household]]
 
-  /** Return all households. */
-  def listAll: ZIO[ZConnectionPool, AppError, List[Household]]
+  /** Search households by name (case-insensitive partial match). */
+  def searchByName(name: String): ZIO[ZConnectionPool, AppError, List[Household]]
 
   /** Apply a partial update to a household record. */
   def update(id: UUID, patch: UpdateHousehold): ZIO[ZConnectionPool, AppError, Option[Household]]
@@ -87,12 +87,14 @@ object HouseholdRepository:
       }.mapError(mapSqlError)
         .map(_.map(rowToHousehold))
 
-    /** Return all households ordered by name. */
-    def listAll: ZIO[ZConnectionPool, AppError, List[Household]] =
+    /** Search households by name (case-insensitive partial match). */
+    def searchByName(name: String): ZIO[ZConnectionPool, AppError, List[Household]] =
+      val pattern = s"%$name%"
       transaction {
         sql"""
           SELECT id::text, name, created_at, updated_at
           FROM household
+          WHERE name ILIKE $pattern
           ORDER BY name
         """.query[HouseholdRow].selectAll
       }.mapError(mapSqlError)

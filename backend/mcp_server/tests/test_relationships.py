@@ -22,10 +22,10 @@ def test_create_relationship(http):
 def test_list_relationships(http):
     with respx.mock:
         respx.get("http://testserver/api/v1/relationships").mock(
-            return_value=httpx.Response(200, json={"items": [], "total": 0, "limit": 100, "offset": 0})
+            return_value=httpx.Response(200, json={"items": [], "total": 0})
         )
         result = list_relationships(http, person_id="p1")
-        assert "person_id=p1" in str(respx.calls[0].request.url)
+        assert "personId=p1" in str(respx.calls[0].request.url)
         assert result["items"] == []
 
 
@@ -61,16 +61,8 @@ def test_delete_relationship(http):
 def test_resolve_kinship(http):
     with respx.mock:
         respx.get("http://testserver/api/v1/relationships/p1/p2/kinship").mock(
-            return_value=httpx.Response(200, json={"chain": ["father", "sister"], "alias": "bua"})
+            return_value=httpx.Response(200, json={"chain": ["father", "sister"], "alias": "bua", "language": "hindi"})
         )
         result = resolve_kinship(http, from_person_id="p1", to_person_id="p2")
         assert result["alias"] == "bua"
-
-
-def test_resolve_kinship_with_language(http):
-    with respx.mock:
-        respx.get("http://testserver/api/v1/relationships/p1/p2/kinship").mock(
-            return_value=httpx.Response(200, json={"chain": ["father", "sister"], "alias": "bua"})
-        )
-        resolve_kinship(http, from_person_id="p1", to_person_id="p2", language="hindi")
-        assert "language=hindi" in str(respx.calls[0].request.url)
+        assert result["language"] == "hindi"

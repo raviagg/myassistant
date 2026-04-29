@@ -29,7 +29,7 @@ CREATE TABLE document (
   household_id    UUID        REFERENCES household(id),
 
   content_text    TEXT        NOT NULL,
-  source_type     TEXT        NOT NULL REFERENCES source_type(name),
+  source_type_id  UUID        NOT NULL REFERENCES source_type(id),
 
   files           JSONB       NOT NULL DEFAULT '[]',
 
@@ -65,7 +65,7 @@ CREATE INDEX idx_document_embedding
   ON document USING hnsw(embedding vector_cosine_ops);
 
 CREATE INDEX idx_document_source
-  ON document(source_type);
+  ON document(source_type_id);
 
 
 -- ------------------------------------------------------------
@@ -118,10 +118,10 @@ COMMENT ON COLUMN document.content_text IS
    Example: "Started new job at Acme Corp as Senior Engineer,
    salary 120000 per year, start date March 1 2024"';
 
-COMMENT ON COLUMN document.source_type IS
+COMMENT ON COLUMN document.source_type_id IS
   'How this document entered the system.
-   Foreign key to source_type.name.
-   Example: "user_input", "file_upload", "plaid_poll", "gmail_poll"';
+   Foreign key to source_type.id.
+   Example: the UUID of "user_input", "file_upload", "plaid_poll", "gmail_poll"';
 
 COMMENT ON COLUMN document.files IS
   'JSONB array of files attached to this document.

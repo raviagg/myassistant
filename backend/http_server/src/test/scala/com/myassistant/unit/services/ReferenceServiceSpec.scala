@@ -10,6 +10,7 @@ import zio.test.*
 import zio.test.Assertion.*
 
 import java.time.Instant
+import java.util.UUID
 
 object ReferenceServiceSpec extends ZIOSpecDefault:
 
@@ -31,11 +32,11 @@ object ReferenceServiceSpec extends ZIOSpecDefault:
       sources.get.map(_.values.toList.sortBy(_.name))
 
     def createDomain(name: String, description: String): ZIO[ZConnectionPool, AppError, Domain] =
-      val d = Domain(name, description, now)
+      val d = Domain(UUID.randomUUID(), name, description, now)
       domains.update(_ + (name -> d)).as(d)
 
     def createSourceType(name: String, description: String): ZIO[ZConnectionPool, AppError, SourceType] =
-      val st = SourceType(name, description, now)
+      val st = SourceType(UUID.randomUUID(), name, description, now)
       sources.update(_ + (name -> st)).as(st)
 
     def listKinshipAliases(language: Option[String]): ZIO[ZConnectionPool, AppError, List[KinshipAlias]] =

@@ -19,8 +19,17 @@ trait PersonRepository:
   /** Fetch a person by their login identifier. */
   def findByUserIdentifier(identifier: String): ZIO[ZConnectionPool, AppError, Option[Person]]
 
-  /** Return all persons, optionally filtered by household. */
-  def listAll(householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, List[Person]]
+  /** Search persons with optional filter parameters. */
+  def search(
+      name:           Option[String],
+      gender:         Option[String],
+      dateOfBirth:    Option[java.time.LocalDate],
+      dateOfBirthFrom: Option[java.time.LocalDate],
+      dateOfBirthTo:  Option[java.time.LocalDate],
+      householdId:    Option[UUID],
+      limit:          Int,
+      offset:         Int,
+  ): ZIO[ZConnectionPool, AppError, List[Person]]
 
   /** Apply a partial update to a person record. */
   def update(id: UUID, patch: UpdatePerson): ZIO[ZConnectionPool, AppError, Option[Person]]
@@ -103,22 +112,45 @@ object PersonRepository:
         .mapError(mapSqlError)
         .map(_.map(rowToPerson))
 
-    /** Return all persons, optionally filtered by household membership. */
-    def listAll(householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, List[Person]] =
-      householdId match
+    /** Search persons with optional filter parameters. */
+    def search(
+        name:            Option[String],
+        gender:          Option[String],
+        dateOfBirth:     Option[java.time.LocalDate],
+        dateOfBirthFrom: Option[java.time.LocalDate],
+        dateOfBirthTo:   Option[java.time.LocalDate],
+        householdId:     Option[UUID],
+        limit:           Int,
+        offset:          Int,
+    ): ZIO[ZConnectionPool, AppError, List[Person]] =
+      val namePat = name.map(n => s"%$n%")
+      val conds = List.concat(
+        namePat.map(p => SqlFragment(s"(p.full_name ILIKE '${p.replace("'","''")}' OR p.preferred_name ILIKE '${p.replace("'","''")}' )")),
+        gender.map(g  => sql"p.gender = ${g}::gender_type"),
+        dateOfBirth.map(d    => sql"p.date_of_birth = ${java.sql.Date.valueOf(d)}"),
+        dateOfBirthFrom.map(d => sql"p.date_of_birth >= ${java.sql.Date.valueOf(d)}"),
+        dateOfBirthTo.map(d   => sql"p.date_of_birth <= ${java.sql.Date.valueOf(d)}"),
+      )
+      val (joinFrag, whereFrag) = householdId match
         case None =>
-          val q = sql"SELECT " ++ personCols ++ sql" FROM person ORDER BY full_name"
-          transaction(q.query[PersonRow].selectAll)
-            .mapError(mapSqlError)
-            .map(_.toList.map(rowToPerson))
+          val j = SqlFragment("")
+          val w = conds match
+            case Nil => SqlFragment("")
+            case cs  => SqlFragment(" WHERE ") ++ cs.reduce(_ ++ SqlFragment(" AND ") ++ _)
+          (j, w)
         case Some(hid) =>
-          val q = sql"SELECT p.id::text, p.full_name, p.gender::text, p.date_of_birth, " ++
-                  sql"p.preferred_name, p.user_identifier, p.created_at, p.updated_at " ++
-                  sql"FROM person p JOIN person_household ph ON ph.person_id = p.id " ++
-                  sql"WHERE ph.household_id = ${hid.toString}::uuid ORDER BY p.full_name"
-          transaction(q.query[PersonRow].selectAll)
-            .mapError(mapSqlError)
-            .map(_.toList.map(rowToPerson))
+          val j = sql" JOIN person_household ph ON ph.person_id = p.id AND ph.household_id = ${hid.toString}::uuid"
+          val w = conds match
+            case Nil => SqlFragment("")
+            case cs  => SqlFragment(" WHERE ") ++ cs.reduce(_ ++ SqlFragment(" AND ") ++ _)
+          (j, w)
+      val q = sql"SELECT p.id::text, p.full_name, p.gender::text, p.date_of_birth, " ++
+              sql"p.preferred_name, p.user_identifier, p.created_at, p.updated_at " ++
+              sql"FROM person p" ++ joinFrag ++ whereFrag ++
+              sql" ORDER BY p.full_name LIMIT ${limit} OFFSET ${offset}"
+      transaction(q.query[PersonRow].selectAll)
+        .mapError(mapSqlError)
+        .map(_.toList.map(rowToPerson))
 
     /** Apply a partial update; only set non-None fields.
      *

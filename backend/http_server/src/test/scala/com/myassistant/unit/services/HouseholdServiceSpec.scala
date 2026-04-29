@@ -30,8 +30,8 @@ object HouseholdServiceSpec extends ZIOSpecDefault:
     def findById(id: UUID): ZIO[ZConnectionPool, AppError, Option[Household]] =
       store.get.map(_.get(id))
 
-    def listAll: ZIO[ZConnectionPool, AppError, List[Household]] =
-      store.get.map(_.values.toList.sortBy(_.name))
+    def searchByName(name: String): ZIO[ZConnectionPool, AppError, List[Household]] =
+      store.get.map(_.values.filter(_.name.toLowerCase.contains(name.toLowerCase)).toList.sortBy(_.name))
 
     def update(id: UUID, patch: UpdateHousehold): ZIO[ZConnectionPool, AppError, Option[Household]] =
       store.get.flatMap: m =>
@@ -113,24 +113,25 @@ object HouseholdServiceSpec extends ZIOSpecDefault:
       ),
 
       withFreshService(
-        suite("listHouseholds")(
+        suite("searchHouseholds")(
 
-          test("returns empty list when no households exist") {
+          test("returns empty list when no households match the name") {
             for
               svc    <- ZIO.service[HouseholdService]
-              result <- svc.listHouseholds
+              result <- svc.searchHouseholds("nonexistent")
             yield assertTrue(result.isEmpty)
           },
 
-          test("returns all created households") {
+          test("returns households matching the name substring") {
             for
               svc  <- ZIO.service[HouseholdService]
-              _    <- svc.createHousehold(CreateHousehold("Alpha"))
-              _    <- svc.createHousehold(CreateHousehold("Beta"))
-              list <- svc.listHouseholds
+              _    <- svc.createHousehold(CreateHousehold("Alpha Family"))
+              _    <- svc.createHousehold(CreateHousehold("Beta Family"))
+              _    <- svc.createHousehold(CreateHousehold("Gamma Crew"))
+              list <- svc.searchHouseholds("Family")
             yield assertTrue(list.size == 2) &&
-                  assertTrue(list.map(_.name).contains("Alpha")) &&
-                  assertTrue(list.map(_.name).contains("Beta"))
+                  assertTrue(list.map(_.name).contains("Alpha Family")) &&
+                  assertTrue(list.map(_.name).contains("Beta Family"))
           },
 
         )

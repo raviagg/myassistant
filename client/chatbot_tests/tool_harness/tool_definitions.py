@@ -1,5 +1,5 @@
 """
-All 44 MCP tool definitions in Anthropic SDK format.
+All 43 MCP tool definitions in Anthropic SDK format.
 Derived from docs/mcp-tools.md.
 """
 

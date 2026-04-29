@@ -36,10 +36,10 @@ object AuditService:
     def log(entry: AuditLog): ZIO[ZConnectionPool, AppError, AuditLog] =
       val hasPersonId = entry.personId.isDefined
       val hasJobType  = entry.jobType.isDefined
-      if hasPersonId == hasJobType then
-        ZIO.fail(AppError.ValidationError(
-          "Exactly one of personId or jobType must be set on an audit log entry"
-        ))
+      if hasPersonId && hasJobType then
+        ZIO.fail(AppError.ValidationError("Only one of personId or jobType may be set"))
+      else if !hasPersonId && !hasJobType then
+        ZIO.fail(AppError.ValidationError("Exactly one of personId or jobType must be set"))
       else
         repo.create(entry)
 

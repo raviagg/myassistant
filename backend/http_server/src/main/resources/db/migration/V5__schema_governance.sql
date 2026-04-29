@@ -23,18 +23,17 @@
 
 CREATE TABLE entity_type_schema (
   id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  domain              TEXT        NOT NULL REFERENCES domain(name),
+  domain_id           UUID        NOT NULL REFERENCES domain(id),
   entity_type         TEXT        NOT NULL,
   schema_version      INT         NOT NULL DEFAULT 1,
-  description         TEXT        NOT NULL,
+  description         TEXT,
   field_definitions   JSONB       NOT NULL,
   mandatory_fields    TEXT[]      NOT NULL DEFAULT '{}',
-  extraction_prompt   TEXT        NOT NULL,
   is_active           BOOLEAN     NOT NULL DEFAULT true,
-  change_description  TEXT,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
 
-  UNIQUE (domain, entity_type, schema_version),
+  UNIQUE (domain_id, entity_type, schema_version),
 
   -- field_definitions must be a non-empty JSON array
   CONSTRAINT field_definitions_valid CHECK (
@@ -62,9 +61,9 @@ CREATE TRIGGER trg_mandatory_fields
   FOR EACH ROW EXECUTE FUNCTION compute_mandatory_fields();
 
 CREATE INDEX idx_entity_type_schema_domain
-  ON entity_type_schema(domain);
+  ON entity_type_schema(domain_id);
 CREATE INDEX idx_entity_type_schema_lookup
-  ON entity_type_schema(domain, entity_type, schema_version);
+  ON entity_type_schema(domain_id, entity_type, schema_version);
 CREATE INDEX idx_entity_type_schema_active
   ON entity_type_schema(is_active)
   WHERE is_active = true;
@@ -75,10 +74,10 @@ CREATE INDEX idx_entity_type_schema_active
 -- ------------------------------------------------------------
 
 CREATE VIEW current_entity_type_schema AS
-  SELECT DISTINCT ON (domain, entity_type) *
+  SELECT DISTINCT ON (domain_id, entity_type) *
   FROM entity_type_schema
   WHERE is_active = true
-  ORDER BY domain, entity_type, schema_version DESC;
+  ORDER BY domain_id, entity_type, schema_version DESC;
 
 
 -- ------------------------------------------------------------
@@ -86,224 +85,70 @@ CREATE VIEW current_entity_type_schema AS
 -- ------------------------------------------------------------
 
 INSERT INTO entity_type_schema (
-  domain, entity_type, schema_version,
-  description, field_definitions,
-  extraction_prompt, change_description
-) VALUES
-(
-  'health',
-  'insurance_card',
-  1,
-  'Health insurance card details including provider, plan name, '
-  'deductible, premium and coverage dates. '
-  'One record per insurance policy per coverage period.',
+  domain_id, entity_type, schema_version,
+  description, field_definitions
+)
+SELECT id, 'insurance_card', 1,
+  'Health insurance card details including provider, plan name, deductible, premium and coverage dates.',
   '[
-    {
-      "name":        "provider",
-      "type":        "text",
-      "mandatory":   true,
-      "description": "Insurance provider company name. Example: BlueCross, Aetna, UnitedHealth"
-    },
-    {
-      "name":        "plan_name",
-      "type":        "text",
-      "mandatory":   false,
-      "description": "Name of the specific insurance plan. Example: BlueShield PPO 500, Gold Plan"
-    },
-    {
-      "name":        "member_id",
-      "type":        "text",
-      "mandatory":   false,
-      "description": "Member ID or policy number printed on the insurance card. Example: XYZ123456789"
-    },
-    {
-      "name":        "group_number",
-      "type":        "text",
-      "mandatory":   false,
-      "description": "Group number on the insurance card, typically from employer. Example: GRP-98765"
-    },
-    {
-      "name":        "deductible",
-      "type":        "number",
-      "mandatory":   false,
-      "description": "Annual deductible amount in USD. Example: 500, 1500, 3000"
-    },
-    {
-      "name":        "premium",
-      "type":        "number",
-      "mandatory":   false,
-      "description": "Monthly premium amount in USD. Example: 450, 820"
-    },
-    {
-      "name":        "valid_from",
-      "type":        "date",
-      "mandatory":   false,
-      "description": "Date coverage started. Example: 2024-01-01"
-    },
-    {
-      "name":        "valid_to",
-      "type":        "date",
-      "mandatory":   false,
-      "description": "Date coverage ends. Example: 2024-12-31"
-    },
-    {
-      "name":        "card_image",
-      "type":        "file",
-      "mandatory":   false,
-      "description": "Photo or scan of the physical insurance card front"
-    }
-  ]',
-  'Extract health insurance card details from the provided text or image. '
-  'Look for: insurance provider name, plan name, member ID or policy number, '
-  'group number, deductible amount, monthly premium, coverage start and end dates, '
-  'and any attached card images. '
-  'The provider field is mandatory — ask the user if not found.',
-  'Initial version'
-),
-(
-  'todo',
-  'todo_item',
-  1,
-  'A task or reminder to be completed, either one-off or recurring. '
-  'Tracks title, status, due date, priority and recurrence pattern.',
+    {"name":"provider",    "type":"text",   "mandatory":true,  "description":"Insurance provider company name. Example: BlueCross, Aetna, UnitedHealth"},
+    {"name":"plan_name",   "type":"text",   "mandatory":false, "description":"Name of the specific insurance plan. Example: BlueShield PPO 500, Gold Plan"},
+    {"name":"member_id",   "type":"text",   "mandatory":false, "description":"Member ID or policy number printed on the insurance card. Example: XYZ123456789"},
+    {"name":"group_number","type":"text",   "mandatory":false, "description":"Group number on the insurance card, typically from employer. Example: GRP-98765"},
+    {"name":"deductible",  "type":"number", "mandatory":false, "description":"Annual deductible amount in USD. Example: 500, 1500, 3000"},
+    {"name":"premium",     "type":"number", "mandatory":false, "description":"Monthly premium amount in USD. Example: 450, 820"},
+    {"name":"valid_from",  "type":"date",   "mandatory":false, "description":"Date coverage started. Example: 2024-01-01"},
+    {"name":"valid_to",    "type":"date",   "mandatory":false, "description":"Date coverage ends. Example: 2024-12-31"},
+    {"name":"card_image",  "type":"file",   "mandatory":false, "description":"Photo or scan of the physical insurance card front"}
+  ]'::jsonb
+FROM domain WHERE name = 'health';
+
+INSERT INTO entity_type_schema (
+  domain_id, entity_type, schema_version,
+  description, field_definitions
+)
+SELECT id, 'todo_item', 1,
+  'A task or reminder to be completed, either one-off or recurring.',
   '[
-    {
-      "name":        "title",
-      "type":        "text",
-      "mandatory":   true,
-      "description": "Short description of what needs to be done. Example: Renew passport, Book dentist appointment"
-    },
-    {
-      "name":        "status",
-      "type":        "text",
-      "mandatory":   true,
-      "description": "Current status of the task. Allowed values: open, in_progress, done. Example: open"
-    },
-    {
-      "name":        "due_date",
-      "type":        "date",
-      "mandatory":   false,
-      "description": "Date by which the task should be completed. Example: 2024-06-01"
-    },
-    {
-      "name":        "priority",
-      "type":        "text",
-      "mandatory":   false,
-      "description": "Importance level of the task. Allowed values: low, medium, high. Example: high"
-    },
-    {
-      "name":        "is_recurring",
-      "type":        "boolean",
-      "mandatory":   false,
-      "description": "Whether this task repeats on a schedule. Example: true for weekly gym, false for one-off tasks"
-    },
-    {
-      "name":        "recurrence",
-      "type":        "text",
-      "mandatory":   false,
-      "description": "Recurrence pattern if is_recurring is true. Example: daily, weekly, monthly, every Monday"
-    }
-  ]',
-  'Extract todo items and tasks from the provided text. '
-  'Look for: what needs to be done (title), current status (default to open if not specified), '
-  'any due date or deadline, priority level, and whether it repeats. '
-  'Both title and status are mandatory.',
-  'Initial version'
-),
-(
-  'employment',
-  'job',
-  1,
-  'An employment record capturing a job held by a person — '
-  'employer, role, salary and employment period.',
+    {"name":"title",      "type":"text",    "mandatory":true,  "description":"Short description of what needs to be done. Example: Renew passport"},
+    {"name":"status",     "type":"text",    "mandatory":true,  "description":"Current status of the task. Allowed values: open, in_progress, done"},
+    {"name":"due_date",   "type":"date",    "mandatory":false, "description":"Date by which the task should be completed. Example: 2024-06-01"},
+    {"name":"priority",   "type":"text",    "mandatory":false, "description":"Importance level. Allowed values: low, medium, high"},
+    {"name":"is_recurring","type":"boolean","mandatory":false, "description":"Whether this task repeats on a schedule"},
+    {"name":"recurrence", "type":"text",    "mandatory":false, "description":"Recurrence pattern if is_recurring is true. Example: daily, weekly"}
+  ]'::jsonb
+FROM domain WHERE name = 'todo';
+
+INSERT INTO entity_type_schema (
+  domain_id, entity_type, schema_version,
+  description, field_definitions
+)
+SELECT id, 'job', 1,
+  'An employment record capturing a job held by a person.',
   '[
-    {
-      "name":        "employer",
-      "type":        "text",
-      "mandatory":   true,
-      "description": "Name of the employer or company. Example: Acme Corp, Google, Freelance"
-    },
-    {
-      "name":        "role",
-      "type":        "text",
-      "mandatory":   false,
-      "description": "Job title or role at the employer. Example: Senior Engineer, Product Manager"
-    },
-    {
-      "name":        "salary",
-      "type":        "number",
-      "mandatory":   false,
-      "description": "Annual salary in USD at time of this record. Example: 120000, 145000"
-    },
-    {
-      "name":        "start_date",
-      "type":        "date",
-      "mandatory":   false,
-      "description": "Date employment at this employer started. Example: 2022-03-01"
-    },
-    {
-      "name":        "end_date",
-      "type":        "date",
-      "mandatory":   false,
-      "description": "Date employment ended. Null if currently employed here. Example: 2024-01-15"
-    }
-  ]',
-  'Extract employment details from the provided text. '
-  'Look for: employer name, job title or role, annual salary, '
-  'employment start date and end date (if no longer employed there). '
-  'Employer is mandatory — ask the user if not found.',
-  'Initial version'
-),
-(
-  'finance',
-  'payslip',
-  1,
-  'A payslip record capturing income for a specific pay period — '
-  'gross income, deductions, net income and pay date.',
+    {"name":"employer",   "type":"text",   "mandatory":true,  "description":"Name of the employer or company. Example: Acme Corp, Google"},
+    {"name":"role",       "type":"text",   "mandatory":false, "description":"Job title or role at the employer. Example: Senior Engineer"},
+    {"name":"salary",     "type":"number", "mandatory":false, "description":"Annual salary in USD. Example: 120000"},
+    {"name":"start_date", "type":"date",   "mandatory":false, "description":"Date employment started. Example: 2022-03-01"},
+    {"name":"end_date",   "type":"date",   "mandatory":false, "description":"Date employment ended. Null if currently employed"}
+  ]'::jsonb
+FROM domain WHERE name = 'employment';
+
+INSERT INTO entity_type_schema (
+  domain_id, entity_type, schema_version,
+  description, field_definitions
+)
+SELECT id, 'payslip', 1,
+  'A payslip record capturing income for a specific pay period.',
   '[
-    {
-      "name":        "employer",
-      "type":        "text",
-      "mandatory":   true,
-      "description": "Name of the employer who issued this payslip. Example: Acme Corp"
-    },
-    {
-      "name":        "pay_period",
-      "type":        "date",
-      "mandatory":   true,
-      "description": "The date or month this payslip covers. Example: 2024-03-31 for March 2024"
-    },
-    {
-      "name":        "gross_income",
-      "type":        "number",
-      "mandatory":   true,
-      "description": "Total gross income before deductions in USD. Example: 10000"
-    },
-    {
-      "name":        "tax",
-      "type":        "number",
-      "mandatory":   false,
-      "description": "Total tax deducted in USD. Example: 2200"
-    },
-    {
-      "name":        "net_income",
-      "type":        "number",
-      "mandatory":   false,
-      "description": "Take-home pay after all deductions in USD. Example: 7800"
-    },
-    {
-      "name":        "payslip_file",
-      "type":        "file",
-      "mandatory":   false,
-      "description": "The original payslip document — PDF or image"
-    }
-  ]',
-  'Extract payslip details from the provided text or document. '
-  'Look for: employer name, pay period or pay date, gross income, '
-  'tax deducted, net or take-home pay, and any attached payslip file. '
-  'Employer, pay_period and gross_income are mandatory.',
-  'Initial version'
-);
+    {"name":"employer",     "type":"text",   "mandatory":true,  "description":"Name of the employer who issued this payslip. Example: Acme Corp"},
+    {"name":"pay_period",   "type":"date",   "mandatory":true,  "description":"The date or month this payslip covers. Example: 2024-03-31"},
+    {"name":"gross_income", "type":"number", "mandatory":true,  "description":"Total gross income before deductions in USD. Example: 10000"},
+    {"name":"tax",          "type":"number", "mandatory":false, "description":"Total tax deducted in USD. Example: 2200"},
+    {"name":"net_income",   "type":"number", "mandatory":false, "description":"Take-home pay after all deductions in USD. Example: 7800"},
+    {"name":"payslip_file", "type":"file",   "mandatory":false, "description":"The original payslip document — PDF or image"}
+  ]'::jsonb
+FROM domain WHERE name = 'finance';
 
 
 -- ------------------------------------------------------------
@@ -342,10 +187,10 @@ COMMENT ON COLUMN entity_type_schema.id IS
    was active when a fact was extracted.
    Example: "d4e5f6a7-b8c9-0123-defa-234567890123"';
 
-COMMENT ON COLUMN entity_type_schema.domain IS
+COMMENT ON COLUMN entity_type_schema.domain_id IS
   'The life domain this entity type belongs to.
-   Foreign key to domain.name.
-   Example: "health", "finance", "employment", "todo"';
+   Foreign key to domain.id.
+   Example: the UUID of the "health", "finance", "employment", or "todo" domain';
 
 COMMENT ON COLUMN entity_type_schema.entity_type IS
   'Machine-readable name for this entity type within its domain.
@@ -394,22 +239,9 @@ COMMENT ON COLUMN entity_type_schema.mandatory_fields IS
    Example: ["provider"] for insurance_card
    Example: ["title", "status"] for todo_item';
 
-COMMENT ON COLUMN entity_type_schema.extraction_prompt IS
-  'Prompt fragment given to the LLM during fact extraction.
-   Describes what to look for in the source document and
-   which fields are mandatory. Used by the ingestion pipeline
-   when calling the extraction LLM for this entity type.
-   Example: "Extract health insurance card details. Look for
-   provider name, plan name, deductible amount..."';
-
 COMMENT ON COLUMN entity_type_schema.is_active IS
   'Whether this schema version is currently in use.
    False = soft deleted or superseded by a newer version.
    Facts already extracted under an inactive schema are retained.
    The current_entity_type_schema view filters to is_active=true.';
 
-COMMENT ON COLUMN entity_type_schema.change_description IS
-  'Human-readable explanation of what changed in this schema version
-   compared to the previous version. Null for version 1.
-   Example: "Added group_number field after users reported needing it"
-   Example: "Split address into street, city, state, zip"';

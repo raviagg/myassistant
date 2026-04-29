@@ -102,8 +102,9 @@ class PersonSteps extends ScalaDsl with EN with Matchers:
     docConstrainedPersonId = extractJsonStringField(lastBody, "id").getOrElse(
       fail("Could not extract doc constrained person id")
     )
+    val stId = sourceTypeIdByName.getOrElse("user_input", fail("user_input source type not found"))
     doPost("/api/v1/documents",
-      s"""{"personId":"$docConstrainedPersonId","contentText":"Blocking document","sourceType":"user_input","files":[],"supersedesIds":[]}""")
+      s"""{"personId":"$docConstrainedPersonId","contentText":"Blocking document","sourceTypeId":"$stId","embedding":$searchEmbedding1536,"files":[],"supersedesIds":[]}""")
     lastStatus shouldBe 201
   }
 

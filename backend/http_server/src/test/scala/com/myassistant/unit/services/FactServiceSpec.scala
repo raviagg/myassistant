@@ -1,7 +1,7 @@
 package com.myassistant.unit.services
 
 import com.myassistant.db.repositories.FactRepository
-import com.myassistant.domain.{CreateFact, Fact, OperationType}
+import com.myassistant.domain.{CreateFact, CurrentFact, Fact, OperationType}
 import com.myassistant.errors.AppError
 import com.myassistant.services.FactService
 import io.circe.Json
@@ -24,7 +24,7 @@ object FactServiceSpec extends ZIOSpecDefault:
         id               = UUID.randomUUID(),
         documentId       = req.documentId,
         schemaId         = req.schemaId,
-        entityInstanceId = req.entityInstanceId.getOrElse(UUID.randomUUID()),
+        entityInstanceId = req.entityInstanceId,
         operationType    = req.operationType,
         fields           = req.fields,
         createdAt        = Instant.now(),
@@ -40,11 +40,45 @@ object FactServiceSpec extends ZIOSpecDefault:
     def findByDocument(documentId: UUID): ZIO[ZConnectionPool, AppError, List[Fact]] =
       store.get.map(_.values.filter(_.documentId == documentId).toList.sortBy(_.createdAt))
 
-    def findBySchema(schemaId: UUID, limit: Int, offset: Int): ZIO[ZConnectionPool, AppError, List[Fact]] =
-      store.get.map:
-        _.values.filter(_.schemaId == schemaId).toList
-          .sortBy(_.createdAt).reverse
-          .slice(offset, offset + limit)
+    def findCurrentByEntityInstance(entityInstanceId: UUID): ZIO[ZConnectionPool, AppError, Option[CurrentFact]] =
+      store.get.map: m =>
+        val facts = m.values.filter(_.entityInstanceId == entityInstanceId).toList.sortBy(_.createdAt)
+        facts.lastOption.flatMap: last =>
+          if last.operationType == OperationType.Delete then None
+          else
+            val merged = facts.foldLeft(Json.obj()) { (acc, f) =>
+              acc.deepMerge(f.fields)
+            }
+            Some(CurrentFact(entityInstanceId, last.schemaId, None, None, merged, last.createdAt))
+
+    def listCurrent(
+        personId:    Option[UUID],
+        householdId: Option[UUID],
+        domainId:    Option[UUID],
+        entityType:  Option[String],
+        limit:       Int,
+        offset:      Int,
+    ): ZIO[ZConnectionPool, AppError, List[CurrentFact]] =
+      ZIO.succeed(Nil)
+
+    def countCurrent(
+        personId:    Option[UUID],
+        householdId: Option[UUID],
+        domainId:    Option[UUID],
+        entityType:  Option[String],
+    ): ZIO[ZConnectionPool, AppError, Long] =
+      ZIO.succeed(0L)
+
+    def searchCurrentBySimilarity(
+        embedding:           List[Double],
+        personId:            Option[UUID],
+        householdId:         Option[UUID],
+        domainId:            Option[UUID],
+        entityType:          Option[String],
+        limit:               Int,
+        similarityThreshold: Double,
+    ): ZIO[ZConnectionPool, AppError, List[(CurrentFact, Double)]] =
+      ZIO.succeed(Nil)
 
   // ── Layer factory ─────────────────────────────────────────────────────────
 
@@ -57,13 +91,14 @@ object FactServiceSpec extends ZIOSpecDefault:
   private val docId    = UUID.randomUUID()
   private val schemaId = UUID.randomUUID()
 
-  private def req(entityId: Option[UUID] = None, op: OperationType = OperationType.Create): CreateFact =
+  private def req(entityId: UUID = UUID.randomUUID(), op: OperationType = OperationType.Create): CreateFact =
     CreateFact(
       documentId       = docId,
       schemaId         = schemaId,
       entityInstanceId = entityId,
       operationType    = op,
       fields           = Json.obj("title" -> Json.fromString("test")),
+      embedding        = List.fill(1536)(0.0),
     )
 
   // ── Tests ─────────────────────────────────────────────────────────────────
@@ -74,50 +109,23 @@ object FactServiceSpec extends ZIOSpecDefault:
       withFresh(
         suite("createFact")(
 
-          test("stores and returns a fact with generated UUID") {
-            for
-              svc    <- ZIO.service[FactService]
-              result <- svc.createFact(req())
-            yield assertTrue(result.documentId == docId) &&
-                  assertTrue(result.schemaId == schemaId) &&
-                  assertTrue(result.operationType == OperationType.Create)
-          },
-
-          test("uses provided entityInstanceId when given") {
+          test("stores and returns a fact with given entityInstanceId") {
             val entityId = UUID.randomUUID()
             for
               svc    <- ZIO.service[FactService]
-              result <- svc.createFact(req(Some(entityId)))
-            yield assertTrue(result.entityInstanceId == entityId)
+              result <- svc.createFact(req(entityId))
+            yield assertTrue(result.documentId == docId) &&
+                  assertTrue(result.schemaId == schemaId) &&
+                  assertTrue(result.operationType == OperationType.Create) &&
+                  assertTrue(result.entityInstanceId == entityId)
           },
 
-          test("generates a new entityInstanceId when None is given") {
+          test("stores a Delete operation fact") {
+            val entityId = UUID.randomUUID()
             for
               svc    <- ZIO.service[FactService]
-              result <- svc.createFact(req(None))
-            yield assertTrue(result.entityInstanceId != null)
-          },
-
-        )
-      ),
-
-      withFresh(
-        suite("getFact")(
-
-          test("fails with NotFound when fact does not exist") {
-            for
-              svc    <- ZIO.service[FactService]
-              result <- svc.getFact(UUID.randomUUID()).exit
-            yield assert(result)(fails(isSubtype[AppError.NotFound](anything)))
-          },
-
-          test("returns the fact when it exists") {
-            for
-              svc     <- ZIO.service[FactService]
-              created <- svc.createFact(req())
-              found   <- svc.getFact(created.id)
-            yield assertTrue(found.id == created.id) &&
-                  assertTrue(found.documentId == docId)
+              result <- svc.createFact(req(entityId, OperationType.Delete))
+            yield assertTrue(result.operationType == OperationType.Delete)
           },
 
         )
@@ -137,8 +145,8 @@ object FactServiceSpec extends ZIOSpecDefault:
             val entityId = UUID.randomUUID()
             for
               svc  <- ZIO.service[FactService]
-              _    <- svc.createFact(req(Some(entityId), OperationType.Create))
-              _    <- svc.createFact(req(Some(entityId), OperationType.Update))
+              _    <- svc.createFact(req(entityId, OperationType.Create))
+              _    <- svc.createFact(req(entityId, OperationType.Update))
               list <- svc.getEntityHistory(entityId)
             yield assertTrue(list.size == 2) &&
                   assertTrue(list.forall(_.entityInstanceId == entityId))
@@ -148,53 +156,27 @@ object FactServiceSpec extends ZIOSpecDefault:
       ),
 
       withFresh(
-        suite("getFactsByDocument")(
+        suite("getCurrentFact")(
 
-          test("returns empty list when document has no facts") {
+          test("fails with NotFound when entity instance has no facts") {
             for
               svc    <- ZIO.service[FactService]
-              result <- svc.getFactsByDocument(UUID.randomUUID())
-            yield assertTrue(result.isEmpty)
+              result <- svc.getCurrentFact(UUID.randomUUID()).exit
+            yield assert(result)(fails(isSubtype[AppError.NotFound](anything)))
           },
 
-          test("returns all facts for a document") {
-            val localDocId = UUID.randomUUID()
-            val docReq = CreateFact(localDocId, schemaId, None, OperationType.Create,
-                           Json.obj("x" -> Json.fromString("y")))
+          test("returns merged current state for an entity instance") {
+            val entityId = UUID.randomUUID()
             for
-              svc  <- ZIO.service[FactService]
-              _    <- svc.createFact(docReq)
-              _    <- svc.createFact(docReq)
-              list <- svc.getFactsByDocument(localDocId)
-            yield assertTrue(list.size == 2) &&
-                  assertTrue(list.forall(_.documentId == localDocId))
-          },
-
-        )
-      ),
-
-      withFresh(
-        suite("getFactsBySchema")(
-
-          test("returns empty list when schema has no facts") {
-            for
-              svc    <- ZIO.service[FactService]
-              result <- svc.getFactsBySchema(UUID.randomUUID(), 10, 0)
-            yield assertTrue(result.isEmpty)
-          },
-
-          test("returns paginated facts for a schema") {
-            val localSchemaId = UUID.randomUUID()
-            val sReq = CreateFact(docId, localSchemaId, None, OperationType.Create,
-                         Json.obj("a" -> Json.fromString("b")))
-            for
-              svc  <- ZIO.service[FactService]
-              _    <- svc.createFact(sReq)
-              _    <- svc.createFact(sReq)
-              _    <- svc.createFact(sReq)
-              page <- svc.getFactsBySchema(localSchemaId, 2, 0)
-            yield assertTrue(page.size == 2) &&
-                  assertTrue(page.forall(_.schemaId == localSchemaId))
+              svc     <- ZIO.service[FactService]
+              _       <- svc.createFact(CreateFact(docId, schemaId, entityId, OperationType.Create,
+                           Json.obj("title" -> Json.fromString("Task"), "status" -> Json.fromString("open")),
+                           List.fill(1536)(0.0)))
+              _       <- svc.createFact(CreateFact(docId, schemaId, entityId, OperationType.Update,
+                           Json.obj("status" -> Json.fromString("done")),
+                           List.fill(1536)(0.0)))
+              current <- svc.getCurrentFact(entityId)
+            yield assertTrue(current.entityInstanceId == entityId)
           },
 
         )

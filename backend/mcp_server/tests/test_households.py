@@ -2,15 +2,18 @@ import json
 import pytest
 import respx
 import httpx
-from tools.households import list_households, create_household, get_household, update_household, delete_household
+from tools.households import (
+    create_household, get_household, search_households, update_household, delete_household,
+)
 
 
-def test_list_households(http):
+def test_search_households(http):
     with respx.mock:
         respx.get("http://testserver/api/v1/households").mock(
-            return_value=httpx.Response(200, json={"items": [], "total": 0, "limit": 1000, "offset": 0})
+            return_value=httpx.Response(200, json={"items": [], "total": 0})
         )
-        result = list_households(http)
+        result = search_households(http, name="Aggarwal")
+        assert "name=Aggarwal" in str(respx.calls[0].request.url)
         assert result["items"] == []
 
 

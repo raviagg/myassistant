@@ -8,15 +8,8 @@ import zio.*
 import zio.http.*
 import zio.jdbc.*
 
-/** HTTP routes for reference data (domains, source types, kinship aliases).
- *
- *  GET    /api/v1/reference/domains           — list all life domains
- *  GET    /api/v1/reference/source-types      — list all data source types
- *  GET    /api/v1/reference/kinship-aliases   — list kinship aliases (query: language)
- */
 object ReferenceRoutes:
 
-  /** Build reference data routes requiring ReferenceService and ZConnectionPool in the environment. */
   val routes: Routes[ReferenceService & ZConnectionPool, Nothing] =
     Routes(
       Method.GET / "api" / "v1" / "reference" / "domains" ->
@@ -25,10 +18,11 @@ object ReferenceRoutes:
             .foldZIO(
               err     => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
               domains =>
+                val items = domains.map(d =>
+                  DomainResponse(id = d.id, name = d.name, description = d.description, createdAt = d.createdAt)
+                )
                 ZIO.succeed(Response.json(
-                  domains.map(d =>
-                    DomainResponse(name = d.name, description = d.description, createdAt = d.createdAt)
-                  ).asJson.noSpaces
+                  io.circe.Json.obj("items" -> io.circe.Json.arr(items.map(_.asJson)*)).noSpaces
                 ))
             )
         },
@@ -39,10 +33,11 @@ object ReferenceRoutes:
             .foldZIO(
               err         => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
               sourceTypes =>
+                val items = sourceTypes.map(st =>
+                  SourceTypeResponse(id = st.id, name = st.name, description = st.description, createdAt = st.createdAt)
+                )
                 ZIO.succeed(Response.json(
-                  sourceTypes.map(st =>
-                    SourceTypeResponse(name = st.name, description = st.description, createdAt = st.createdAt)
-                  ).asJson.noSpaces
+                  io.circe.Json.obj("items" -> io.circe.Json.arr(items.map(_.asJson)*)).noSpaces
                 ))
             )
         },
@@ -54,17 +49,18 @@ object ReferenceRoutes:
             .foldZIO(
               err     => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
               aliases =>
+                val items = aliases.map(a =>
+                  KinshipAliasResponse(
+                    id            = a.id,
+                    relationChain = a.relationChain,
+                    language      = a.language,
+                    alias         = a.alias,
+                    description   = a.description,
+                    createdAt     = a.createdAt,
+                  )
+                )
                 ZIO.succeed(Response.json(
-                  aliases.map(a =>
-                    KinshipAliasResponse(
-                      id            = a.id,
-                      relationChain = a.relationChain,
-                      language      = a.language,
-                      alias         = a.alias,
-                      description   = a.description,
-                      createdAt     = a.createdAt,
-                    )
-                  ).asJson.noSpaces
+                  io.circe.Json.obj("items" -> io.circe.Json.arr(items.map(_.asJson)*)).noSpaces
                 ))
             )
         },

@@ -109,7 +109,7 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
     found.get.fullName shouldBe "Nirmala Devi"
   }
 
-  test("listAll — returns all persons") {
+  test("search(None,...) — returns all persons when no filters applied") {
     val persons = run {
       for
         repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
@@ -117,7 +117,7 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
         _       <- repo.create(CreatePerson("Alice",   Gender.Female, None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
         _       <- repo.create(CreatePerson("Bob",     Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
         _       <- repo.create(CreatePerson("Charlie", Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
-        list    <- repo.listAll(None).provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.search(None, None, None, None, None, None, 100, 0).provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
     persons.size should be >= 3
@@ -231,7 +231,7 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
     appError.get       shouldBe a [AppError.Conflict]
   }
 
-  test("listAll — filtered by householdId returns only household members") {
+  test("search — filtered by householdId returns only household members") {
     val members = run {
       for
         personEnv    <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
@@ -241,10 +241,10 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
         p1           <- personRepo.create(CreatePerson("HH Member One", Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
         p2           <- personRepo.create(CreatePerson("HH Member Two", Gender.Female, None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
         _            <- personRepo.create(CreatePerson("Not In HH",     Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
-        household    <- hRepo.create(CreateHousehold("ListAll Household")).provideEnvironment(ZEnvironment(sharedPool))
+        household    <- hRepo.create(CreateHousehold("Search Household")).provideEnvironment(ZEnvironment(sharedPool))
         _            <- hRepo.addMember(p1.id, household.id).provideEnvironment(ZEnvironment(sharedPool))
         _            <- hRepo.addMember(p2.id, household.id).provideEnvironment(ZEnvironment(sharedPool))
-        list         <- personRepo.listAll(Some(household.id)).provideEnvironment(ZEnvironment(sharedPool))
+        list         <- personRepo.search(None, None, None, None, None, Some(household.id), 100, 0).provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
     members.size shouldBe 2
@@ -287,4 +287,39 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
     }
     updated.isDefined        shouldBe true
     updated.get.fullName     shouldBe "EmptyPatch"
+  }
+
+  test("search — with name and gender filters covers filter lambdas and reduce path") {
+    val results = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        repo     = repoEnv.get[PersonRepository]
+        _       <- repo.create(CreatePerson("Alice Finder", Gender.Female, None, None, None))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        _       <- repo.create(CreatePerson("Bob Irrelevant", Gender.Male, None, None, None))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.search(Some("Alice"), Some("female"), None, None, None, None, 10, 0)
+                     .provideEnvironment(ZEnvironment(sharedPool))
+      yield list
+    }
+    results should not be empty
+    results.forall(_.fullName.contains("Alice")) shouldBe true
+  }
+
+  test("update — updates userIdentifier field") {
+    val updated = run {
+      for
+        repoEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        repo     = repoEnv.get[PersonRepository]
+        created <- repo.create(CreatePerson("UpdateUID", Gender.Male, None, None, None))
+                     .provideEnvironment(ZEnvironment(sharedPool))
+        updated <- repo.update(
+                     created.id,
+                     UpdatePerson(fullName = None, gender = None, dateOfBirth = None,
+                                  preferredName = None, userIdentifier = Some("new-uid"))
+                   ).provideEnvironment(ZEnvironment(sharedPool))
+      yield updated
+    }
+    updated.isDefined                shouldBe true
+    updated.get.userIdentifier       shouldBe Some("new-uid")
   }

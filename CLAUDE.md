@@ -44,6 +44,32 @@ myassistant/
 
 ---
 
+## Source of Truth and Sync Rules
+
+The three documents below are the **authoritative source of truth** for this project. All code artifacts must remain in sync with them. When there is a conflict, the docs win — fix the code, not the docs (unless the doc is itself being intentionally updated).
+
+| Document | Source of truth for |
+|---|---|
+| `docs/use-case.md` | Product purpose, data model rationale, design decisions |
+| `docs/mcp-tools.md` | All 43 MCP tool names, parameters, types, and behaviour |
+| `docs/http-contract.md` | All 43 REST endpoints — paths, methods, request/response shapes, field names, query params |
+
+### What must stay in sync
+
+| Artifact | Must match |
+|---|---|
+| `backend/http_server/` — routes, models, DB migrations | `docs/http-contract.md` — field names (camelCase), endpoint paths, status codes |
+| `backend/mcp_server/` — tool registrations, HTTP calls | `docs/mcp-tools.md` — tool names, parameter names/types; `docs/http-contract.md` — request bodies, query params sent to the Scala server |
+| `client/chatbot_tests/tool_harness/` — `tool_definitions.py`, `scenarios.py` | `docs/mcp-tools.md` — tool names, parameter schemas, expected tool-call patterns |
+
+### Sync discipline
+
+- **Adding or changing an endpoint**: update `http-contract.md` first, then the Scala routes/models, then the Python MCP tools, then the harness definitions.
+- **Adding or changing an MCP tool**: update `mcp-tools.md` first, then `mcp_server/tools/`, then the harness definitions.
+- **JSON field names**: the Scala server uses camelCase throughout (Circe `derives Codec.AsObject`). `http-contract.md` documents camelCase. The Python MCP server sends camelCase request bodies to match.
+
+---
+
 ## Core Design Principles
 
 These govern every data decision in the codebase. Refer to `docs/use-case.md` for full rationale.

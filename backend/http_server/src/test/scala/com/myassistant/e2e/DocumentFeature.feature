@@ -20,14 +20,11 @@ Feature: Document Management
     Then the response status is 200
     And the response body contains "Listed document"
 
-  Scenario: Search documents
+  Scenario: Search documents by embedding
     Given a person exists for document tests
     When I POST a document for the person with content "Searchable content"
     Then the response status is 201
-    When I POST to "/api/v1/documents/search" with body:
-      """
-      {"query": "Searchable"}
-      """
+    When I search documents by embedding
     Then the response status is 200
 
   Scenario: Get non-existent document returns 404
@@ -38,7 +35,7 @@ Feature: Document Management
     Given a person exists for document tests
     When I POST to "/api/v1/documents" with body:
       """
-      {"sourceType": "user_input", "files": [], "supersedesIds": []}
+      {"personId": "00000000-0000-0000-0000-000000000001"}
       """
     Then the response status is 400
 
@@ -54,7 +51,7 @@ Feature: Document Management
     Given a person exists for document tests
     When I POST a document for the person with content "Source filtered doc"
     Then the response status is 201
-    When I GET "/api/v1/documents?sourceType=user_input"
+    When I GET documents with source type filter "user_input"
     Then the response status is 200
     And the response body contains "Source filtered doc"
 
@@ -80,8 +77,5 @@ Feature: Document Management
     Then the response status is 422
 
   Scenario: Create document with non-existent person ID returns 409
-    When I POST to "/api/v1/documents" with body:
-      """
-      {"personId":"00000000-0000-0000-0000-000000000001","contentText":"FK violation document","sourceType":"user_input","files":[],"supersedesIds":[]}
-      """
+    When I POST a document with non-existent person for constraint test
     Then the response status is 409

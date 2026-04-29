@@ -2,117 +2,120 @@ import httpx
 from client import _check
 
 
-def list_schemas(http: httpx.Client) -> dict:
-    """List all schema definitions."""
-    resp = http.get("/api/v1/schemas")
-    _check(resp)
-    return resp.json()
-
-
-def create_schema(
+def list_entity_type_schemas(
     http: httpx.Client,
-    domain: str,
-    entity_type: str,
-    description: str,
-    field_definitions: list,
-    extraction_prompt: str,
-    change_description: str | None = None,
+    domain_id: str | None = None,
+    entity_type: str | None = None,
+    active_only: bool = True,
 ) -> dict:
-    """Create a new entity type schema."""
-    body: dict = {
-        "domain": domain,
-        "entityType": entity_type,
-        "description": description,
-        "fieldDefinitions": field_definitions,
-        "extractionPrompt": extraction_prompt,
-    }
-    if change_description is not None:
-        body["changeDescription"] = change_description
-    resp = http.post("/api/v1/schemas", json=body)
+    params: dict = {"activeOnly": active_only}
+    if domain_id is not None:
+        params["domainId"] = domain_id
+    if entity_type is not None:
+        params["entityType"] = entity_type
+    resp = http.get("/api/v1/schemas", params=params)
     _check(resp)
     return resp.json()
 
 
-def get_current_schemas(http: httpx.Client) -> dict:
-    """List only the currently active schema per entity type."""
-    resp = http.get("/api/v1/schemas/current")
-    _check(resp)
-    return resp.json()
-
-
-def get_schema(http: httpx.Client, schema_id: str) -> dict:
-    """Fetch a specific schema version by ID."""
+def get_entity_type_schema(http: httpx.Client, schema_id: str) -> dict:
     resp = http.get(f"/api/v1/schemas/{schema_id}")
     _check(resp)
     return resp.json()
 
 
-def add_schema_version(
-    http: httpx.Client,
-    domain: str,
-    entity_type: str,
-    description: str,
-    field_definitions: list,
-    extraction_prompt: str,
-    change_description: str | None = None,
+def get_current_entity_type_schema(
+    http: httpx.Client, domain_id: str, entity_type: str
 ) -> dict:
-    """Create a new version of an existing schema."""
-    body: dict = {
-        "domain": domain,
-        "entityType": entity_type,
-        "description": description,
-        "fieldDefinitions": field_definitions,
-        "extractionPrompt": extraction_prompt,
-    }
-    if change_description is not None:
-        body["changeDescription"] = change_description
-    resp = http.post(f"/api/v1/schemas/{domain}/{entity_type}/versions", json=body)
+    resp = http.get("/api/v1/schemas/current",
+                    params={"domainId": domain_id, "entityType": entity_type})
     _check(resp)
     return resp.json()
 
 
-def deactivate_schema(http: httpx.Client, domain: str, entity_type: str) -> dict:
-    """Mark the active schema for a domain/entity_type as inactive."""
-    resp = http.delete(f"/api/v1/schemas/{domain}/{entity_type}/active")
+def create_entity_type_schema(
+    http: httpx.Client,
+    domain_id: str,
+    entity_type: str,
+    field_definitions: list,
+    description: str | None = None,
+) -> dict:
+    body: dict = {
+        "domainId": domain_id,
+        "entityType": entity_type,
+        "fieldDefinitions": field_definitions,
+    }
+    if description is not None:
+        body["description"] = description
+    resp = http.post("/api/v1/schemas", json=body)
+    _check(resp)
+    return resp.json()
+
+
+def update_entity_type_schema(
+    http: httpx.Client,
+    domain_id: str,
+    entity_type: str,
+    field_definitions: list,
+    description: str | None = None,
+) -> dict:
+    body: dict = {"fieldDefinitions": field_definitions}
+    if description is not None:
+        body["description"] = description
+    resp = http.post(f"/api/v1/schemas/{domain_id}/{entity_type}/versions", json=body)
+    _check(resp)
+    return resp.json()
+
+
+def deactivate_entity_type_schema(
+    http: httpx.Client, domain_id: str, entity_type: str
+) -> dict:
+    resp = http.delete(f"/api/v1/schemas/{domain_id}/{entity_type}/active")
     _check(resp)
     return {} if resp.status_code == 204 else resp.json()
 
 
 def register(mcp, http: httpx.Client) -> None:
-    @mcp.tool()
-    def list_schemas_tool() -> dict:
-        """List all schema definitions."""
-        return list_schemas(http)
-
-    @mcp.tool()
-    def create_schema_tool(
-        domain: str, entity_type: str, description: str,
-        field_definitions: list, extraction_prompt: str,
-        change_description: str | None = None,
+    @mcp.tool(name="list_entity_type_schemas")
+    def _list_tool(
+        domain_id: str | None = None,
+        entity_type: str | None = None,
+        active_only: bool = True,
     ) -> dict:
-        """Create a new entity type schema."""
-        return create_schema(http, domain, entity_type, description, field_definitions, extraction_prompt, change_description)
+        """List schema definitions, optionally filtered by domain or entity type."""
+        return list_entity_type_schemas(http, domain_id, entity_type, active_only)
 
-    @mcp.tool()
-    def get_current_schemas_tool() -> dict:
-        """List only the currently active schema per entity type."""
-        return get_current_schemas(http)
+    @mcp.tool(name="get_entity_type_schema")
+    def _get_tool(schema_id: str) -> dict:
+        """Fetch a specific schema version by UUID."""
+        return get_entity_type_schema(http, schema_id)
 
-    @mcp.tool()
-    def get_schema_tool(schema_id: str) -> dict:
-        """Fetch a specific schema version by ID."""
-        return get_schema(http, schema_id)
+    @mcp.tool(name="get_current_entity_type_schema")
+    def _get_current_tool(domain_id: str, entity_type: str) -> dict:
+        """Fetch the latest active schema for a (domain_id, entity_type) pair."""
+        return get_current_entity_type_schema(http, domain_id, entity_type)
 
-    @mcp.tool()
-    def add_schema_version_tool(
-        domain: str, entity_type: str, description: str,
-        field_definitions: list, extraction_prompt: str,
-        change_description: str | None = None,
+    @mcp.tool(name="create_entity_type_schema")
+    def _create_tool(
+        domain_id: str,
+        entity_type: str,
+        field_definitions: list,
+        description: str | None = None,
     ) -> dict:
-        """Create a new version of an existing schema."""
-        return add_schema_version(http, domain, entity_type, description, field_definitions, extraction_prompt, change_description)
+        """Create a new schema definition for a (domain_id, entity_type) pair that does not yet exist."""
+        return create_entity_type_schema(http, domain_id, entity_type, field_definitions, description)
 
-    @mcp.tool()
-    def deactivate_schema_tool(domain: str, entity_type: str) -> dict:
-        """Mark the active schema for a domain/entity_type as inactive."""
-        return deactivate_schema(http, domain, entity_type)
+    @mcp.tool(name="update_entity_type_schema")
+    def _update_tool(
+        domain_id: str,
+        entity_type: str,
+        field_definitions: list,
+        description: str | None = None,
+    ) -> dict:
+        """Create a new version of an existing active schema. Provide the full field list for the new version."""
+        return update_entity_type_schema(http, domain_id, entity_type, field_definitions, description)
+
+    @mcp.tool(name="deactivate_entity_type_schema")
+    def _deactivate_tool(domain_id: str, entity_type: str) -> dict:
+        """Mark the current active schema for a (domain_id, entity_type) pair as inactive."""
+        return deactivate_entity_type_schema(http, domain_id, entity_type)

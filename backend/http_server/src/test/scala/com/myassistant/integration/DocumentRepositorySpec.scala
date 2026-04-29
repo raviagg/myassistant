@@ -29,6 +29,9 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
 
   private var sharedPool: ZConnectionPool = uninitialized
   private var poolScope: Scope.Closeable  = uninitialized
+  private var userInputSourceTypeId: UUID = uninitialized
+  private var plaidPollSourceTypeId: UUID = uninitialized
+  private var aiExtractedSourceTypeId: UUID = uninitialized
 
   private def dbConfig(container: PostgreSQLContainer): DatabaseConfig =
     DatabaseConfig(
@@ -58,8 +61,25 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
           poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive)
                        .build
                        .provideEnvironment(ZEnvironment(scope))
-          _        = sharedPool = poolEnv.get[ZConnectionPool]
+          pool     = poolEnv.get[ZConnectionPool]
+          _        = sharedPool = pool
           _        = poolScope  = scope
+          // Load source_type UUIDs from the seeded reference table
+          userInputId <- transaction(sql"SELECT id::text FROM source_type WHERE name = 'user_input'".query[String].selectOne)
+                           .mapError(AppError.DatabaseError(_))
+                           .flatMap(ZIO.fromOption(_).mapError(_ => AppError.InternalError(new RuntimeException("missing user_input source_type"))))
+                           .provideEnvironment(ZEnvironment(pool))
+          plaidId     <- transaction(sql"SELECT id::text FROM source_type WHERE name = 'plaid_poll'".query[String].selectOne)
+                           .mapError(AppError.DatabaseError(_))
+                           .flatMap(ZIO.fromOption(_).mapError(_ => AppError.InternalError(new RuntimeException("missing plaid_poll source_type"))))
+                           .provideEnvironment(ZEnvironment(pool))
+          aiId        <- transaction(sql"SELECT id::text FROM source_type WHERE name = 'ai_extracted'".query[String].selectOne)
+                           .mapError(AppError.DatabaseError(_))
+                           .flatMap(ZIO.fromOption(_).mapError(_ => AppError.InternalError(new RuntimeException("missing ai_extracted source_type"))))
+                           .provideEnvironment(ZEnvironment(pool))
+          _            = userInputSourceTypeId   = UUID.fromString(userInputId)
+          _            = plaidPollSourceTypeId   = UUID.fromString(plaidId)
+          _            = aiExtractedSourceTypeId = UUID.fromString(aiId)
         yield ()
       ).getOrThrowFiberFailure()
     }
@@ -78,6 +98,8 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
       ).getOrThrowFiberFailure()
     }
 
+  private val emptyEmbedding = List.fill(1536)(0.0)
+
   // ── Tests ─────────────────────────────────────────────────────────────────
 
   test("create — inserts a document for a person and returns it") {
@@ -93,7 +115,8 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "Test document content",
-                         sourceType    = "user_input",
+                         sourceTypeId  = userInputSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
@@ -102,7 +125,7 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
     }
     doc.personId    shouldBe Some(doc.personId.get)
     doc.contentText shouldBe "Test document content"
-    doc.sourceType  shouldBe "user_input"
+    doc.sourceTypeId shouldBe userInputSourceTypeId
     doc.files       shouldBe Json.arr()
     doc.id          should not be null
   }
@@ -120,7 +143,8 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                             personId      = None,
                             householdId   = Some(household.id),
                             contentText   = "Household document",
-                            sourceType    = "user_input",
+                            sourceTypeId  = userInputSourceTypeId,
+                            embedding     = emptyEmbedding,
                             files         = Json.arr(),
                             supersedesIds = Nil,
                           ))
@@ -145,7 +169,8 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "Original content",
-                         sourceType    = "user_input",
+                         sourceTypeId  = userInputSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
@@ -155,7 +180,8 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "Updated content",
-                         sourceType    = "user_input",
+                         sourceTypeId  = userInputSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = List(first.id),
                        ))
@@ -179,7 +205,8 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "findById content",
-                         sourceType    = "file_upload",
+                         sourceTypeId  = userInputSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
@@ -191,7 +218,7 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
     found.isDefined              shouldBe true
     found.get.id                 shouldBe created.id
     found.get.contentText        shouldBe "findById content"
-    found.get.sourceType         shouldBe "file_upload"
+    found.get.sourceTypeId       shouldBe userInputSourceTypeId
     missing                      shouldBe None
   }
 
@@ -208,7 +235,8 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "Doc A",
-                         sourceType    = "user_input",
+                         sourceTypeId  = userInputSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
@@ -218,13 +246,14 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "Doc B",
-                         sourceType    = "gmail_poll",
+                         sourceTypeId  = plaidPollSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
                        .provideEnvironment(ZEnvironment(sharedPool))
         list      <- docEnv.get[DocumentRepository]
-                       .list(Some(person.id), None, None, 10, 0)
+                       .list(Some(person.id), None, None, None, None, 10, 0)
                        .provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
@@ -232,7 +261,7 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
     docs.forall(_.personId.isDefined) shouldBe true
   }
 
-  test("list — filtered by sourceType") {
+  test("list — filtered by sourceTypeId") {
     val docs = run {
       for
         personEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
@@ -245,7 +274,8 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "Plaid doc",
-                         sourceType    = "plaid_poll",
+                         sourceTypeId  = plaidPollSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
@@ -255,18 +285,19 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "User doc",
-                         sourceType    = "user_input",
+                         sourceTypeId  = userInputSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
                        .provideEnvironment(ZEnvironment(sharedPool))
         list      <- docEnv.get[DocumentRepository]
-                       .list(Some(person.id), None, Some("plaid_poll"), 10, 0)
+                       .list(Some(person.id), None, Some(plaidPollSourceTypeId), None, None, 10, 0)
                        .provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
     docs should not be empty
-    docs.forall(_.sourceType == "plaid_poll") shouldBe true
+    docs.forall(_.sourceTypeId == plaidPollSourceTypeId) shouldBe true
   }
 
   test("list — with no filters returns all documents (limit/offset pagination)") {
@@ -282,13 +313,14 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "Page doc",
-                         sourceType    = "user_input",
+                         sourceTypeId  = userInputSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
                        .provideEnvironment(ZEnvironment(sharedPool))
         list      <- docEnv.get[DocumentRepository]
-                       .list(None, None, None, 100, 0)
+                       .list(None, None, None, None, None, 100, 0)
                        .provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
@@ -308,7 +340,8 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "Count doc 1",
-                         sourceType    = "ai_extracted",
+                         sourceTypeId  = aiExtractedSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
@@ -318,17 +351,80 @@ class DocumentRepositorySpec extends AnyFunSuite with Matchers with TestContaine
                          personId      = Some(person.id),
                          householdId   = None,
                          contentText   = "Count doc 2",
-                         sourceType    = "ai_extracted",
+                         sourceTypeId  = aiExtractedSourceTypeId,
+                         embedding     = emptyEmbedding,
                          files         = Json.arr(),
                          supersedesIds = Nil,
                        ))
                        .provideEnvironment(ZEnvironment(sharedPool))
         countAll    <- docEnv.get[DocumentRepository].count(None, None, None).provideEnvironment(ZEnvironment(sharedPool))
         countPerson <- docEnv.get[DocumentRepository].count(Some(person.id), None, None).provideEnvironment(ZEnvironment(sharedPool))
-        countSource <- docEnv.get[DocumentRepository].count(Some(person.id), None, Some("ai_extracted")).provideEnvironment(ZEnvironment(sharedPool))
+        countSource <- docEnv.get[DocumentRepository].count(Some(person.id), None, Some(aiExtractedSourceTypeId)).provideEnvironment(ZEnvironment(sharedPool))
       yield (countAll, countPerson, countSource)
     }
     countAll   should be >= 2L
     countByPerson should be >= 2L
     countBySource shouldBe 2L
+  }
+
+  test("count — filters by householdId") {
+    val count = run {
+      for
+        householdEnv <- (ZLayer.succeed(sharedPool) >>> HouseholdRepository.live).build
+        docEnv       <- (ZLayer.succeed(sharedPool) >>> DocumentRepository.live).build
+        household    <- householdEnv.get[HouseholdRepository]
+                          .create(CreateHousehold("Count Household"))
+                          .provideEnvironment(ZEnvironment(sharedPool))
+        _            <- docEnv.get[DocumentRepository]
+                          .create(CreateDocument(
+                            personId      = None,
+                            householdId   = Some(household.id),
+                            contentText   = "Household count doc",
+                            sourceTypeId  = userInputSourceTypeId,
+                            embedding     = emptyEmbedding,
+                            files         = Json.arr(),
+                            supersedesIds = Nil,
+                          ))
+                          .provideEnvironment(ZEnvironment(sharedPool))
+        c <- docEnv.get[DocumentRepository].count(None, Some(household.id), None).provideEnvironment(ZEnvironment(sharedPool))
+      yield c
+    }
+    count shouldBe 1L
+  }
+
+  test("searchBySimilarity — returns matching documents, supports personId filter") {
+    val nonZeroEmbedding = 0.1 :: List.fill(1535)(0.0)
+    val (allMatches, personAMatches, personAId) = run {
+      for
+        personEnv <- (ZLayer.succeed(sharedPool) >>> PersonRepository.live).build
+        docEnv    <- (ZLayer.succeed(sharedPool) >>> DocumentRepository.live).build
+        personA   <- personEnv.get[PersonRepository]
+                       .create(CreatePerson("Search Person A", Gender.Male, None, None, None))
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        personB   <- personEnv.get[PersonRepository]
+                       .create(CreatePerson("Search Person B", Gender.Female, None, None, None))
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        _         <- docEnv.get[DocumentRepository]
+                       .create(CreateDocument(
+                         personId = Some(personA.id), householdId = None,
+                         contentText = "Searchable doc A", sourceTypeId = userInputSourceTypeId,
+                         embedding = nonZeroEmbedding, files = Json.arr(), supersedesIds = Nil))
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        _         <- docEnv.get[DocumentRepository]
+                       .create(CreateDocument(
+                         personId = Some(personB.id), householdId = None,
+                         contentText = "Searchable doc B", sourceTypeId = userInputSourceTypeId,
+                         embedding = nonZeroEmbedding, files = Json.arr(), supersedesIds = Nil))
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        all       <- docEnv.get[DocumentRepository]
+                       .searchBySimilarity(nonZeroEmbedding, None, None, None, 10, 0.5)
+                       .provideEnvironment(ZEnvironment(sharedPool))
+        filtered  <- docEnv.get[DocumentRepository]
+                       .searchBySimilarity(nonZeroEmbedding, Some(personA.id), None, None, 10, 0.5)
+                       .provideEnvironment(ZEnvironment(sharedPool))
+      yield (all, filtered, personA.id)
+    }
+    allMatches should not be empty
+    personAMatches should not be empty
+    personAMatches.forall { case (doc, _) => doc.personId.contains(personAId) } shouldBe true
   }

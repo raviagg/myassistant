@@ -8,7 +8,7 @@ import zio.test.*
 import zio.test.Assertion.*
 
 import java.nio.file.Files
-import java.util.UUID
+import java.util.Base64
 
 object FileServiceSpec extends ZIOSpecDefault:
 
@@ -24,6 +24,8 @@ object FileServiceSpec extends ZIOSpecDefault:
       FileService.live,
     )
 
+  private def encode(s: String): String = Base64.getEncoder.encodeToString(s.getBytes("UTF-8"))
+
   // ── Tests ─────────────────────────────────────────────────────────────────
 
   def spec: Spec[Any, Any] =
@@ -32,39 +34,27 @@ object FileServiceSpec extends ZIOSpecDefault:
       withTempDir(
         suite("upload")(
 
-          test("fails with ValidationError when neither personId nor householdId is set") {
+          test("returns a filePath ending with the sanitised filename") {
+            for
+              svc            <- ZIO.service[FileService]
+              (filePath, sz) <- svc.upload("data.txt", "text/plain", encode("content"))
+            yield assertTrue(filePath.contains("data.txt")) &&
+                  assertTrue(sz == 7L)
+          },
+
+          test("returns correct sizeBytes for the decoded content") {
+            val content = "hello world"
+            for
+              svc            <- ZIO.service[FileService]
+              (filePath, sz) <- svc.upload("hello.txt", "text/plain", encode(content))
+            yield assertTrue(sz == content.length.toLong)
+          },
+
+          test("fails with ValidationError for invalid base64 content") {
             for
               svc    <- ZIO.service[FileService]
-              result <- svc.upload(None, None, "test.txt", "text/plain", "hello".getBytes).exit
+              result <- svc.upload("test.txt", "text/plain", "not!!valid==base64###").exit
             yield assert(result)(fails(isSubtype[AppError.ValidationError](anything)))
-          },
-
-          test("writes file and returns storage key for person owner") {
-            val personId = UUID.randomUUID()
-            for
-              svc    <- ZIO.service[FileService]
-              key    <- svc.upload(Some(personId), None, "data.txt", "text/plain", "content".getBytes)
-              fileOk <- svc.exists(key)
-            yield assertTrue(key.endsWith("data.txt")) &&
-                  assertTrue(fileOk)
-          },
-
-          test("writes file and returns storage key for household owner") {
-            val householdId = UUID.randomUUID()
-            for
-              svc <- ZIO.service[FileService]
-              key <- svc.upload(None, Some(householdId), "report.pdf", "application/pdf", Array[Byte](1, 2, 3))
-            yield assertTrue(key.endsWith("report.pdf"))
-          },
-
-          test("creates the base directory when it does not yet exist") {
-            for
-              parent <- ZIO.attempt(java.nio.file.Files.createTempDirectory("fs-parent")).orDie
-              subDir  = parent.resolve("auto-created").toString
-              svc     = new FileService.Live(FileStorageConfig(subDir))
-              key    <- svc.upload(Some(UUID.randomUUID()), None, "new.txt", "text/plain", "hello".getBytes)
-              ok     <- svc.exists(key)
-            yield assertTrue(ok)
           },
 
         )
@@ -73,43 +63,66 @@ object FileServiceSpec extends ZIOSpecDefault:
       withTempDir(
         suite("download")(
 
-          test("fails with NotFound for a key that does not exist") {
+          test("fails with NotFound for a path that does not exist") {
             for
               svc    <- ZIO.service[FileService]
-              result <- svc.download("/tmp/nonexistent_file_xyz_12345").exit
+              result <- svc.download("/tmp/nonexistent_file_xyz_12345_abc").exit
             yield assert(result)(fails(isSubtype[AppError.NotFound](anything)))
           },
 
           test("returns the bytes written by upload") {
-            val personId = UUID.randomUUID()
-            val content  = "round-trip content".getBytes
+            val content = "round-trip content"
             for
-              svc   <- ZIO.service[FileService]
-              key   <- svc.upload(Some(personId), None, "round.txt", "text/plain", content)
-              bytes <- svc.download(key)
-            yield assertTrue(bytes sameElements content)
+              svc              <- ZIO.service[FileService]
+              (filePath, _)    <- svc.upload("round.txt", "text/plain", encode(content))
+              (bytes, mime, fn) <- svc.download(filePath)
+            yield assertTrue(bytes.length == content.getBytes("UTF-8").length) &&
+                  assertTrue(fn.contains("round.txt"))
           },
 
         )
       ),
 
       withTempDir(
-        suite("exists")(
+        suite("delete")(
 
-          test("returns false for a missing key") {
+          test("fails with NotFound when file does not exist") {
             for
               svc    <- ZIO.service[FileService]
-              result <- svc.exists("/tmp/certainly_does_not_exist_abc")
-            yield assertTrue(!result)
+              result <- svc.delete("/tmp/certainly_does_not_exist_abc_xyz").exit
+            yield assert(result)(fails(isSubtype[AppError.NotFound](anything)))
           },
 
-          test("returns true after a successful upload") {
-            val personId = UUID.randomUUID()
+          test("deletes a previously uploaded file") {
+            for
+              svc           <- ZIO.service[FileService]
+              (filePath, _) <- svc.upload("del.txt", "text/plain", encode("bye"))
+              _             <- svc.delete(filePath)
+              result        <- svc.download(filePath).exit
+            yield assert(result)(fails(isSubtype[AppError.NotFound](anything)))
+          },
+
+        )
+      ),
+
+      withTempDir(
+        suite("extractText")(
+
+          test("fails with NotFound for a path that does not exist") {
             for
               svc    <- ZIO.service[FileService]
-              key    <- svc.upload(Some(personId), None, "exists.txt", "text/plain", "x".getBytes)
-              result <- svc.exists(key)
-            yield assertTrue(result)
+              result <- svc.extractText("/tmp/no_such_file_xyz_abc").exit
+            yield assert(result)(fails(isSubtype[AppError.NotFound](anything)))
+          },
+
+          test("returns text content and extraction method for a .txt file") {
+            val content = "Hello, world!"
+            for
+              svc              <- ZIO.service[FileService]
+              (filePath, _)    <- svc.upload("note.txt", "text/plain", encode(content))
+              (text, method)   <- svc.extractText(filePath)
+            yield assertTrue(text.contains("Hello")) &&
+                  assertTrue(method == "plain_text")
           },
 
         )

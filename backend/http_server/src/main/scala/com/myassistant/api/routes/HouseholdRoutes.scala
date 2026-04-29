@@ -27,20 +27,26 @@ object HouseholdRoutes:
   val routes: Routes[HouseholdService & ZConnectionPool, Nothing] =
     Routes(
       Method.GET / "api" / "v1" / "households" ->
-        handler { (_: Request) =>
-          ZIO.serviceWithZIO[HouseholdService](_.listHouseholds)
-            .foldZIO(
-              err        => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
-              households =>
-                ZIO.succeed(Response.json(
-                  PagedResponse(
-                    items  = households.map(HouseholdResponse.fromDomain),
-                    total  = households.size.toLong,
-                    limit  = 1000,
-                    offset = 0,
-                  ).asJson.noSpaces
-                ))
-            )
+        handler { (req: Request) =>
+          req.queryParam("name") match
+            case None =>
+              ZIO.succeed(Response.json(
+                """{"error":"bad_request","message":"Query parameter 'name' is required"}"""
+              ).status(Status.BadRequest))
+            case Some(name) =>
+              ZIO.serviceWithZIO[HouseholdService](_.searchHouseholds(name))
+                .foldZIO(
+                  err        => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
+                  households =>
+                    ZIO.succeed(Response.json(
+                      PagedResponse(
+                        items  = households.map(HouseholdResponse.fromDomain),
+                        total  = households.size.toLong,
+                        limit  = 1000,
+                        offset = 0,
+                      ).asJson.noSpaces
+                    ))
+                )
         },
 
       Method.POST / "api" / "v1" / "households" ->

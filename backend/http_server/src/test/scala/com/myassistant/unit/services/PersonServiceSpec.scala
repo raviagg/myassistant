@@ -9,7 +9,7 @@ import zio.jdbc.ZConnectionPool
 import zio.test.*
 import zio.test.Assertion.*
 
-import java.time.Instant
+import java.time.{Instant, LocalDate}
 import java.util.UUID
 
 /** Unit tests for PersonService business logic using an in-memory mock PersonRepository. */
@@ -43,9 +43,23 @@ object PersonServiceSpec extends ZIOSpecDefault:
     def findByUserIdentifier(identifier: String): ZIO[ZConnectionPool, AppError, Option[Person]] =
       store.get.map(_.values.find(_.userIdentifier.contains(identifier)))
 
-    def listAll(householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, List[Person]] =
-      // Mock ignores householdId filtering — sufficient for unit tests
-      store.get.map(_.values.toList.sortBy(_.fullName))
+    def search(
+        name:            Option[String],
+        gender:          Option[String],
+        dateOfBirth:     Option[LocalDate],
+        dateOfBirthFrom: Option[LocalDate],
+        dateOfBirthTo:   Option[LocalDate],
+        householdId:     Option[UUID],
+        limit:           Int,
+        offset:          Int,
+    ): ZIO[ZConnectionPool, AppError, List[Person]] =
+      store.get.map: m =>
+        m.values.toList
+          .filter(p => name.forall(n => p.fullName.toLowerCase.contains(n.toLowerCase)))
+          .filter(p => gender.forall(g => p.gender.toString.equalsIgnoreCase(g)))
+          .filter(p => dateOfBirth.forall(d => p.dateOfBirth.contains(d)))
+          .sortBy(_.fullName)
+          .slice(offset, offset + limit)
 
     def update(id: UUID, patch: UpdatePerson): ZIO[ZConnectionPool, AppError, Option[Person]] =
       store.get.flatMap: m =>
@@ -68,8 +82,6 @@ object PersonServiceSpec extends ZIOSpecDefault:
         else ZIO.succeed(false)
 
   // ── Layer factory ─────────────────────────────────────────────────────────
-  // `ZLayer.fromZIO` is re-evaluated each time `.provide` is called with it,
-  // giving each test suite a fresh in-memory store.
 
   val mockRepoLayer: ZLayer[Any, Nothing, PersonRepository] =
     ZLayer.fromZIO(Ref.make(Map.empty[UUID, Person]).map(new MockPersonRepository(_)))
@@ -133,24 +145,34 @@ object PersonServiceSpec extends ZIOSpecDefault:
       ),
 
       withFreshService(
-        suite("listPersons")(
+        suite("searchPersons")(
 
           test("returns empty list when no persons exist") {
             for
               svc    <- ZIO.service[PersonService]
-              result <- svc.listPersons(None)
+              result <- svc.searchPersons(None, None, None, None, None, None, 50, 0)
             yield assertTrue(result.isEmpty)
           },
 
-          test("returns all created persons") {
+          test("returns all created persons when no filters applied") {
             for
               svc  <- ZIO.service[PersonService]
               _    <- svc.createPerson(makeReq("Alice"))
               _    <- svc.createPerson(makeReq("Bob"))
-              list <- svc.listPersons(None)
+              list <- svc.searchPersons(None, None, None, None, None, None, 50, 0)
             yield assertTrue(list.size == 2) &&
                   assertTrue(list.map(_.fullName).contains("Alice")) &&
                   assertTrue(list.map(_.fullName).contains("Bob"))
+          },
+
+          test("filters by name substring") {
+            for
+              svc  <- ZIO.service[PersonService]
+              _    <- svc.createPerson(makeReq("Alice Smith"))
+              _    <- svc.createPerson(makeReq("Bob Jones"))
+              list <- svc.searchPersons(Some("Alice"), None, None, None, None, None, 50, 0)
+            yield assertTrue(list.size == 1) &&
+                  assertTrue(list.head.fullName == "Alice Smith")
           },
 
         )

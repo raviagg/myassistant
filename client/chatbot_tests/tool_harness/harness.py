@@ -37,7 +37,7 @@ THIN = "─" * 72
 # ── Prompt construction ──────────────────────────────────────────────────
 
 def _tools_summary() -> str:
-    """Compact human-readable summary of all 44 tools for the planning prompt."""
+    """Compact human-readable summary of all 43 tools for the planning prompt."""
     lines = []
     current_group = None
 

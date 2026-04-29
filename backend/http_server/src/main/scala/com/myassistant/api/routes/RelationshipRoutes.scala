@@ -16,7 +16,7 @@ import scala.util.Try
 /** HTTP routes for relationship management and kinship resolution.
  *
  *  POST   /api/v1/relationships                              — create a relationship
- *  GET    /api/v1/relationships                              — list (query: person_id)
+ *  GET    /api/v1/relationships                              — list (required query: person_id)
  *  GET    /api/v1/relationships/:fromId/:toId                — get a relationship
  *  PATCH  /api/v1/relationships/:fromId/:toId                — update relation type
  *  DELETE /api/v1/relationships/:fromId/:toId                — delete a relationship
@@ -59,10 +59,10 @@ object RelationshipRoutes:
 
       Method.GET / "api" / "v1" / "relationships" ->
         handler { (req: Request) =>
-          req.queryParam("person_id") match
+          req.queryParam("personId") match
             case None =>
               ZIO.succeed(Response.json(
-                """{"error":"bad_request","message":"Query parameter 'person_id' is required"}"""
+                """{"error":"bad_request","message":"Query parameter 'personId' is required"}"""
               ).status(Status.BadRequest))
             case Some(pidStr) =>
               Try(UUID.fromString(pidStr)).toEither match
@@ -174,7 +174,7 @@ object RelationshipRoutes:
         },
 
       Method.GET / "api" / "v1" / "relationships" / string("fromId") / string("toId") / "kinship" ->
-        handler { (fromIdStr: String, toIdStr: String, req: Request) =>
+        handler { (fromIdStr: String, toIdStr: String, _: Request) =>
           (Try(UUID.fromString(fromIdStr)).toEither, Try(UUID.fromString(toIdStr)).toEither) match
             case (Left(_), _) =>
               ZIO.succeed(Response.json(
@@ -185,8 +185,7 @@ object RelationshipRoutes:
                 s"""{"error":"bad_request","message":"Invalid toId UUID: $toIdStr"}"""
               ).status(Status.BadRequest))
             case (Right(fromId), Right(toId)) =>
-              val language = req.queryParam("language").getOrElse("english")
-              ZIO.serviceWithZIO[KinshipResolver](_.resolve(fromId, toId, language))
+              ZIO.serviceWithZIO[KinshipResolver](_.resolve(fromId, toId))
                 .foldZIO(
                   err     => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
                   {

@@ -20,16 +20,16 @@
 -- ------------------------------------------------------------
 
 CREATE TABLE audit_log (
-  id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  person_id   UUID        REFERENCES person(id),
-  job_type    TEXT        REFERENCES source_type(name),
-  message     TEXT        NOT NULL,
-  response    TEXT,
-  tool_calls  JSONB       NOT NULL DEFAULT '[]',
-  status      TEXT        NOT NULL DEFAULT 'success'
+  id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+  person_id      UUID        REFERENCES person(id),
+  job_type       TEXT,
+  message_text   TEXT        NOT NULL,
+  response_text  TEXT        NOT NULL DEFAULT '',
+  tool_calls_json JSONB,
+  status         TEXT        NOT NULL DEFAULT 'success'
     CHECK (status IN ('success', 'partial', 'failed')),
-  error       TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  error_message  TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   -- exactly one actor: either a person chatting or a system job
   -- never both, never neither
@@ -97,7 +97,7 @@ COMMENT ON COLUMN audit_log.job_type IS
    Foreign key to source_type.name.
    Example: "plaid_poll", "gmail_poll"';
 
-COMMENT ON COLUMN audit_log.message IS
+COMMENT ON COLUMN audit_log.message_text IS
   'The incoming message that triggered this interaction.
    For chatbot: the exact text the user typed in chat.
    For system jobs: the formatted NL message constructed
@@ -106,17 +106,16 @@ COMMENT ON COLUMN audit_log.message IS
    Example (plaid_poll): "Here are 12 new transactions from
    Chase Checking account from the last 24 hours: ..."';
 
-COMMENT ON COLUMN audit_log.response IS
+COMMENT ON COLUMN audit_log.response_text IS
   'The agent''s response to the incoming message.
    For chatbot: what the agent replied to the user.
    For system jobs: the acknowledgment from the agent
    confirming what was stored.
-   Null if the interaction failed before a response was generated.
    Example (chatbot): "Got it — updated your salary at Acme to $140,000."
    Example (plaid_poll): "Acknowledged. Stored 12 transactions,
    extracted 12 finance facts."';
 
-COMMENT ON COLUMN audit_log.tool_calls IS
+COMMENT ON COLUMN audit_log.tool_calls_json IS
   'JSONB array of all MCP tool calls made during this interaction,
    in the order they were called. Each element captures the tool
    name, input parameters, and output result.
@@ -150,7 +149,7 @@ COMMENT ON COLUMN audit_log.status IS
    failed  — interaction did not complete successfully.
              Check the error column for details.';
 
-COMMENT ON COLUMN audit_log.error IS
+COMMENT ON COLUMN audit_log.error_message IS
   'Error message or stack trace if status is failed or partial.
    Null when status is success.
    Example: "Mandatory field ''provider'' missing from extracted facts.

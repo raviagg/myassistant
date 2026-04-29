@@ -3,25 +3,48 @@ import pytest
 import respx
 import httpx
 from tools.persons import (
-    list_persons, create_person, get_person, update_person, delete_person,
+    create_person, get_person, search_persons, update_person, delete_person,
 )
 
-def test_list_persons_no_filter(http):
+
+def test_search_persons_no_filter(http):
     with respx.mock:
         respx.get("http://testserver/api/v1/persons").mock(
             return_value=httpx.Response(200, json={"items": [], "total": 0, "limit": 50, "offset": 0})
         )
-        result = list_persons(http)
+        result = search_persons(http)
         assert result["items"] == []
         assert respx.calls[0].request.headers["Authorization"] == "Bearer test-token"
 
-def test_list_persons_with_household(http):
+
+def test_search_persons_with_name(http):
     with respx.mock:
         respx.get("http://testserver/api/v1/persons").mock(
             return_value=httpx.Response(200, json={"items": [], "total": 0, "limit": 50, "offset": 0})
         )
-        list_persons(http, household_id="hh-1")
+        search_persons(http, name="Alice")
+        assert "name=Alice" in str(respx.calls[0].request.url)
+
+
+def test_search_persons_with_household(http):
+    with respx.mock:
+        respx.get("http://testserver/api/v1/persons").mock(
+            return_value=httpx.Response(200, json={"items": [], "total": 0, "limit": 50, "offset": 0})
+        )
+        search_persons(http, household_id="hh-1")
         assert "householdId=hh-1" in str(respx.calls[0].request.url)
+
+
+def test_search_persons_date_range(http):
+    with respx.mock:
+        respx.get("http://testserver/api/v1/persons").mock(
+            return_value=httpx.Response(200, json={"items": [], "total": 0, "limit": 50, "offset": 0})
+        )
+        search_persons(http, date_of_birth_from="1990-01-01", date_of_birth_to="2000-12-31")
+        url = str(respx.calls[0].request.url)
+        assert "dateOfBirthFrom=1990-01-01" in url
+        assert "dateOfBirthTo=2000-12-31" in url
+
 
 def test_create_person_required_fields(http):
     with respx.mock:
@@ -32,6 +55,7 @@ def test_create_person_required_fields(http):
         body = json.loads(respx.calls[0].request.content)
         assert body == {"fullName": "Alice", "gender": "female"}
         assert result["id"] == "p1"
+
 
 def test_create_person_optional_fields(http):
     with respx.mock:
@@ -45,6 +69,7 @@ def test_create_person_optional_fields(http):
         assert body["preferredName"] == "Bobby"
         assert body["userIdentifier"] == "bob@example.com"
 
+
 def test_get_person(http):
     with respx.mock:
         respx.get("http://testserver/api/v1/persons/p1").mock(
@@ -52,6 +77,7 @@ def test_get_person(http):
         )
         result = get_person(http, person_id="p1")
         assert result["fullName"] == "Alice"
+
 
 def test_update_person(http):
     with respx.mock:
@@ -63,6 +89,7 @@ def test_update_person(http):
         assert body == {"fullName": "Alicia"}
         assert result["fullName"] == "Alicia"
 
+
 def test_delete_person(http):
     with respx.mock:
         respx.delete("http://testserver/api/v1/persons/p1").mock(
@@ -70,6 +97,7 @@ def test_delete_person(http):
         )
         result = delete_person(http, person_id="p1")
         assert result == {}
+
 
 def test_create_person_raises_on_4xx(http):
     with respx.mock:

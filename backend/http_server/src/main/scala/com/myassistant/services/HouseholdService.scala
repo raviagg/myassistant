@@ -16,8 +16,8 @@ trait HouseholdService:
   /** Retrieve a household by id; fails with NotFound if absent. */
   def getHousehold(id: UUID): ZIO[ZConnectionPool, AppError, Household]
 
-  /** List all households. */
-  def listHouseholds: ZIO[ZConnectionPool, AppError, List[Household]]
+  /** Search households by name (case-insensitive partial match). */
+  def searchHouseholds(name: String): ZIO[ZConnectionPool, AppError, List[Household]]
 
   /** Apply a partial update; fails with NotFound if absent. */
   def updateHousehold(id: UUID, patch: UpdateHousehold): ZIO[ZConnectionPool, AppError, Household]
@@ -52,9 +52,9 @@ object HouseholdService:
         case Some(h) => ZIO.succeed(h)
         case None    => ZIO.fail(AppError.NotFound("household", id.toString))
 
-    /** List all households ordered by name. */
-    def listHouseholds: ZIO[ZConnectionPool, AppError, List[Household]] =
-      repo.listAll
+    /** Search households by name. */
+    def searchHouseholds(name: String): ZIO[ZConnectionPool, AppError, List[Household]] =
+      repo.searchByName(name)
 
     /** Apply a partial update; fails with NotFound if no record matched. */
     def updateHousehold(id: UUID, patch: UpdateHousehold): ZIO[ZConnectionPool, AppError, Household] =

@@ -19,6 +19,29 @@ object SharedHttpContext:
 
   val authToken: String = sys.env.getOrElse("TEST_AUTH_TOKEN", "test-token")
 
+  private def fetchJson(path: String): String =
+    val conn = java.net.URI.create(s"$baseUrl$path").toURL().openConnection().asInstanceOf[HttpURLConnection]
+    conn.setRequestMethod("GET")
+    conn.setRequestProperty("Authorization", s"Bearer $authToken")
+    conn.connect()
+    val result = readBody(conn)
+    conn.disconnect()
+    result
+
+  lazy val zeroEmbedding1536: String   = List.fill(1536)(0.0).mkString("[", ",", "]")
+  // Non-zero embedding for search (zero vector causes cosine distance division by zero in pgvector)
+  lazy val searchEmbedding1536: String = (0.1 :: List.fill(1535)(0.0)).mkString("[", ",", "]")
+
+  lazy val domainIdByName: Map[String, String] =
+    val body = fetchJson("/api/v1/reference/domains")
+    val pat  = """"id":"([^"]+)","name":"([^"]+)"""".r
+    pat.findAllMatchIn(body).map(m => m.group(2) -> m.group(1)).toMap
+
+  lazy val sourceTypeIdByName: Map[String, String] =
+    val body = fetchJson("/api/v1/reference/source-types")
+    val pat  = """"id":"([^"]+)","name":"([^"]+)"""".r
+    pat.findAllMatchIn(body).map(m => m.group(2) -> m.group(1)).toMap
+
   var lastStatus: Int       = 0
   var lastBody: String      = ""
   var lastCreatedId: String = ""

@@ -7,6 +7,7 @@ import zio.*
 import zio.jdbc.*
 
 import java.sql.SQLException
+import java.util.UUID
 
 /** Data-access interface for the `domain`, `source_type`, and `kinship_alias` reference tables. */
 trait ReferenceRepository:
@@ -28,19 +29,19 @@ trait ReferenceRepository:
 object ReferenceRepository:
 
   // ── Row types ─────────────────────────────────────────────────────────────
-  private type DomainRow       = (String, String, java.sql.Timestamp)
-  private type SourceTypeRow   = (String, String, java.sql.Timestamp)
+  private type DomainRow       = (String, String, String, java.sql.Timestamp)
+  private type SourceTypeRow   = (String, String, String, java.sql.Timestamp)
   // id, relation_chain (JSON array text), language, alias, description, created_at
   private type KinshipAliasRow = (Int, String, String, String, Option[String], java.sql.Timestamp)
 
   // ── Row → domain ──────────────────────────────────────────────────────────
   private def rowToDomain(row: DomainRow): Domain =
-    val (name, description, createdAt) = row
-    Domain(name, description, createdAt.toInstant)
+    val (id, name, description, createdAt) = row
+    Domain(UUID.fromString(id), name, description, createdAt.toInstant)
 
   private def rowToSourceType(row: SourceTypeRow): SourceType =
-    val (name, description, createdAt) = row
-    SourceType(name, description, createdAt.toInstant)
+    val (id, name, description, createdAt) = row
+    SourceType(UUID.fromString(id), name, description, createdAt.toInstant)
 
   private def rowToKinshipAlias(row: KinshipAliasRow): KinshipAlias =
     val (id, chainJson, language, alias, description, createdAt) = row
@@ -65,7 +66,7 @@ object ReferenceRepository:
     def listDomains: ZIO[ZConnectionPool, AppError, List[Domain]] =
       transaction {
         sql"""
-          SELECT name, description, created_at
+          SELECT id::text, name, description, created_at
           FROM domain
           ORDER BY name
         """.query[DomainRow].selectAll
@@ -76,7 +77,7 @@ object ReferenceRepository:
     def listSourceTypes: ZIO[ZConnectionPool, AppError, List[SourceType]] =
       transaction {
         sql"""
-          SELECT name, description, created_at
+          SELECT id::text, name, description, created_at
           FROM source_type
           ORDER BY name
         """.query[SourceTypeRow].selectAll
@@ -89,7 +90,7 @@ object ReferenceRepository:
         sql"""
           INSERT INTO domain(name, description)
           VALUES ($name, $description)
-          RETURNING name, description, created_at
+          RETURNING id::text, name, description, created_at
         """.query[DomainRow].selectOne
       }.mapError(mapSqlError)
         .flatMap(ZIO.fromOption(_).mapError(_ =>
@@ -102,7 +103,7 @@ object ReferenceRepository:
         sql"""
           INSERT INTO source_type(name, description)
           VALUES ($name, $description)
-          RETURNING name, description, created_at
+          RETURNING id::text, name, description, created_at
         """.query[SourceTypeRow].selectOne
       }.mapError(mapSqlError)
         .flatMap(ZIO.fromOption(_).mapError(_ =>

@@ -6,10 +6,10 @@ Feature: Schema Governance
   Scenario: List schemas returns seeded schemas
     When I GET "/api/v1/schemas"
     Then the response status is 200
-    And the response body contains "todo"
+    And the response body contains "todo_item"
 
   Scenario: Get current schema by domain and entity type
-    When I GET "/api/v1/schemas/current?domain=todo&entityType=todo_item"
+    When I GET the current schema for domain "todo" entity type "todo_item"
     Then the response status is 200
     And the response body contains "todo_item"
     And the response body contains "title"
@@ -22,36 +22,21 @@ Feature: Schema Governance
     And the response body contains "fieldDefinitions"
 
   Scenario: Propose a new schema
-    When I POST to "/api/v1/schemas" with body:
-      """
-      {
-        "domain": "personal_details",
-        "entityType": "address",
-        "description": "A residential address",
-        "fieldDefinitions": [{"name": "street", "type": "text", "mandatory": true}, {"name": "city", "type": "text", "mandatory": false}],
-        "extractionPrompt": "Extract address details",
-        "changeDescription": "Initial version"
-      }
-      """
+    When I propose a schema for domain "personal_details" entity type "address"
     Then the response status is 201
     And the response body contains "address"
-    And the response body contains "personal_details"
 
   Scenario: List schemas filtered by domain
-    When I GET "/api/v1/schemas?domain=health"
+    When I GET schemas filtered by domain "health"
     Then the response status is 200
-    And the response body contains "health"
+    And the response body contains "insurance_card"
 
   Scenario: Evolve an existing schema with a new version
-    When I POST to "/api/v1/schemas/todo/todo_item/versions" with body:
+    When I post a new version for domain "todo" entity type "todo_item" with body:
       """
       {
-        "domain": "todo",
-        "entityType": "todo_item",
         "description": "Updated todo item schema",
-        "fieldDefinitions": [{"name": "title", "type": "text", "mandatory": true}, {"name": "status", "type": "text", "mandatory": false}, {"name": "notes", "type": "text", "mandatory": false}],
-        "extractionPrompt": "Extract todo item details including notes",
-        "changeDescription": "Added notes field"
+        "fieldDefinitions": [{"name": "title", "type": "text", "mandatory": true}, {"name": "status", "type": "text", "mandatory": false}, {"name": "notes", "type": "text", "mandatory": false}]
       }
       """
     Then the response status is 201
@@ -61,7 +46,7 @@ Feature: Schema Governance
     When I GET "/api/v1/schemas/00000000-0000-0000-0000-000000000000"
     Then the response status is 404
 
-  Scenario: Propose schema with missing domain returns 400
+  Scenario: Propose schema with missing required fields returns 400
     When I POST to "/api/v1/schemas" with body:
       """
       {"entityType": "foo"}
@@ -69,24 +54,15 @@ Feature: Schema Governance
     Then the response status is 400
 
   Scenario: Deactivate a schema
-    When I POST to "/api/v1/schemas" with body:
-      """
-      {
-        "domain": "finance",
-        "entityType": "expense",
-        "description": "A single expense",
-        "fieldDefinitions": [{"name": "amount", "type": "number", "mandatory": true}],
-        "extractionPrompt": "Extract expense details"
-      }
-      """
+    When I propose a schema for domain "finance" entity type "expense"
     Then the response status is 201
     When I deactivate the proposed schema for "finance" "expense"
     Then the response status is 204
 
   Scenario: Get current schema returns 404 after deactivation
-    When I GET "/api/v1/schemas/current?domain=finance&entityType=expense"
+    When I GET the current schema for domain "finance" entity type "expense"
     Then the response status is 404
 
   Scenario: Deactivate non-existent schema returns 404
-    When I DELETE "/api/v1/schemas/todo/todo_item/active?id=00000000-0000-0000-0000-000000000000"
+    When I DELETE the active schema for domain "todo" entity type "nonexistent_type" with schema id "00000000-0000-0000-0000-000000000000"
     Then the response status is 404
