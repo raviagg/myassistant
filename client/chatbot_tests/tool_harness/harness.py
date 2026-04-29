@@ -1,24 +1,24 @@
 #!/usr/bin/env python3
 """
-MCP Tool Harness — validates tool selection using the claude CLI subprocess.
+MCP Tool Harness — validates tool selection in three modes.
 
-Each scenario is a multi-turn conversation. For gather-phase turns the harness
-validates that no write tools are called. For write-phase turns it validates the
-expected writes are present. The conversation history from prior turns is embedded
-in the prompt so Claude has full context when planning each turn.
+Each scenario is a multi-turn conversation. Validation checks that expected tools
+are called and forbidden tools are absent.
 
 Usage:
-    # Run first 3 scenarios (default)
-    python -m tests.tool_harness.harness
+    # mock-plan (default): claude -p subprocess, validates planned tool names
+    python -m tool_harness.harness
+    python -m tool_harness.harness --scenario 2
+    python -m tool_harness.harness --all
+    python -m tool_harness.harness --scenario 4 --verbose
 
-    # Run a specific scenario (1-based index)
-    python -m tests.tool_harness.harness --scenario 2
+    # mock-loop: Anthropic SDK agentic loop, static mock responses (needs ANTHROPIC_API_KEY)
+    python -m tool_harness.harness --mode mock-loop
+    python -m tool_harness.harness --mode mock-loop --scenario 1
 
-    # Run all 25 scenarios
-    python -m tests.tool_harness.harness --all
-
-    # Show raw claude output per turn (useful when JSON parsing fails)
-    python -m tests.tool_harness.harness --scenario 4 --verbose
+    # live-loop: Anthropic SDK agentic loop, real http_server + PostgreSQL
+    python -m tool_harness.harness --mode live-loop --scenario 1
+    python -m tool_harness.harness --mode live-loop --all --model claude-opus-4-7
 """
 import argparse
 import json
@@ -385,7 +385,8 @@ def main() -> None:
         runner   = AgenticRunner(executor=executor, model=args.model)
         for scenario in to_run:
             n_turns = len(scenario["turns"])
-            print(f"\nRunning {scenario['name']} ({n_turns} turn(s))...", end=" ", flush=True)
+            turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
+            print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
             tool_names_per_turn, error = runner.run_scenario(scenario, verbose=args.verbose)
             print("done" if not error else "error")
             runner.print_result(scenario, tool_names_per_turn, error)
@@ -400,7 +401,8 @@ def main() -> None:
         try:
             for scenario in to_run:
                 n_turns = len(scenario["turns"])
-                print(f"\nRunning {scenario['name']} ({n_turns} turn(s))...", end=" ", flush=True)
+                turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
+                print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
                 tool_names_per_turn, error = runner.run_scenario(scenario, verbose=args.verbose)
                 print("done" if not error else "error")
                 runner.print_result(scenario, tool_names_per_turn, error)
