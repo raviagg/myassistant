@@ -1,5 +1,5 @@
 """
-Static mock responses for all 44 tools.
+Static mock responses for all 43 tools.
 Realistic enough for the agentic loop to continue — Claude can chain
 list_domains → get_current_entity_type_schema → create_fact etc.
 using the UUIDs returned here.
@@ -19,9 +19,11 @@ DOMAIN_TODO_ID        = "cccc0005-0000-0000-0000-000000000000"
 DOMAIN_HOUSEHOLD_ID   = "cccc0006-0000-0000-0000-000000000000"
 DOMAIN_NEWS_ID        = "cccc0007-0000-0000-0000-000000000000"
 
-SOURCE_CHATBOT_ID     = "dddd0001-0000-0000-0000-000000000000"  # all chat-interface interactions
-SOURCE_PLAID_ID       = "dddd0004-0000-0000-0000-000000000000"
-SOURCE_GMAIL_ID       = "dddd0005-0000-0000-0000-000000000000"
+SOURCE_USER_INPUT_ID   = "dddd0001-0000-0000-0000-000000000000"
+SOURCE_FILE_UPLOAD_ID  = "dddd0002-0000-0000-0000-000000000000"
+SOURCE_AI_EXTRACTED_ID = "dddd0003-0000-0000-0000-000000000000"
+SOURCE_PLAID_ID        = "dddd0004-0000-0000-0000-000000000000"
+SOURCE_GMAIL_ID        = "dddd0005-0000-0000-0000-000000000000"
 
 SCHEMA_TODO_ID        = "eeee0001-0000-0000-0000-000000000000"
 SCHEMA_INSURANCE_ID   = "eeee0002-0000-0000-0000-000000000000"
@@ -69,9 +71,11 @@ def _domains():
 
 def _source_types():
     return [
-        {"id": SOURCE_CHATBOT_ID, "name": "chatbot"},
-        {"id": SOURCE_PLAID_ID,   "name": "plaid_poll"},
-        {"id": SOURCE_GMAIL_ID,   "name": "gmail_poll"},
+        {"id": SOURCE_USER_INPUT_ID,   "name": "user_input"},
+        {"id": SOURCE_FILE_UPLOAD_ID,  "name": "file_upload"},
+        {"id": SOURCE_AI_EXTRACTED_ID, "name": "ai_extracted"},
+        {"id": SOURCE_PLAID_ID,        "name": "plaid_poll"},
+        {"id": SOURCE_GMAIL_ID,        "name": "gmail_poll"},
     ]
 
 
@@ -412,12 +416,12 @@ class MockServer:
         }
 
     def _h_update_entity_type_schema(self, i):
-        base = _todo_schema(sid=i["schema_id"])
+        base = _todo_schema()
         return {
             **base,
             "id": NEW_SCHEMA_ID,
             "schema_version": base["schema_version"] + 1,
-            "field_definitions": i["field_definitions"],
+            "field_definitions": i.get("field_definitions", base["field_definitions"]),
             "is_active": True,
         }
 

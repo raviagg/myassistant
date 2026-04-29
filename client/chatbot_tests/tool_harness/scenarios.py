@@ -19,7 +19,7 @@ Changes from v4:
 """
 from .mock_server import (
     PERSON_ID,
-    SOURCE_CHATBOT_ID,
+    SOURCE_USER_INPUT_ID,
 )
 
 SYSTEM_PROMPT = f"""\
@@ -31,7 +31,7 @@ SESSION CONTEXT:
     Name:      Ravi Aggarwal
     person_id: {PERSON_ID}
 
-  Source type: All interactions through this chatbot use source_type_id: {SOURCE_CHATBOT_ID}
+  Source type: All interactions through this chatbot use source_type_id: {SOURCE_USER_INPUT_ID}
   Do NOT call list_source_types — this ID is fixed for all chatbot interactions
   (typed text, file uploads, and AI-extracted content all share the same chatbot source type).
 

@@ -25,3 +25,16 @@ def test_mock_executor_unknown_tool_returns_error():
     ex = MockExecutor()
     result = ex.call("nonexistent_tool", {})
     assert "error" in result
+
+
+def test_live_executor_unknown_tool_returns_error():
+    from unittest.mock import MagicMock, patch
+    import httpx
+    mock_http = MagicMock(spec=httpx.Client)
+    with patch("tool_harness.executors._build_dispatch", return_value={}):
+        from tool_harness.executors import LiveExecutor
+        ex = LiveExecutor.__new__(LiveExecutor)
+        ex._http = mock_http
+        ex._dispatch = {}
+        result = ex.call("nonexistent_tool", {})
+        assert result == {"error": "unknown_tool", "tool_name": "nonexistent_tool"}
