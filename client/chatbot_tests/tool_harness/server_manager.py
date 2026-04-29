@@ -9,7 +9,7 @@ import httpx
 
 _DEFAULT_PORT   = 8181
 _DEFAULT_TOKEN  = "dev-token-change-me-in-production"
-_DEFAULT_DB     = "myassistant"
+_DEFAULT_DB     = "myassistanttest"
 _HEALTH_TIMEOUT = 30
 
 

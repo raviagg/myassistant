@@ -12,17 +12,16 @@ Usage:
     python -m tool_harness.harness --all
     python -m tool_harness.harness --scenario 4 --verbose
 
-    # mock-loop: Anthropic SDK agentic loop, static mock responses (needs ANTHROPIC_API_KEY)
+    # mock-loop: claude subprocess agentic loop, static mock responses (no services needed)
     python -m tool_harness.harness --mode mock-loop
     python -m tool_harness.harness --mode mock-loop --scenario 1
 
-    # live-loop: Anthropic SDK agentic loop, real http_server + PostgreSQL
+    # live-loop: claude subprocess agentic loop, real http_server + PostgreSQL
     python -m tool_harness.harness --mode live-loop --scenario 1
-    python -m tool_harness.harness --mode live-loop --all --model claude-opus-4-7
+    python -m tool_harness.harness --mode live-loop --all
 """
 import argparse
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -374,11 +373,8 @@ def main() -> None:
         print(SEP)
         return
 
-    # ── Modes 2 & 3: agentic loop ────────────────────────────────────────
-    if "ANTHROPIC_API_KEY" not in os.environ:
-        print("Error: ANTHROPIC_API_KEY env var is required for mock-loop and live-loop.",
-              file=sys.stderr)
-        sys.exit(1)
+    # ── Modes 2 & 3: agentic loop (claude subprocess, no API key needed) ──
+    _check_claude_available()
 
     if args.mode == "mock-loop":
         executor = MockExecutor()

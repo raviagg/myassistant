@@ -12,8 +12,10 @@ It supports three modes:
 | Mode | Flag | What it does | Services needed |
 |---|---|---|---|
 | mock-plan | `--mode mock-plan` (default) | `claude -p` subprocess; Claude outputs a JSON plan; validates tool names | None |
-| mock-loop | `--mode mock-loop` | Anthropic SDK agentic loop; tool calls routed to static mocks | None |
-| live-loop | `--mode live-loop` | Anthropic SDK agentic loop; tool calls hit a real http_server + PostgreSQL | http_server + PostgreSQL |
+| mock-loop | `--mode mock-loop` | `claude -p` subprocess agentic loop; tool calls routed to static mocks | None |
+| live-loop | `--mode live-loop` | `claude -p` subprocess agentic loop; tool calls hit a real http_server + PostgreSQL | http_server + PostgreSQL |
+
+All three modes use the `claude` CLI — no `ANTHROPIC_API_KEY` is required.
 
 **Architecture note:** `live-loop` imports tool functions from `backend/mcp_server/tools/` directly
 (not via the MCP stdio protocol). The MCP protocol is already tested by `backend/mcp_server/tests/`.
@@ -26,7 +28,7 @@ See `docs/superpowers/specs/2026-04-29-chatbot-tests-design.md` for the full rat
 | Tool | Version | Install |
 |---|---|---|
 | Python | 3.11+ | `brew install python@3.11` |
-| Claude CLI | any | Required for `mock-plan` only — must be on PATH |
+| Claude CLI | any | Required for all modes — must be on PATH |
 | Java | 21+ | Required for `live-loop` auto-start — `brew install openjdk@21` |
 
 ---
@@ -44,13 +46,12 @@ pip install -e ".[dev]"
 
 | Variable | Default | Required for |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | — | `mock-loop` and `live-loop` |
 | `CHATBOT_HTTP_URL` | *(not set → auto-start)* | `live-loop` only |
 | `CHATBOT_AUTH_TOKEN` | `dev-token-change-me-in-production` | `live-loop` |
-| `CHATBOT_DB` | `myassistant` | `live-loop` auto-start only |
+| `CHATBOT_DB` | `myassistanttest` | `live-loop` auto-start only |
 
 When `CHATBOT_HTTP_URL` is **not set** in `live-loop` mode, the harness starts the http_server fat JAR
-automatically on port 8181. Build the JAR first:
+automatically on port 8181 using the `myassistanttest` database. Build the JAR first:
 
 ```bash
 cd backend/http_server
@@ -63,7 +64,7 @@ When `CHATBOT_HTTP_URL` **is set**, point it at a running http_server and the ha
 
 ## Running the Tests
 
-### Mode 1: mock-plan (default — no API key needed)
+### Mode 1: mock-plan (default)
 
 ```bash
 cd client/chatbot_tests
@@ -81,18 +82,15 @@ python -m tool_harness.harness --all
 python -m tool_harness.harness --scenario 4 --verbose
 ```
 
-### Mode 2: mock-loop (Anthropic API, no server needed)
+### Mode 2: mock-loop (agentic loop, no server needed)
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-
 python -m tool_harness.harness --mode mock-loop
 python -m tool_harness.harness --mode mock-loop --scenario 1
 python -m tool_harness.harness --mode mock-loop --all
-python -m tool_harness.harness --mode mock-loop --model claude-opus-4-7
 ```
 
-### Mode 3: live-loop against myassistant (auto-start)
+### Mode 3: live-loop (auto-start against myassistanttest)
 
 Build the JAR if not already built:
 ```bash
@@ -100,19 +98,14 @@ cd backend/http_server && sbt assembly && cd -
 ```
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Uses myassistant DB (default), auto-starts http_server on port 8181
+# Auto-starts http_server on port 8181 using myassistanttest DB (default)
 python -m tool_harness.harness --mode live-loop --scenario 1
+python -m tool_harness.harness --mode live-loop --all
 ```
 
-### Mode 3: live-loop against myassistanttest (auto-start)
-
+To target the production `myassistant` database instead:
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-export CHATBOT_DB=myassistanttest
-
-python -m tool_harness.harness --mode live-loop --all
+CHATBOT_DB=myassistant python -m tool_harness.harness --mode live-loop --scenario 1
 ```
 
 ### Mode 3: live-loop against a manually started server
@@ -122,7 +115,6 @@ python -m tool_harness.harness --mode live-loop --all
 DB_URL="jdbc:postgresql://localhost:5432/myassistanttest" sbt run
 
 # Terminal 2 — run harness
-export ANTHROPIC_API_KEY="sk-ant-..."
 export CHATBOT_HTTP_URL=http://localhost:8080
 export CHATBOT_AUTH_TOKEN=dev-token-change-me-in-production
 
@@ -138,7 +130,7 @@ cd client/chatbot_tests
 pytest
 ```
 
-Tests cover: `MockExecutor`, `LiveExecutor` dispatch table, `AgenticRunner` loop logic (mocked Anthropic SDK), `server_manager` env-var passthrough.
+Tests cover: `MockExecutor`, `LiveExecutor` dispatch table, `AgenticRunner` subprocess loop logic, `server_manager` env-var passthrough.
 
 ---
 
@@ -172,15 +164,15 @@ Append it to the `SCENARIOS` list. It will be run by `--all` and accessible by i
 ```
 client/chatbot_tests/
   kickstart.md              this file
-  pyproject.toml            dependencies: anthropic, httpx, pytest
+  pyproject.toml            dependencies: httpx, pytest
   tool_harness/
     harness.py              CLI entry point — --mode, --scenario, --all, --verbose
-    agentic_runner.py       Anthropic SDK loop (modes 2 & 3)
+    agentic_runner.py       claude subprocess agentic loop (modes 2 & 3)
     executors.py            MockExecutor (mock data) + LiveExecutor (real server)
     server_manager.py       http_server auto-start / env-var passthrough
     mock_server.py          static mock responses for all 43 tools
     scenarios.py            25 test scenarios with expected tool call sequences
-    tool_definitions.py     43 tool definitions in Anthropic SDK format
+    tool_definitions.py     43 tool definitions in Anthropic tool-use format
     tests/
       test_executors.py
       test_agentic_runner.py
