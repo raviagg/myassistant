@@ -22,6 +22,7 @@ Usage:
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -29,6 +30,9 @@ import sys
 
 from .tool_definitions import ALL_TOOLS
 from .scenarios import SCENARIOS, SYSTEM_PROMPT, GLOBAL_FORBIDDEN_TOOLS
+from .agentic_runner import AgenticRunner
+from .executors import MockExecutor, LiveExecutor
+from .server_manager import managed_server, auth_token
 
 SEP  = "━" * 72
 THIN = "─" * 72
@@ -319,13 +323,26 @@ def print_result(
 # ── Main ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="MCP Tool Harness (claude subprocess)")
+    parser = argparse.ArgumentParser(description="MCP Tool Harness")
     parser.add_argument("--scenario", type=int, metavar="N", help="Run scenario N (1-based)")
-    parser.add_argument("--all",     action="store_true",    help="Run all scenarios")
-    parser.add_argument("--verbose", action="store_true",    help="Show raw claude output per turn")
+    parser.add_argument("--all",      action="store_true",   help="Run all scenarios")
+    parser.add_argument("--verbose",  action="store_true",   help="Show raw output per turn")
+    parser.add_argument(
+        "--mode",
+        choices=["mock-plan", "mock-loop", "live-loop"],
+        default="mock-plan",
+        help=(
+            "mock-plan: existing behaviour — claude -p subprocess, validates planned tool names (default). "
+            "mock-loop: Anthropic SDK agentic loop with static mock responses (no services needed). "
+            "live-loop: Anthropic SDK agentic loop with real http_server + PostgreSQL."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        default="claude-sonnet-4-6",
+        help="Claude model for mock-loop / live-loop (default: claude-sonnet-4-6)",
+    )
     args = parser.parse_args()
-
-    _check_claude_available()
 
     if args.scenario:
         idx = args.scenario - 1
@@ -342,16 +359,53 @@ def main() -> None:
 
     total_turns = sum(len(s["turns"]) for s in to_run)
     print(f"\n{len(ALL_TOOLS)} tools defined · {len(SCENARIOS)} scenarios available "
-          f"· {total_turns} turns to run")
+          f"· {total_turns} turns to run · mode={args.mode}")
 
-    for scenario in to_run:
-        n_turns = len(scenario["turns"])
-        turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
-        print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
-        all_turn_calls, error = run_scenario(scenario, verbose=args.verbose)
-        print("done" if not error else "error")
-        print_result(scenario, all_turn_calls, error)
+    # ── Mode 1: existing mock-plan behaviour ─────────────────────────────
+    if args.mode == "mock-plan":
+        _check_claude_available()
+        for scenario in to_run:
+            n_turns = len(scenario["turns"])
+            turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
+            print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
+            all_turn_calls, error = run_scenario(scenario, verbose=args.verbose)
+            print("done" if not error else "error")
+            print_result(scenario, all_turn_calls, error)
+        print(SEP)
+        return
 
+    # ── Modes 2 & 3: agentic loop ────────────────────────────────────────
+    if "ANTHROPIC_API_KEY" not in os.environ:
+        print("Error: ANTHROPIC_API_KEY env var is required for mock-loop and live-loop.",
+              file=sys.stderr)
+        sys.exit(1)
+
+    if args.mode == "mock-loop":
+        executor = MockExecutor()
+        runner   = AgenticRunner(executor=executor, model=args.model)
+        for scenario in to_run:
+            n_turns = len(scenario["turns"])
+            print(f"\nRunning {scenario['name']} ({n_turns} turn(s))...", end=" ", flush=True)
+            tool_names_per_turn, error = runner.run_scenario(scenario, verbose=args.verbose)
+            print("done" if not error else "error")
+            runner.print_result(scenario, tool_names_per_turn, error)
+        print(SEP)
+        return
+
+    # live-loop
+    with managed_server() as base_url:
+        token    = auth_token()
+        executor = LiveExecutor(base_url=base_url, auth_token=token)
+        runner   = AgenticRunner(executor=executor, model=args.model)
+        try:
+            for scenario in to_run:
+                n_turns = len(scenario["turns"])
+                print(f"\nRunning {scenario['name']} ({n_turns} turn(s))...", end=" ", flush=True)
+                tool_names_per_turn, error = runner.run_scenario(scenario, verbose=args.verbose)
+                print("done" if not error else "error")
+                runner.print_result(scenario, tool_names_per_turn, error)
+        finally:
+            executor.close()
     print(SEP)
 
 
