@@ -2,7 +2,6 @@ import glob
 import os
 import pathlib
 import subprocess
-import sys
 import time
 from contextlib import contextmanager
 
@@ -24,13 +23,10 @@ def _find_jar() -> str:
                     / "myassistant-backend-assembly-*.jar")
     matches   = glob.glob(pattern)
     if not matches:
-        print(
-            f"\nERROR: http_server fat JAR not found at {pattern}\n"
-            "Build it first:\n"
-            "  cd backend/http_server && sbt assembly\n",
-            file=sys.stderr,
+        raise FileNotFoundError(
+            f"http_server fat JAR not found at {pattern}\n"
+            "Build it first:\n  cd backend/http_server && sbt assembly"
         )
-        sys.exit(1)
     return matches[0]
 
 
@@ -41,7 +37,7 @@ def _wait_for_health(url: str, timeout: int = _HEALTH_TIMEOUT) -> None:
             r = httpx.get(f"{url}/health", timeout=2.0)
             if r.status_code == 200:
                 return
-        except Exception:
+        except (httpx.ConnectError, httpx.TransportError, httpx.TimeoutException):
             pass
         time.sleep(0.5)
     raise RuntimeError(f"http_server did not become healthy at {url} within {timeout}s")
@@ -77,7 +73,7 @@ def managed_server():
         ["java", "-jar", jar],
         env=env,
         stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stderr=None,
     )
     try:
         _wait_for_health(url)
@@ -90,3 +86,4 @@ def managed_server():
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
+            proc.wait()
