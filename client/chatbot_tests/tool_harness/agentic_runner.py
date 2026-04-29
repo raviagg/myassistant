@@ -115,6 +115,7 @@ class AgenticRunner:
 
         if error:
             print(f"  ERROR: {error}")
+            print()
             return
 
         scenario_pass = True
@@ -136,7 +137,8 @@ class AgenticRunner:
 
             if expected or all_forbidden:
                 turn_ok = True
-                print(f"  VALIDATION")
+                label = f"Turn {turn_idx + 1}" if n_turns > 1 else ""
+                print(f"  VALIDATION{' — ' + label if label else ''}")
                 print(f"  {THIN}")
                 for exp in expected:
                     found = exp in tool_names
@@ -150,7 +152,7 @@ class AgenticRunner:
                         turn_ok = False
                         scenario_pass = False
                     print(f"    {'✗ SHOULD NOT appear:' if present else '✓ (absent)'}  {forb}")
-                extra = [n for n in tool_names if n not in expected and n not in all_forbidden]
+                extra = [nm for nm in tool_names if nm not in expected and nm not in all_forbidden]
                 for nm in extra:
                     print(f"    ?  {nm}  (not in expected list — may be fine)")
                 print(f"    → {'all checks passed ✓' if turn_ok else 'ISSUES FOUND'}")
