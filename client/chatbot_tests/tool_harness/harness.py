@@ -12,6 +12,10 @@ Usage:
     python -m tool_harness.harness --all
     python -m tool_harness.harness --scenario 4 --verbose
 
+    # Parallel: run all scenarios concurrently (mock-plan or mock-loop)
+    python -m tool_harness.harness --all --parallel
+    python -m tool_harness.harness --all --parallel --workers 8
+
     # mock-loop: claude subprocess agentic loop, static mock responses (no services needed)
     python -m tool_harness.harness --mode mock-loop
     python -m tool_harness.harness --mode mock-loop --scenario 1
@@ -26,6 +30,8 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .tool_definitions import ALL_TOOLS
 from .scenarios import SCENARIOS, SYSTEM_PROMPT, GLOBAL_FORBIDDEN_TOOLS
@@ -35,6 +41,14 @@ from .server_manager import managed_server, auth_token
 
 SEP  = "━" * 72
 THIN = "─" * 72
+
+_print_lock = threading.Lock()
+
+
+def _tprint(*args, **kwargs) -> None:
+    """Thread-safe print."""
+    with _print_lock:
+        print(*args, **kwargs)
 
 
 # ── Prompt construction ──────────────────────────────────────────────────
@@ -229,6 +243,42 @@ def run_scenario(
     return all_turn_calls, None
 
 
+# ── Validation helpers ───────────────────────────────────────────────────
+
+def _to_tool_names(all_turn_calls: list[list]) -> list[list[str]]:
+    """Normalize list[list[dict|str]] → list[list[str]] of tool names."""
+    result = []
+    for turn_calls in all_turn_calls:
+        names = []
+        for tc in turn_calls:
+            if isinstance(tc, str):
+                names.append(tc)
+            else:
+                names.append(tc.get("tool", tc.get("name", "")))
+        result.append(names)
+    return result
+
+
+def _scenario_passed(scenario: dict, tool_names_per_turn: list[list[str]]) -> bool:
+    """Return True if all validation checks pass. No output."""
+    if tool_names_per_turn is None:
+        return False
+    turns = scenario["turns"]
+    scenario_forbidden = scenario.get("forbidden_tools", [])
+    global_forbidden = list(dict.fromkeys(GLOBAL_FORBIDDEN_TOOLS + scenario_forbidden))
+    for turn, actual in zip(turns, tool_names_per_turn):
+        expected = turn.get("expected_tools", [])
+        turn_forbidden = turn.get("forbidden_tools", [])
+        all_forbidden = list(dict.fromkeys(global_forbidden + turn_forbidden))
+        for exp in expected:
+            if exp not in actual:
+                return False
+        for forb in all_forbidden:
+            if forb in actual:
+                return False
+    return True
+
+
 # ── Output formatting ────────────────────────────────────────────────────
 
 def _fmt_params(params: dict, max_line: int = 68) -> str:
@@ -318,6 +368,88 @@ def print_result(
     print(f"  SCENARIO {status}")
 
 
+def print_summary(results: list[tuple[dict, bool, str | None]]) -> None:
+    """Print a final pass/fail table for all scenarios."""
+    passed = sum(1 for _, p, _ in results if p)
+    total  = len(results)
+
+    print(f"\n{SEP}")
+    print(f"  SUMMARY  ({passed}/{total} passed)")
+    print(SEP)
+    for scenario, ok, error in results:
+        status = "PASS ✓" if ok else "FAIL ✗"
+        suffix = f"  — {error}" if error else ""
+        print(f"  {status}  {scenario['name']}{suffix}")
+    print(SEP)
+
+
+# ── Parallel runner ──────────────────────────────────────────────────────
+
+def _run_one_mock_plan(
+    scenario: dict, backend: str, model: str
+) -> tuple[list[list[str]] | None, str | None]:
+    """Run a single mock-plan scenario. Returns (tool_names_per_turn, error)."""
+    if backend == "bedrock":
+        executor = MockExecutor()
+        executor.set_scenario(scenario)
+        raw, error = bedrock_plan_scenario(scenario, model=model, verbose=False, executor=executor)
+    else:
+        raw, error = run_scenario(scenario, verbose=False)
+    if error or raw is None:
+        return None, error
+    return _to_tool_names(raw), None
+
+
+def _run_one_mock_loop(
+    scenario: dict, model: str | None, backend: str
+) -> tuple[list[list[str]] | None, str | None]:
+    """Run a single mock-loop scenario with its own executor/runner."""
+    executor = MockExecutor()
+    runner   = AgenticRunner(executor=executor, model=model, backend=backend)
+    tool_names, _, error = runner.run_scenario(scenario, verbose=False)
+    return tool_names, error
+
+
+def run_parallel(
+    to_run: list[dict],
+    mode: str,
+    backend: str,
+    model: str | None,
+    workers: int,
+    live_executor=None,
+) -> list[tuple[dict, bool, str | None]]:
+    """
+    Run scenarios in parallel. Prints one line per scenario start and one per finish.
+    Returns results sorted in original scenario order.
+    """
+    order = {s["name"]: i for i, s in enumerate(to_run)}
+    results: list[tuple[dict, bool, str | None]] = []
+
+    def run_one(scenario: dict) -> tuple[dict, bool, str | None]:
+        name = scenario["name"]
+        _tprint(f"  →  {name}")
+        if mode == "mock-plan":
+            tool_names, error = _run_one_mock_plan(scenario, backend, model)
+        elif mode == "mock-loop":
+            tool_names, error = _run_one_mock_loop(scenario, model, backend)
+        else:  # live-loop
+            runner = AgenticRunner(executor=live_executor, model=model, backend=backend)
+            tool_names, _, error = runner.run_scenario(scenario, verbose=False)
+        passed = _scenario_passed(scenario, tool_names) if not error else False
+        status = "PASS ✓" if passed else "FAIL ✗"
+        suffix = f"  — {error}" if error else ""
+        _tprint(f"  {status}  {name}{suffix}")
+        return scenario, passed, error
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(run_one, s) for s in to_run]
+        for future in as_completed(futures):
+            results.append(future.result())
+
+    results.sort(key=lambda r: order[r[0]["name"]])
+    return results
+
+
 # ── Main ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -325,6 +457,8 @@ def main() -> None:
     parser.add_argument("--scenario", type=int, metavar="N", help="Run scenario N (1-based)")
     parser.add_argument("--all",      action="store_true",   help="Run all scenarios")
     parser.add_argument("--verbose",  action="store_true",   help="Show raw output per turn")
+    parser.add_argument("--parallel", action="store_true",   help="Run scenarios in parallel")
+    parser.add_argument("--workers",  type=int, default=5,   help="Parallel worker count (default 5)")
     parser.add_argument(
         "--mode",
         choices=["mock-plan", "mock-loop", "live-loop"],
@@ -370,12 +504,35 @@ def main() -> None:
 
     total_turns = sum(len(s["turns"]) for s in to_run)
     print(f"\n{len(ALL_TOOLS)} tools defined · {len(SCENARIOS)} scenarios available "
-          f"· {total_turns} turns to run · mode={args.mode} · backend={args.backend}")
+          f"· {total_turns} turns to run · mode={args.mode} · backend={args.backend}"
+          + (f" · parallel={args.workers} workers" if args.parallel else ""))
 
-    # ── Mode 1: mock-plan ────────────────────────────────────────────────
+    model = args.model or ("us.anthropic.claude-sonnet-4-6" if args.backend == "bedrock" else None)
+
+    if args.backend == "claude-p" or args.mode in ("mock-loop", "live-loop"):
+        _check_claude_available()
+
+    # ── Parallel path ────────────────────────────────────────────────────
+    if args.parallel:
+        if args.verbose:
+            print("Note: --verbose is ignored in --parallel mode.")
+        if args.mode == "live-loop":
+            print("Note: live-loop parallel may have DB contention; use with caution.")
+            with managed_server() as base_url:
+                token        = auth_token()
+                live_executor = LiveExecutor(base_url=base_url, auth_token=token)
+                try:
+                    results = run_parallel(to_run, args.mode, args.backend, model, args.workers, live_executor)
+                finally:
+                    live_executor.close()
+        else:
+            results = run_parallel(to_run, args.mode, args.backend, model, args.workers)
+        print_summary(results)
+        return
+
+    # ── Serial path ──────────────────────────────────────────────────────
     if args.mode == "mock-plan":
         if args.backend == "bedrock":
-            model = args.model or "us.anthropic.claude-sonnet-4-6"
             for scenario in to_run:
                 n_turns = len(scenario["turns"])
                 turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
@@ -388,7 +545,6 @@ def main() -> None:
                 print("done" if not error else "error")
                 print_result(scenario, all_turn_calls, error)
         else:
-            _check_claude_available()
             for scenario in to_run:
                 n_turns = len(scenario["turns"])
                 turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
@@ -398,9 +554,6 @@ def main() -> None:
                 print_result(scenario, all_turn_calls, error)
         print(SEP)
         return
-
-    # ── Modes 2 & 3: agentic loop (claude subprocess, no API key needed) ──
-    _check_claude_available()
 
     if args.mode == "mock-loop":
         executor = MockExecutor()

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 # ── Fixed mock UUIDs ────────────────────────────────────────────────────
 PERSON_ID   = "aaaaaaaa-0000-0000-0000-000000000001"  # Ravi Aggarwal
 PERSON_ID_2 = "aaaaaaaa-0000-0000-0000-000000000002"  # Priya Aggarwal
+PERSON_ID_3 = "aaaaaaaa-0000-0000-0000-000000000003"  # Vijay Aggarwal (Ravi's father)
 HOUSEHOLD_ID = "bbbbbbbb-0000-0000-0000-000000000001"
 
 DOMAIN_HEALTH_ID      = "cccc0001-0000-0000-0000-000000000000"
@@ -197,9 +198,19 @@ def _current_fact(eid=ENTITY_INSTANCE_ID, sid=SCHEMA_TODO_ID, fields=None):
 
 
 class MockServer:
-    """Dispatch tool calls to static mock handlers."""
+    """Dispatch tool calls to static mock handlers.
+
+    overrides: maps tool_name → fixed return value for the current scenario.
+    Used to return empty search results for create-new flows where the default
+    handler returns a high-similarity match that would confuse Claude.
+    """
+
+    def __init__(self, overrides: dict | None = None):
+        self._overrides = overrides or {}
 
     def handle(self, tool_name: str, tool_input: dict) -> dict:
+        if tool_name in self._overrides:
+            return self._overrides[tool_name]
         handler = getattr(self, f"_h_{tool_name}", None)
         if handler is None:
             return {"error": "unknown_tool", "tool_name": tool_name}
@@ -211,7 +222,16 @@ class MockServer:
         return _person(name=i.get("full_name", "Unknown"), gender=i.get("gender", "male"))
 
     def _h_get_person(self, i):
-        return _person()
+        pid = i.get("person_id")
+        if pid == PERSON_ID_2:
+            return _person(PERSON_ID_2, "Priya Aggarwal", "female")
+        if pid == PERSON_ID_3:
+            return {
+                "id": PERSON_ID_3, "full_name": "Vijay Aggarwal", "preferred_name": "Dad",
+                "gender": "male", "date_of_birth": "1955-07-10", "user_identifier": None,
+                "created_at": NOW, "updated_at": NOW,
+            }
+        return _person()  # default: Ravi
 
     def _h_search_persons(self, i):
         name = (i.get("name") or "").lower()
@@ -374,16 +394,20 @@ class MockServer:
     # ── 3 Schema Governance ──────────────────────────────────────────────
 
     def _h_list_entity_type_schemas(self, i):
+        # Return summaries only — no field_definitions or extraction_prompt.
+        # Claude must call get_current_entity_type_schema for the full field list.
+        _summary = lambda s: {k: v for k, v in s.items()
+                              if k not in ("field_definitions", "extraction_prompt")}
         domain = i.get("domain_id")
         if domain == DOMAIN_TODO_ID:
-            return [_todo_schema()]
+            return [_summary(_todo_schema())]
         if domain == DOMAIN_HEALTH_ID:
-            return [_insurance_schema()]
+            return [_summary(_insurance_schema())]
         if domain == DOMAIN_EMPLOYMENT_ID:
-            return [_job_schema()]
+            return [_summary(_job_schema())]
         if domain == DOMAIN_FINANCE_ID:
-            return [_payslip_schema()]
-        return [_todo_schema(), _insurance_schema(), _job_schema(), _payslip_schema()]
+            return [_summary(_payslip_schema())]
+        return [_summary(s) for s in [_todo_schema(), _insurance_schema(), _job_schema(), _payslip_schema()]]
 
     def _h_get_entity_type_schema(self, i):
         if i.get("schema_id") == SCHEMA_INSURANCE_ID:

@@ -1,5 +1,5 @@
 """
-All 43 MCP tool definitions in Anthropic SDK format.
+All 42 MCP tool definitions in Anthropic SDK format.
 Derived from docs/mcp-tools.md.
 """
 
@@ -658,33 +658,6 @@ ALL_TOOLS = [
             "required": [],
         },
     },
-    # ── Group 5 — Audit ──────────────────────────────────────────────────
-    {
-        "name": "log_interaction",
-        "description": (
-            "Persist a record of one interaction turn to the audit log. "
-            "Call after every turn is fully processed. "
-            "Exactly one of person_id or job_type must be set: "
-            "human turns set person_id, polling jobs set job_type."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "message_text": {"type": "string", "description": "The incoming message"},
-                "response_text": {"type": "string", "description": "The agent's response"},
-                "status": {"type": "string", "enum": ["success", "error", "partial"]},
-                "person_id": {"type": "string", "description": "Set for human chat turns"},
-                "job_type": {"type": "string", "description": "Set for polling job runs e.g. plaid_poll"},
-                "tool_calls_json": {
-                    "type": "array",
-                    "items": {"type": "object"},
-                    "description": "Record of all MCP tool calls made during this turn",
-                },
-                "error_message": {"type": "string", "description": "Set when status is error or partial"},
-            },
-            "required": ["message_text", "response_text", "status"],
-        },
-    },
     # ── Group 6 — File Handling ──────────────────────────────────────────
     {
         "name": "save_file",
@@ -745,4 +718,4 @@ ALL_TOOLS = [
     },
 ]
 
-assert len(ALL_TOOLS) == 43, f"Expected 43 tools, got {len(ALL_TOOLS)}"
+assert len(ALL_TOOLS) == 42, f"Expected 42 tools, got {len(ALL_TOOLS)}"

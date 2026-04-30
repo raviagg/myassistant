@@ -18,7 +18,13 @@ Changes from v4:
 """
 from .mock_server import (
     PERSON_ID,
+    PERSON_ID_2,
+    PERSON_ID_3,
     SOURCE_USER_INPUT_ID,
+    ENTITY_INSTANCE_ID,
+    SCHEMA_TODO_ID,
+    DOCUMENT_ID,
+    NOW,
 )
 
 SYSTEM_PROMPT = f"""\
@@ -77,7 +83,9 @@ RULES — follow exactly:
 4. WRITE PHASE: After explicit user approval, execute writes:
    a. Spine: create_person / create_relationship / create_household /
       add_person_to_household / update_person as needed.
-   b. Document: create_document (with supersedes_ids if this replaces existing data).
+   b. Document: create_document with source_type_id={SOURCE_USER_INPUT_ID} (from SESSION
+      CONTEXT — never call list_source_types, that value never changes for this chatbot).
+      Include supersedes_ids if this replaces existing data.
    c. Fact: create_fact with the operation_type determined in the gather phase
       (create if no existing entity; update if entity_instance_id found at ≥ 0.8).
 
@@ -212,10 +220,7 @@ SCENARIOS = [
             {
                 "user_message": "Push my passport renewal deadline to August 15.",
                 "expected_tools": [
-                    "list_domains",
-                    "list_entity_type_schemas",
-                    "get_current_entity_type_schema",
-                    "search_current_facts",         # finds existing passport todo (≥0.8)
+                    "search_current_facts",         # finds existing passport todo (schema_id known → no schema discovery needed)
                     ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
@@ -233,10 +238,7 @@ SCENARIOS = [
             {
                 "user_message": "I started working on the passport renewal.",
                 "expected_tools": [
-                    "list_domains",
-                    "list_entity_type_schemas",
-                    "get_current_entity_type_schema",
-                    "search_current_facts"],
+                    "search_current_facts"],        # entity found → schema_id known → no schema discovery needed
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -253,10 +255,7 @@ SCENARIOS = [
             {
                 "user_message": "Passport renewal is done!",
                 "expected_tools": [
-                    "list_domains",
-                    "list_entity_type_schemas",
-                    "get_current_entity_type_schema",
-                    "search_current_facts"],
+                    "search_current_facts"],        # entity found → schema_id known → no schema discovery needed
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -277,12 +276,26 @@ SCENARIOS = [
     },
     {
         "name": "09 · Delete a todo — gather then delete",
+        "mock_overrides": {
+            "search_current_facts": [{
+                "entity_instance_id": ENTITY_INSTANCE_ID,
+                "schema_id": SCHEMA_TODO_ID,
+                "document_id": DOCUMENT_ID,
+                "current_fields": {
+                    "title": "schedule dentist appointment",
+                    "status": "open",
+                    "due_date": "2026-03-31",
+                },
+                "similarity_score": 0.91,
+                "created_at": NOW,
+                "updated_at": NOW,
+            }],
+        },
         "turns": [
             {
                 "user_message": "Drop the dentist appointment reminder, I don't need it.",
                 "expected_tools": [
-                    "list_domains",
-                    "search_current_facts",             # finds existing todo (≥0.8)
+                    "search_current_facts",             # finds dentist todo (schema_id known → no schema discovery)
                     ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
@@ -299,11 +312,15 @@ SCENARIOS = [
 
     {
         "name": "10 · Add a family member — gather then write",
+        "mock_overrides": {
+            "search_persons": [],       # Priya not yet in system → create her
+            "list_relationships": [],   # no existing wife either; prevents Claude finding Priya via graph
+        },
         "turns": [
             {
                 "user_message": "My wife is Priya Sharma, born March 15 1988.",
                 "expected_tools": [
-                    "search_persons",               # check if Priya already exists
+                    "search_persons",               # check if Priya already exists → returns []
                     ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
@@ -325,21 +342,38 @@ SCENARIOS = [
     },
     {
         "name": "12 · Multi-hop kinship — answer question + propose adding person",
+        "mock_overrides": {
+            "list_relationships": [
+                {"from_person_id": PERSON_ID,   "to_person_id": PERSON_ID_3, "relation_type": "father"},
+                {"from_person_id": PERSON_ID_3, "to_person_id": PERSON_ID,   "relation_type": "son"},
+                {"from_person_id": PERSON_ID,   "to_person_id": PERSON_ID_2, "relation_type": "wife"},
+                {"from_person_id": PERSON_ID_2, "to_person_id": PERSON_ID,   "relation_type": "husband"},
+            ],
+            # Empty — no Savita in system; dad (PERSON_ID_3) known via list_relationships
+            "search_persons": [],
+        },
         "turns": [
             {
                 "user_message": "My dad's sister is Savita. What do I call her in Hindi?",
                 "expected_tools": [
-                    "search_persons",               # find dad + check if Savita exists
-                    # kinship answer via resolve_kinship or list_kinship_aliases
+                    "list_relationships",           # find who dad is (PERSON_ID_3)
+                    # list_kinship_aliases or training knowledge may answer the Hindi term
                 ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
+                # Claude gathers dad's details (get_person) and re-proposes the write plan in text.
+                # No writes yet — this is the second gather/propose turn.
                 "user_message": "Yes, add Savita as a new person and link her as my dad's sister.",
+                "expected_tools": [],
+                "forbidden_tools": GATHER_FORBIDDEN,
+            },
+            {
+                "user_message": "Yes, go ahead.",
                 "expected_tools": [
                     "create_person",
-                    "create_relationship",          # dad → sister → Savita
-                    ],
+                    "create_relationship",          # dad (PERSON_ID_3) → sister → Savita
+                ],
             }],
     },
     {
@@ -387,10 +421,7 @@ SCENARIOS = [
                     "Same plan but deductible went up to $2,000."
                 ),
                 "expected_tools": [
-                    "list_domains",
-                    "list_entity_type_schemas",
-                    "get_current_entity_type_schema",
-                    "search_current_facts",         # find existing insurance entity (Rule 1)
+                    "search_current_facts",         # find existing insurance entity (schema_id known → no schema discovery)
                     "search_documents",             # find old doc to supersede (Rule 7a)
                     ],
                 "forbidden_tools": GATHER_FORBIDDEN,
@@ -443,10 +474,7 @@ SCENARIOS = [
             {
                 "user_message": "Got a raise at Acme Corp, now making $145,000.",
                 "expected_tools": [
-                    "list_domains",
-                    "list_entity_type_schemas",
-                    "get_current_entity_type_schema",
-                    "search_current_facts",         # find existing job entity
+                    "search_current_facts",         # find existing job entity (schema_id known → no schema discovery)
                     "search_documents",             # find old employment doc to supersede
                     ],
                 "forbidden_tools": GATHER_FORBIDDEN,
@@ -525,12 +553,16 @@ SCENARIOS = [
 
     {
         "name": "22 · Create household and add members — gather then write",
+        "mock_overrides": {
+            "search_households": [],        # no existing household → Claude creates it
+            "list_household_members": [],   # no existing members → Claude adds both
+        },
         "turns": [
             {
                 "user_message": "Create a household called Aggarwal Family and add me and Priya to it.",
                 "expected_tools": [
                     "search_persons",               # find Priya's person_id
-                    "search_households",            # check if household already exists
+                    "search_households",            # check if household already exists → []
                     ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },

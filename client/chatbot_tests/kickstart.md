@@ -23,7 +23,7 @@ See `docs/superpowers/specs/2026-04-29-chatbot-tests-design.md` for the full rat
 
 ---
 
-## Backends (mock-loop and live-loop)
+## Backends
 
 | Backend | Flag | How it works | Credentials |
 |---|---|---|---|
@@ -32,7 +32,7 @@ See `docs/superpowers/specs/2026-04-29-chatbot-tests-design.md` for the full rat
 
 **Why bedrock is the default:**
 - Native tool use means structured output — no wasted explanation tokens
-- System prompt and all 43 tool definitions are prompt-cached after the first call
+- System prompt and all 42 tool definitions are prompt-cached after the first call
 - Typical output per step: ~50-200 tokens vs ~1,500 with claude-p
 - Much faster and cheaper per scenario
 
@@ -60,19 +60,21 @@ pip install -e ".[dev]"
 
 ## AWS Bedrock Credentials
 
-Two options. **BEDROCK_API_KEY is strongly preferred** — it lasts 365 days and requires no rotation.
+Two options. **`BEDROCK_API_KEY` is strongly preferred** — it lasts 365 days and requires no rotation.
 
 ### Option 1: Long-lived API key (recommended)
 
 The key lives in AWS Secrets Manager in the Bedrock deployment account.
 
 **Step 1** — Authenticate to AWS account `654654608322` via KLAM:
+
 ```bash
 # Use your org's KLAM command to assume the Bedrock account
 # e.g.: klam assume 654654608322 or ada credentials update --account 654654608322
 ```
 
 **Step 2** — Fetch the key:
+
 ```bash
 aws secretsmanager get-secret-value \
   --secret-id "arn:aws:secretsmanager:us-west-2:654654608322:secret:bedrock/AWS2942/STG/api-key-3LqIv7" \
@@ -84,6 +86,7 @@ aws secretsmanager get-secret-value \
 The response is JSON. Copy the `api_key` field value (starts with `ABSKY...`).
 
 **Step 3** — Export it:
+
 ```bash
 export BEDROCK_API_KEY=ABSKYmVkcm9...
 ```
@@ -170,6 +173,10 @@ python -m tool_harness.harness --all
 
 # Show per-turn token stats
 python -m tool_harness.harness --scenario 4 --verbose
+
+# Run all scenarios in parallel (fastest — one line per scenario, summary at end)
+python -m tool_harness.harness --all --parallel
+python -m tool_harness.harness --all --parallel --workers 10
 ```
 
 ### Mode 1: mock-plan — claude-p backend (no credentials needed)
@@ -181,6 +188,7 @@ tokens, but works without any AWS credentials.
 python -m tool_harness.harness --backend claude-p
 python -m tool_harness.harness --backend claude-p --scenario 2
 python -m tool_harness.harness --backend claude-p --all --verbose
+python -m tool_harness.harness --backend claude-p --all --parallel
 ```
 
 ### Mode 2: mock-loop — Bedrock backend (default)
@@ -192,6 +200,7 @@ python -m tool_harness.harness --mode mock-loop
 python -m tool_harness.harness --mode mock-loop --scenario 3
 python -m tool_harness.harness --mode mock-loop --all
 python -m tool_harness.harness --mode mock-loop --scenario 3 --verbose
+python -m tool_harness.harness --mode mock-loop --all --parallel
 
 # Use Haiku for faster/cheaper runs
 python -m tool_harness.harness --mode mock-loop --model us.anthropic.claude-haiku-4-5-20251001-v1:0
@@ -207,9 +216,26 @@ python -m tool_harness.harness --mode mock-loop --backend claude-p --scenario 1 
 Note: claude-p is significantly slower (~30s/call) due to explanation tokens Claude generates
 alongside the JSON. Use it only when Bedrock credentials are unavailable.
 
+### Parallel mode
+
+`--parallel` runs all selected scenarios concurrently using threads. Output is one line per
+scenario start and one per finish; a summary table is printed at the end. `--verbose` is
+ignored in parallel mode (output would interleave).
+
+```bash
+# Parallel works with any mode and backend
+python -m tool_harness.harness --all --parallel
+python -m tool_harness.harness --all --parallel --workers 10
+python -m tool_harness.harness --mode mock-loop --all --parallel
+
+# live-loop parallel works but may have DB contention — use with caution
+python -m tool_harness.harness --mode live-loop --all --parallel --workers 3
+```
+
 ### Mode 3: live-loop — Bedrock backend (default)
 
 Build the JAR if not already built:
+
 ```bash
 cd backend/http_server && sbt assembly && cd -
 ```
@@ -290,9 +316,9 @@ client/chatbot_tests/
     agentic_runner.py       agentic loop — bedrock (native tool use) or claude-p (subprocess)
     executors.py            MockExecutor (mock data) + LiveExecutor (real server)
     server_manager.py       http_server auto-start / env-var passthrough
-    mock_server.py          static mock responses for all 43 tools
+    mock_server.py          static mock responses for all 42 tools
     scenarios.py            25 test scenarios with expected tool call sequences
-    tool_definitions.py     43 tool definitions in Anthropic tool-use format
+    tool_definitions.py     42 tool definitions in Anthropic tool-use format
     tests/
       test_executors.py
       test_agentic_runner.py
