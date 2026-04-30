@@ -33,7 +33,7 @@ def _make_envelope(result_text: str, returncode: int = 0) -> MagicMock:
 
 def test_agentic_runner_end_turn_immediately():
     """If Claude returns [] immediately, turn records empty tool list."""
-    runner = AgenticRunner(executor=MockExecutor(), model="claude-sonnet-4-6")
+    runner = AgenticRunner(executor=MockExecutor(), model="claude-sonnet-4-6", backend="claude-p")
     scenario = {
         "name": "Test",
         "turns": [{"user_message": "Hello", "expected_tools": []}],
@@ -51,7 +51,7 @@ def test_agentic_runner_end_turn_immediately():
 
 def test_agentic_runner_records_tool_calls():
     """Tool names from tool calls are recorded correctly."""
-    runner = AgenticRunner(executor=MockExecutor(), model="claude-sonnet-4-6")
+    runner = AgenticRunner(executor=MockExecutor(), model="claude-sonnet-4-6", backend="claude-p")
     scenario = {
         "name": "Test",
         "turns": [{"user_message": "List domains", "expected_tools": ["list_domains"]}],
@@ -70,7 +70,7 @@ def test_agentic_runner_records_tool_calls():
 
 def test_agentic_runner_multi_turn_accumulates_history():
     """Each turn's context is passed into the next turn's prompt."""
-    runner = AgenticRunner(executor=MockExecutor(), model="claude-sonnet-4-6")
+    runner = AgenticRunner(executor=MockExecutor(), model="claude-sonnet-4-6", backend="claude-p")
     scenario = {
         "name": "Two-turn test",
         "turns": [

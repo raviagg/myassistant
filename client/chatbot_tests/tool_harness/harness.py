@@ -331,15 +331,28 @@ def main() -> None:
         choices=["mock-plan", "mock-loop", "live-loop"],
         default="mock-plan",
         help=(
-            "mock-plan: existing behaviour — claude -p subprocess, validates planned tool names (default). "
-            "mock-loop: Anthropic SDK agentic loop with static mock responses (no services needed). "
-            "live-loop: Anthropic SDK agentic loop with real http_server + PostgreSQL."
+            "mock-plan: claude -p subprocess, validates planned tool names (default). "
+            "mock-loop: agentic loop with static mock responses (no services needed). "
+            "live-loop: agentic loop with real http_server + PostgreSQL."
+        ),
+    )
+    parser.add_argument(
+        "--backend",
+        choices=["bedrock", "claude-p"],
+        default="bedrock",
+        help=(
+            "bedrock: Anthropic SDK via AWS Bedrock — native tool use, prompt caching, "
+            "no wasted explanation tokens (default). Requires AWS credentials. "
+            "claude-p: claude -p subprocess — no AWS credentials needed, claude CLI must be on PATH."
         ),
     )
     parser.add_argument(
         "--model",
-        default="claude-sonnet-4-6",
-        help="Claude model for mock-loop / live-loop (default: claude-sonnet-4-6)",
+        default=None,
+        help=(
+            "Claude model ID. Defaults: bedrock → us.anthropic.claude-sonnet-4-6, "
+            "claude-p → claude-sonnet-4-6."
+        ),
     )
     args = parser.parse_args()
 
@@ -378,7 +391,7 @@ def main() -> None:
 
     if args.mode == "mock-loop":
         executor = MockExecutor()
-        runner   = AgenticRunner(executor=executor, model=args.model)
+        runner   = AgenticRunner(executor=executor, model=args.model, backend=args.backend)
         for scenario in to_run:
             n_turns = len(scenario["turns"])
             turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
@@ -393,7 +406,7 @@ def main() -> None:
     with managed_server() as base_url:
         token    = auth_token()
         executor = LiveExecutor(base_url=base_url, auth_token=token)
-        runner   = AgenticRunner(executor=executor, model=args.model)
+        runner   = AgenticRunner(executor=executor, model=args.model, backend=args.backend)
         try:
             for scenario in to_run:
                 n_turns = len(scenario["turns"])

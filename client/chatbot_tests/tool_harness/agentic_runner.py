@@ -1,6 +1,8 @@
 import json
+import os
 import re
 import subprocess
+import time
 
 from .tool_definitions import ALL_TOOLS
 from .scenarios import SYSTEM_PROMPT, GLOBAL_FORBIDDEN_TOOLS
@@ -9,7 +11,7 @@ SEP  = "━" * 72
 THIN = "─" * 72
 
 
-# ── Tool summary ─────────────────────────────────────────────────────────────
+# ── Tool summary (claude-p backend only) ──────────────────────────────────────
 
 def _agentic_tools_summary() -> str:
     """Compact tool list for the agentic step prompt. Parameters marked * are required."""
@@ -59,42 +61,68 @@ def _accumulate(totals: dict, call_stats: dict) -> None:
 
 
 def _fmt_call_stats(s: dict) -> str:
+    cost = f"${s['cost_usd']:.4f}" if s["cost_usd"] else "(cost N/A)"
     return (
         f"{s['duration_api_ms']:,}ms  "
         f"in={s['input_tokens']:,}  "
         f"hit={s['cache_read_tokens']:,}  "
         f"new={s['cache_creation_tokens']:,}  "
         f"out={s['output_tokens']:,}  "
-        f"${s['cost_usd']:.4f}"
+        f"{cost}"
     )
 
 
 def _fmt_turn_stats(s: dict) -> str:
-    n  = s["num_calls"]
-    ms = s["duration_api_ms"]
+    n    = s["num_calls"]
+    ms   = s["duration_api_ms"]
+    cost = f"${s['cost_usd']:.4f}" if s["cost_usd"] else "(cost N/A)"
     return (
         f"{n} call{'s' if n != 1 else ''}  ·  {ms / 1000:.1f}s  ·  "
         f"in={s['input_tokens']:,}  hit={s['cache_read_tokens']:,}  "
         f"new={s['cache_creation_tokens']:,}  out={s['output_tokens']:,}  ·  "
-        f"${s['cost_usd']:.4f}"
+        f"{cost}"
     )
 
 
 def _fmt_scenario_stats(s: dict) -> str:
-    nt = s.get("num_turns", "?")
-    nc = s["num_calls"]
-    ms = s["duration_api_ms"]
+    nt   = s.get("num_turns", "?")
+    nc   = s["num_calls"]
+    ms   = s["duration_api_ms"]
+    cost = f"${s['cost_usd']:.4f}" if s["cost_usd"] else "(cost N/A)"
     return (
         f"{nt} turn{'s' if nt != 1 else ''}  ·  "
         f"{nc} call{'s' if nc != 1 else ''}  ·  "
         f"{ms / 1000:.1f}s  ·  "
         f"in={s['input_tokens']:,}  hit={s['cache_read_tokens']:,}  "
         f"new={s['cache_creation_tokens']:,}  out={s['output_tokens']:,}  ·  "
-        f"${s['cost_usd']:.4f}"
+        f"{cost}"
     )
 
 
-# ── Subprocess call ───────────────────────────────────────────────────────────
+# ── Bedrock helpers ───────────────────────────────────────────────────────────
+
+# Cache_control on the last tool caches all 43 tool definitions as one prefix block.
+_BEDROCK_TOOLS = [
+    {**t, "cache_control": {"type": "ephemeral"}} if i == len(ALL_TOOLS) - 1 else t
+    for i, t in enumerate(ALL_TOOLS)
+]
+
+_BEDROCK_SYSTEM = [
+    {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
+]
+
+
+def _make_bedrock_client(region: str | None = None):
+    try:
+        import anthropic
+        return anthropic.AnthropicBedrock(
+            aws_region=region or os.environ.get("AWS_REGION", "us-west-2")
+        )
+    except ImportError:
+        raise RuntimeError("boto3/botocore not installed. Run: pip install boto3")
+
+
+# ── claude-p subprocess helpers ───────────────────────────────────────────────
 
 def _extract_json_array(text: str) -> list | None:
     text = re.sub(r"```(?:json)?\s*", "", text)
@@ -114,7 +142,6 @@ def _call_claude(
     """
     Run `claude -p --output-format json` with the given prompt.
     Returns (tool_calls, error, call_stats).
-    call_stats contains duration_api_ms, token counts, and cost.
     """
     try:
         result = subprocess.run(
@@ -151,7 +178,6 @@ def _call_claude(
     }
 
     response_text = envelope.get("result", "")
-
     if verbose:
         print(f"\n  [RAW] {response_text[:300]}")
 
@@ -166,16 +192,28 @@ def _call_claude(
 
 class AgenticRunner:
     """
-    Runs scenarios using a claude subprocess agentic loop.
+    Runs scenarios using an agentic loop.
 
-    Each turn iterates: build step prompt → claude -p → parse tool calls →
-    execute via executor → repeat until Claude returns [].
+    backend="bedrock"  — Anthropic SDK via AWS Bedrock (default).
+                         Uses native tool use: structured output, no wasted
+                         explanation tokens, prompt caching on system + tools.
+                         Requires AWS credentials in environment.
+    backend="claude-p" — claude -p subprocess loop.
+                         No AWS credentials needed; claude CLI must be on PATH.
+                         Claude outputs JSON text; explanation tokens are wasted.
+
     Tool calls are routed to the injected executor (MockExecutor or LiveExecutor).
     """
 
-    def __init__(self, executor, model: str = "claude-sonnet-4-6"):
+    def __init__(self, executor, model: str | None = None, backend: str = "bedrock"):
         self._executor = executor
-        self._model    = model  # informational; claude CLI uses its own default
+        self._backend  = backend
+        if backend == "bedrock":
+            self._model   = model or "us.anthropic.claude-sonnet-4-6"
+            self._bedrock = _make_bedrock_client()
+        else:
+            self._model   = model or "claude-sonnet-4-6"
+            self._bedrock = None
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -185,11 +223,10 @@ class AgenticRunner:
         """
         Run all turns of a scenario.
         Returns (list_of_tool_name_lists_per_turn, scenario_stats, error).
-        scenario_stats: {"turns": [turn_stats, ...], "total": {...}}
         """
-        prior_turns:        list[dict]       = []
+        prior_turns:         list[dict]      = []
         all_turn_tool_names: list[list[str]] = []
-        all_turn_stats:     list[dict]       = []
+        all_turn_stats:      list[dict]      = []
         scenario_total = _empty_totals()
 
         for turn_idx, turn in enumerate(scenario["turns"]):
@@ -221,14 +258,97 @@ class AgenticRunner:
             None,
         )
 
-    # ── Internal ──────────────────────────────────────────────────────────
+    # ── Internal dispatch ─────────────────────────────────────────────────
 
     def _run_turn(
         self, user_message: str, prior_turns: list[dict], verbose: bool
     ) -> tuple[list[str], dict]:
+        if self._backend == "bedrock":
+            return self._run_turn_bedrock(user_message, prior_turns, verbose)
+        return self._run_turn_claude_p(user_message, prior_turns, verbose)
+
+    # ── Bedrock backend ───────────────────────────────────────────────────
+
+    def _run_turn_bedrock(
+        self, user_message: str, prior_turns: list[dict], verbose: bool
+    ) -> tuple[list[str], dict]:
         """
-        Drive the subprocess loop until Claude returns an empty tool list.
-        Returns (tool_names_called, turn_stats).
+        Native tool-use agentic loop via Anthropic SDK + Bedrock.
+        Maintains a proper messages array; no explanation tokens wasted.
+        System prompt and tool definitions are prompt-cached.
+        """
+        tool_names:  list[str] = []
+        turn_totals = _empty_totals()
+        call_num    = 0
+
+        # Represent prior turns as simplified user/assistant pairs.
+        messages: list[dict] = []
+        for t in prior_turns:
+            messages.append({"role": "user", "content": t["user_message"]})
+            summary = ", ".join(t["tool_names"]) if t["tool_names"] else "no tools"
+            messages.append({"role": "assistant", "content": f"[Turn complete — tools: {summary}]"})
+        messages.append({"role": "user", "content": user_message})
+
+        while True:
+            call_num += 1
+            t0 = time.perf_counter()
+            response = self._bedrock.messages.create(
+                model      = self._model,
+                max_tokens = 4096,
+                system     = _BEDROCK_SYSTEM,
+                tools      = _BEDROCK_TOOLS,
+                messages   = messages,
+            )
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+
+            usage = response.usage
+            call_stats = {
+                "duration_api_ms":       duration_ms,
+                "input_tokens":          usage.input_tokens,
+                "cache_creation_tokens": getattr(usage, "cache_creation_input_tokens", 0),
+                "cache_read_tokens":     getattr(usage, "cache_read_input_tokens", 0),
+                "output_tokens":         usage.output_tokens,
+                "cost_usd":              0.0,  # Bedrock does not return cost
+            }
+            _accumulate(turn_totals, call_stats)
+            if verbose:
+                print(f"  [call {call_num}] {_fmt_call_stats(call_stats)}")
+
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+
+            if response.stop_reason != "tool_use" or not tool_blocks:
+                break
+
+            tool_results = []
+            for block in tool_blocks:
+                name   = block.name
+                params = block.input
+                tool_names.append(name)
+                if verbose:
+                    print(f"  [tool] {name}({json.dumps(params)[:120]})")
+                try:
+                    result = self._executor.call(name, params)
+                except Exception as exc:
+                    result = {"error": str(exc)}
+                tool_results.append({
+                    "type":        "tool_result",
+                    "tool_use_id": block.id,
+                    "content":     json.dumps(result),
+                })
+
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user",      "content": tool_results})
+
+        return tool_names, turn_totals
+
+    # ── claude-p backend ──────────────────────────────────────────────────
+
+    def _run_turn_claude_p(
+        self, user_message: str, prior_turns: list[dict], verbose: bool
+    ) -> tuple[list[str], dict]:
+        """
+        Subprocess agentic loop via claude -p --output-format json.
+        Rebuilds a full text prompt each step. No AWS credentials needed.
         """
         tool_names:   list[str]  = []
         step_results: list[dict] = []
@@ -270,7 +390,7 @@ class AgenticRunner:
         prior_turns:  list[dict],
         step_results: list[dict],
     ) -> str:
-        """Build the prompt for one agentic loop iteration."""
+        """Build the prompt for one claude-p agentic loop iteration."""
         parts = [SYSTEM_PROMPT]
         parts.append(f"\n{'─' * 72}")
         parts.append(f"TOOLS ({len(ALL_TOOLS)} total)\nParameters marked * are required.")
