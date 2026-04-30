@@ -29,7 +29,7 @@ import sys
 
 from .tool_definitions import ALL_TOOLS
 from .scenarios import SCENARIOS, SYSTEM_PROMPT, GLOBAL_FORBIDDEN_TOOLS
-from .agentic_runner import AgenticRunner
+from .agentic_runner import AgenticRunner, bedrock_plan_scenario
 from .executors import MockExecutor, LiveExecutor
 from .server_manager import managed_server, auth_token
 
@@ -371,18 +371,30 @@ def main() -> None:
 
     total_turns = sum(len(s["turns"]) for s in to_run)
     print(f"\n{len(ALL_TOOLS)} tools defined · {len(SCENARIOS)} scenarios available "
-          f"· {total_turns} turns to run · mode={args.mode}")
+          f"· {total_turns} turns to run · mode={args.mode} · backend={args.backend}")
 
-    # ── Mode 1: existing mock-plan behaviour ─────────────────────────────
+    # ── Mode 1: mock-plan ────────────────────────────────────────────────
     if args.mode == "mock-plan":
-        _check_claude_available()
-        for scenario in to_run:
-            n_turns = len(scenario["turns"])
-            turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
-            print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
-            all_turn_calls, error = run_scenario(scenario, verbose=args.verbose)
-            print("done" if not error else "error")
-            print_result(scenario, all_turn_calls, error)
+        if args.backend == "bedrock":
+            model = args.model or "us.anthropic.claude-sonnet-4-6"
+            for scenario in to_run:
+                n_turns = len(scenario["turns"])
+                turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
+                print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
+                all_turn_calls, error = bedrock_plan_scenario(
+                    scenario, model=model, verbose=args.verbose
+                )
+                print("done" if not error else "error")
+                print_result(scenario, all_turn_calls, error)
+        else:
+            _check_claude_available()
+            for scenario in to_run:
+                n_turns = len(scenario["turns"])
+                turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
+                print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
+                all_turn_calls, error = run_scenario(scenario, verbose=args.verbose)
+                print("done" if not error else "error")
+                print_result(scenario, all_turn_calls, error)
         print(SEP)
         return
 

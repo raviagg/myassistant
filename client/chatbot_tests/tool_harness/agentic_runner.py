@@ -259,6 +259,70 @@ def _call_claude(
     return calls, None, call_stats
 
 
+# ── Bedrock mock-plan ────────────────────────────────────────────────────────
+
+def bedrock_plan_scenario(
+    scenario: dict,
+    model: str = "us.anthropic.claude-sonnet-4-6",
+    verbose: bool = False,
+) -> tuple[list[list[dict]] | None, str | None]:
+    """
+    Run mock-plan for all turns using Bedrock native tool use.
+
+    Makes one API call per turn. The tool_use blocks Claude returns on
+    the first response are the "plan" — no execution, no agentic loop.
+    Returns (list_of_turn_call_lists, error) — same shape as harness.run_scenario().
+    """
+    client = _make_bedrock_client()
+    all_turn_calls:   list[list[dict]] = []
+    prior_turns_data: list[dict]       = []
+
+    for turn_idx, turn in enumerate(scenario["turns"]):
+        messages: list[dict] = []
+        for t in prior_turns_data:
+            messages.append({"role": "user", "content": t["user_message"]})
+            tool_names = [tc["tool"] for tc in t["tool_calls"]]
+            summary    = ", ".join(tool_names) if tool_names else "no tools"
+            messages.append({"role": "assistant", "content": f"[Turn complete — tools: {summary}]"})
+        messages.append({"role": "user", "content": turn["user_message"]})
+
+        try:
+            t0       = time.perf_counter()
+            response = client.messages.create(
+                model      = model,
+                max_tokens = 4096,
+                system     = _BEDROCK_SYSTEM,
+                tools      = _BEDROCK_TOOLS,
+                messages   = messages,
+            )
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+        except Exception as exc:
+            return None, f"Turn {turn_idx + 1}: {exc}"
+
+        if verbose:
+            u = response.usage
+            print(
+                f"  [turn {turn_idx + 1}] {duration_ms:,}ms  "
+                f"in={u.input_tokens}  "
+                f"hit={getattr(u, 'cache_read_input_tokens', 0)}  "
+                f"new={getattr(u, 'cache_creation_input_tokens', 0)}  "
+                f"out={u.output_tokens}"
+            )
+
+        calls = [
+            {"tool": b.name, "params": b.input}
+            for b in response.content
+            if b.type == "tool_use"
+        ]
+        all_turn_calls.append(calls)
+        prior_turns_data.append({
+            "user_message": turn["user_message"],
+            "tool_calls":   calls,
+        })
+
+    return all_turn_calls, None
+
+
 # ── Runner ────────────────────────────────────────────────────────────────────
 
 class AgenticRunner:

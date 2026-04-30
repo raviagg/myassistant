@@ -11,11 +11,11 @@ It supports three modes:
 
 | Mode | Flag | What it does | Services needed |
 |---|---|---|---|
-| mock-plan | `--mode mock-plan` (default) | `claude -p` subprocess; Claude outputs a JSON plan; validates tool names | None |
-| mock-loop | `--mode mock-loop` | Agentic loop; tool calls routed to static mocks | None |
+| mock-plan | `--mode mock-plan` (default) | One API call per turn; validates planned tool names | None (bedrock or claude-p) |
+| mock-loop | `--mode mock-loop` | Agentic loop; tool calls routed to static mocks | None (bedrock or claude-p) |
 | live-loop | `--mode live-loop` | Agentic loop; tool calls hit a real http_server + PostgreSQL | http_server + PostgreSQL |
 
-Modes `mock-loop` and `live-loop` support two backends (see below).
+All three modes support both backends (see below).
 
 **Architecture note:** `live-loop` imports tool functions from `backend/mcp_server/tools/` directly
 (not via the MCP stdio protocol). The MCP protocol is already tested by `backend/mcp_server/tests/`.
@@ -149,9 +149,14 @@ sbt assembly
 
 ## Running the Tests
 
-### Mode 1: mock-plan (default, no credentials needed)
+### Mode 1: mock-plan — Bedrock backend (default)
+
+Single API call per turn — Claude returns native `tool_use` blocks which are
+treated as the plan. No execution, no loop. Faster and more reliable than claude-p.
 
 ```bash
+export BEDROCK_API_KEY=ABSKYmVkcm9...
+
 cd client/chatbot_tests
 
 # Run first 3 scenarios
@@ -163,8 +168,19 @@ python -m tool_harness.harness --scenario 2
 # Run all 25 scenarios
 python -m tool_harness.harness --all
 
-# Show raw claude output
+# Show per-turn token stats
 python -m tool_harness.harness --scenario 4 --verbose
+```
+
+### Mode 1: mock-plan — claude-p backend (no credentials needed)
+
+Claude outputs JSON text in one shot. Slower (~10-30s/turn) due to explanation
+tokens, but works without any AWS credentials.
+
+```bash
+python -m tool_harness.harness --backend claude-p
+python -m tool_harness.harness --backend claude-p --scenario 2
+python -m tool_harness.harness --backend claude-p --all --verbose
 ```
 
 ### Mode 2: mock-loop — Bedrock backend (default)
