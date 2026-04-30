@@ -62,12 +62,20 @@ pip install -e ".[dev]"
 
 ### AWS Bedrock (bedrock backend)
 
+Two auth options — use whichever you have:
+
 | Variable | Default | Notes |
 |---|---|---|
-| `AWS_ACCESS_KEY_ID` | — | Required |
-| `AWS_SECRET_ACCESS_KEY` | — | Required |
-| `AWS_SESSION_TOKEN` | — | Required for temporary/federated credentials |
+| `BEDROCK_API_KEY` | — | Long-lived Bearer token (365 days). Retrieved from AWS Secrets Manager: `bedrock/AWS2942/STG/api-key`. Preferred — no rotation needed. |
 | `AWS_REGION` | `us-west-2` | Bedrock region |
+
+If `BEDROCK_API_KEY` is not set, falls back to SigV4 (temporary credentials, 12h):
+
+| Variable | Default | Notes |
+|---|---|---|
+| `AWS_ACCESS_KEY_ID` | — | Temporary credential |
+| `AWS_SECRET_ACCESS_KEY` | — | Temporary credential |
+| `AWS_SESSION_TOKEN` | — | Temporary credential |
 
 ### live-loop server
 

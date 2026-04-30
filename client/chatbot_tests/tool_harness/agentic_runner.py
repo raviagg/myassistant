@@ -112,14 +112,85 @@ _BEDROCK_SYSTEM = [
 ]
 
 
+def _to_bedrock_json(content) -> list:
+    """Serialize SDK content objects or plain strings into JSON-serializable dicts."""
+    if isinstance(content, str):
+        return [{"type": "text", "text": content}]
+    if not isinstance(content, list):
+        return content
+    result = []
+    for item in content:
+        if isinstance(item, dict):
+            result.append(item)
+        elif hasattr(item, "model_dump"):
+            result.append(item.model_dump(exclude_none=True))
+        else:
+            result.append({"type": "text", "text": str(item)})
+    return result
+
+
+class _BedrockBearerClient:
+    """
+    Minimal Bedrock client using long-lived Bearer token auth (BEDROCK_API_KEY).
+    Calls /model/{model}/invoke with the native Anthropic request/response format.
+    Interface mirrors AnthropicBedrock so AgenticRunner needs no changes.
+    """
+
+    def __init__(self, api_key: str, region: str):
+        import httpx
+        self._api_key = api_key
+        self._region  = region
+        self._http    = httpx.Client(timeout=120)
+        self.messages = self
+
+    def create(self, *, model, max_tokens, system, tools, messages):
+        import anthropic
+        url = (
+            f"https://bedrock-runtime.{self._region}.amazonaws.com"
+            f"/model/{model}/invoke"
+        )
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "system":   _to_bedrock_json(system),
+            "tools":    tools,
+            "messages": [
+                {"role": m["role"], "content": _to_bedrock_json(m["content"])}
+                for m in messages
+            ],
+        }
+        resp = self._http.post(url, json=body, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        })
+        resp.raise_for_status()
+        return anthropic.types.Message.model_validate(resp.json())
+
+
 def _make_bedrock_client(region: str | None = None):
+    """
+    Returns a Bedrock client.
+
+    If BEDROCK_API_KEY is set: uses Bearer token auth — long-lived key, no
+    AWS credentials needed.
+
+    Otherwise: uses AnthropicBedrock with SigV4 (requires
+    AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_SESSION_TOKEN).
+    """
+    r = region or os.environ.get("AWS_REGION", "us-west-2")
+
+    api_key = os.environ.get("BEDROCK_API_KEY")
+    if api_key:
+        return _BedrockBearerClient(api_key=api_key, region=r)
+
     try:
         import anthropic
-        return anthropic.AnthropicBedrock(
-            aws_region=region or os.environ.get("AWS_REGION", "us-west-2")
-        )
+        return anthropic.AnthropicBedrock(aws_region=r)
     except ImportError:
-        raise RuntimeError("boto3/botocore not installed. Run: pip install boto3")
+        raise RuntimeError(
+            "boto3/botocore not installed. Run: pip install boto3\n"
+            "Or set BEDROCK_API_KEY to use Bearer token auth instead."
+        )
 
 
 # ── claude-p subprocess helpers ───────────────────────────────────────────────
