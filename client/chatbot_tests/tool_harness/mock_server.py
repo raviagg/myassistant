@@ -1,5 +1,5 @@
 """
-Static mock responses for all 44 tools.
+Static mock responses for all 43 tools.
 Realistic enough for the agentic loop to continue — Claude can chain
 list_domains → get_current_entity_type_schema → create_fact etc.
 using the UUIDs returned here.
@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 # ── Fixed mock UUIDs ────────────────────────────────────────────────────
 PERSON_ID   = "aaaaaaaa-0000-0000-0000-000000000001"  # Ravi Aggarwal
 PERSON_ID_2 = "aaaaaaaa-0000-0000-0000-000000000002"  # Priya Aggarwal
+PERSON_ID_3 = "aaaaaaaa-0000-0000-0000-000000000003"  # Vijay Aggarwal (Ravi's father)
 HOUSEHOLD_ID = "bbbbbbbb-0000-0000-0000-000000000001"
 
 DOMAIN_HEALTH_ID      = "cccc0001-0000-0000-0000-000000000000"
@@ -19,9 +20,11 @@ DOMAIN_TODO_ID        = "cccc0005-0000-0000-0000-000000000000"
 DOMAIN_HOUSEHOLD_ID   = "cccc0006-0000-0000-0000-000000000000"
 DOMAIN_NEWS_ID        = "cccc0007-0000-0000-0000-000000000000"
 
-SOURCE_CHATBOT_ID     = "dddd0001-0000-0000-0000-000000000000"  # all chat-interface interactions
-SOURCE_PLAID_ID       = "dddd0004-0000-0000-0000-000000000000"
-SOURCE_GMAIL_ID       = "dddd0005-0000-0000-0000-000000000000"
+SOURCE_USER_INPUT_ID   = "dddd0001-0000-0000-0000-000000000000"
+SOURCE_FILE_UPLOAD_ID  = "dddd0002-0000-0000-0000-000000000000"
+SOURCE_AI_EXTRACTED_ID = "dddd0003-0000-0000-0000-000000000000"
+SOURCE_PLAID_ID        = "dddd0004-0000-0000-0000-000000000000"
+SOURCE_GMAIL_ID        = "dddd0005-0000-0000-0000-000000000000"
 
 SCHEMA_TODO_ID        = "eeee0001-0000-0000-0000-000000000000"
 SCHEMA_INSURANCE_ID   = "eeee0002-0000-0000-0000-000000000000"
@@ -69,9 +72,11 @@ def _domains():
 
 def _source_types():
     return [
-        {"id": SOURCE_CHATBOT_ID, "name": "chatbot"},
-        {"id": SOURCE_PLAID_ID,   "name": "plaid_poll"},
-        {"id": SOURCE_GMAIL_ID,   "name": "gmail_poll"},
+        {"id": SOURCE_USER_INPUT_ID,   "name": "user_input"},
+        {"id": SOURCE_FILE_UPLOAD_ID,  "name": "file_upload"},
+        {"id": SOURCE_AI_EXTRACTED_ID, "name": "ai_extracted"},
+        {"id": SOURCE_PLAID_ID,        "name": "plaid_poll"},
+        {"id": SOURCE_GMAIL_ID,        "name": "gmail_poll"},
     ]
 
 
@@ -193,9 +198,19 @@ def _current_fact(eid=ENTITY_INSTANCE_ID, sid=SCHEMA_TODO_ID, fields=None):
 
 
 class MockServer:
-    """Dispatch tool calls to static mock handlers."""
+    """Dispatch tool calls to static mock handlers.
+
+    overrides: maps tool_name → fixed return value for the current scenario.
+    Used to return empty search results for create-new flows where the default
+    handler returns a high-similarity match that would confuse Claude.
+    """
+
+    def __init__(self, overrides: dict | None = None):
+        self._overrides = overrides or {}
 
     def handle(self, tool_name: str, tool_input: dict) -> dict:
+        if tool_name in self._overrides:
+            return self._overrides[tool_name]
         handler = getattr(self, f"_h_{tool_name}", None)
         if handler is None:
             return {"error": "unknown_tool", "tool_name": tool_name}
@@ -207,7 +222,16 @@ class MockServer:
         return _person(name=i.get("full_name", "Unknown"), gender=i.get("gender", "male"))
 
     def _h_get_person(self, i):
-        return _person()
+        pid = i.get("person_id")
+        if pid == PERSON_ID_2:
+            return _person(PERSON_ID_2, "Priya Aggarwal", "female")
+        if pid == PERSON_ID_3:
+            return {
+                "id": PERSON_ID_3, "full_name": "Vijay Aggarwal", "preferred_name": "Dad",
+                "gender": "male", "date_of_birth": "1955-07-10", "user_identifier": None,
+                "created_at": NOW, "updated_at": NOW,
+            }
+        return _person()  # default: Ravi
 
     def _h_search_persons(self, i):
         name = (i.get("name") or "").lower()
@@ -370,16 +394,20 @@ class MockServer:
     # ── 3 Schema Governance ──────────────────────────────────────────────
 
     def _h_list_entity_type_schemas(self, i):
+        # Return summaries only — no field_definitions or extraction_prompt.
+        # Claude must call get_current_entity_type_schema for the full field list.
+        _summary = lambda s: {k: v for k, v in s.items()
+                              if k not in ("field_definitions", "extraction_prompt")}
         domain = i.get("domain_id")
         if domain == DOMAIN_TODO_ID:
-            return [_todo_schema()]
+            return [_summary(_todo_schema())]
         if domain == DOMAIN_HEALTH_ID:
-            return [_insurance_schema()]
+            return [_summary(_insurance_schema())]
         if domain == DOMAIN_EMPLOYMENT_ID:
-            return [_job_schema()]
+            return [_summary(_job_schema())]
         if domain == DOMAIN_FINANCE_ID:
-            return [_payslip_schema()]
-        return [_todo_schema(), _insurance_schema(), _job_schema(), _payslip_schema()]
+            return [_summary(_payslip_schema())]
+        return [_summary(s) for s in [_todo_schema(), _insurance_schema(), _job_schema(), _payslip_schema()]]
 
     def _h_get_entity_type_schema(self, i):
         if i.get("schema_id") == SCHEMA_INSURANCE_ID:
@@ -398,7 +426,7 @@ class MockServer:
             return _payslip_schema()
         return {"error": "not_found", "entity_type": et}
 
-    def _h_propose_entity_type_schema(self, i):
+    def _h_create_entity_type_schema(self, i):
         return {
             "id": NEW_SCHEMA_ID,
             "domain_id": i["domain_id"],
@@ -407,21 +435,18 @@ class MockServer:
             "description": i.get("description", ""),
             "field_definitions": i["field_definitions"],
             "mandatory_fields": [f["name"] for f in i["field_definitions"] if f.get("mandatory")],
-            "is_active": False,
+            "is_active": True,
             "created_at": NOW,
         }
 
-    def _h_confirm_entity_type_schema(self, i):
-        return {"id": i["schema_id"], "is_active": True, "confirmed_at": NOW}
-
-    def _h_evolve_entity_type_schema(self, i):
-        base = _todo_schema(sid=i["schema_id"])
+    def _h_update_entity_type_schema(self, i):
+        base = _todo_schema()
         return {
             **base,
             "id": NEW_SCHEMA_ID,
             "schema_version": base["schema_version"] + 1,
-            "field_definitions": i["field_definitions"],
-            "is_active": False,
+            "field_definitions": i.get("field_definitions", base["field_definitions"]),
+            "is_active": True,
         }
 
     def _h_deactivate_entity_type_schema(self, i):
