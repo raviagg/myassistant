@@ -12,7 +12,7 @@ It supports three modes:
 | Mode | Flag | What it does | Services needed |
 |---|---|---|---|
 | mock-plan | `--mode mock-plan` (default) | `claude -p` subprocess; Claude outputs a JSON plan; validates tool names | None |
-| mock-loop | `--mode mock-loop` | Agentic loop; tool calls routed to static mocks | None (bedrock) or None (claude-p) |
+| mock-loop | `--mode mock-loop` | Agentic loop; tool calls routed to static mocks | None |
 | live-loop | `--mode live-loop` | Agentic loop; tool calls hit a real http_server + PostgreSQL | http_server + PostgreSQL |
 
 Modes `mock-loop` and `live-loop` support two backends (see below).
@@ -25,9 +25,9 @@ See `docs/superpowers/specs/2026-04-29-chatbot-tests-design.md` for the full rat
 
 ## Backends (mock-loop and live-loop)
 
-| Backend | Flag | How it works | Credentials needed |
+| Backend | Flag | How it works | Credentials |
 |---|---|---|---|
-| bedrock | `--backend bedrock` (default) | Anthropic SDK via AWS Bedrock; native tool use; prompt caching on system + tools | AWS credentials |
+| bedrock | `--backend bedrock` (default) | Anthropic SDK via AWS Bedrock; native tool use; prompt caching | `BEDROCK_API_KEY` or AWS temp creds |
 | claude-p | `--backend claude-p` | `claude -p` subprocess; Claude outputs JSON text | None (claude CLI on PATH) |
 
 **Why bedrock is the default:**
@@ -43,7 +43,7 @@ See `docs/superpowers/specs/2026-04-29-chatbot-tests-design.md` for the full rat
 | Tool | Version | Install |
 |---|---|---|
 | Python | 3.11+ | `brew install python@3.11` |
-| AWS credentials | — | Required for `bedrock` backend (default) |
+| Bedrock credentials | — | Required for `bedrock` backend — see section below |
 | Claude CLI | any | Required for `mock-plan` and `claude-p` backend — must be on PATH |
 | Java | 21+ | Required for `live-loop` auto-start — `brew install openjdk@21` |
 
@@ -58,53 +58,103 @@ pip install -e ".[dev]"
 
 ---
 
+## AWS Bedrock Credentials
+
+Two options. **BEDROCK_API_KEY is strongly preferred** — it lasts 365 days and requires no rotation.
+
+### Option 1: Long-lived API key (recommended)
+
+The key lives in AWS Secrets Manager in the Bedrock deployment account.
+
+**Step 1** — Authenticate to AWS account `654654608322` via KLAM:
+```bash
+# Use your org's KLAM command to assume the Bedrock account
+# e.g.: klam assume 654654608322 or ada credentials update --account 654654608322
+```
+
+**Step 2** — Fetch the key:
+```bash
+aws secretsmanager get-secret-value \
+  --secret-id "arn:aws:secretsmanager:us-west-2:654654608322:secret:bedrock/AWS2942/STG/api-key-3LqIv7" \
+  --region us-west-2 \
+  --query 'SecretString' \
+  --output text
+```
+
+The response is JSON. Copy the `api_key` field value (starts with `ABSKY...`).
+
+**Step 3** — Export it:
+```bash
+export BEDROCK_API_KEY=ABSKYmVkcm9...
+```
+
+Done. No further credentials needed. Key is valid for 365 days.
+
+### Option 2: Temporary AWS credentials (12-hour expiry)
+
+Use your org's KLAM/SSO to get temporary credentials for the Bedrock account,
+then export all three:
+
+```bash
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
+```
+
+The harness automatically picks `BEDROCK_API_KEY` first. If it is not set,
+it falls back to SigV4 signing with the three AWS credential env vars.
+
+### Bedrock deployment details
+
+| Setting | Value |
+|---|---|
+| AWS account | `654654608322` |
+| Region | `us-west-2` |
+| Model | `us.anthropic.claude-sonnet-4-6` |
+| Endpoint | `https://bedrock-runtime.us-west-2.amazonaws.com` |
+| Auth (API key) | `Authorization: Bearer <BEDROCK_API_KEY>` |
+| Secrets Manager path | `bedrock/AWS2942/STG/api-key` |
+
+---
+
 ## Environment Variables
 
-### AWS Bedrock (bedrock backend)
-
-Two auth options — use whichever you have:
+### Bedrock backend
 
 | Variable | Default | Notes |
 |---|---|---|
-| `BEDROCK_API_KEY` | — | Long-lived Bearer token (365 days). Retrieved from AWS Secrets Manager: `bedrock/AWS2942/STG/api-key`. Preferred — no rotation needed. |
+| `BEDROCK_API_KEY` | — | Long-lived Bearer token. Takes priority over SigV4. |
 | `AWS_REGION` | `us-west-2` | Bedrock region |
-
-If `BEDROCK_API_KEY` is not set, falls back to SigV4 (temporary credentials, 12h):
-
-| Variable | Default | Notes |
-|---|---|---|
-| `AWS_ACCESS_KEY_ID` | — | Temporary credential |
-| `AWS_SECRET_ACCESS_KEY` | — | Temporary credential |
-| `AWS_SESSION_TOKEN` | — | Temporary credential |
+| `AWS_ACCESS_KEY_ID` | — | Fallback if `BEDROCK_API_KEY` not set |
+| `AWS_SECRET_ACCESS_KEY` | — | Fallback if `BEDROCK_API_KEY` not set |
+| `AWS_SESSION_TOKEN` | — | Fallback if `BEDROCK_API_KEY` not set |
 
 ### live-loop server
 
-| Variable | Default | Required for |
+| Variable | Default | Notes |
 |---|---|---|
-| `CHATBOT_HTTP_URL` | *(not set → auto-start)* | `live-loop` only |
-| `CHATBOT_AUTH_TOKEN` | `dev-token-change-me-in-production` | `live-loop` |
-| `CHATBOT_DB` | `myassistanttest` | `live-loop` auto-start only |
+| `CHATBOT_HTTP_URL` | *(not set → auto-start)* | Point at a running http_server to skip auto-start |
+| `CHATBOT_AUTH_TOKEN` | `dev-token-change-me-in-production` | Auth token sent to http_server |
+| `CHATBOT_DB` | `myassistanttest` | Database used during auto-start |
 
-When `CHATBOT_HTTP_URL` is **not set** in `live-loop` mode, the harness starts the http_server fat JAR
-automatically on port 8181 using the `myassistanttest` database. Build the JAR first:
+When `CHATBOT_HTTP_URL` is **not set**, the harness starts the http_server fat JAR automatically
+on port 8181 using the `myassistanttest` database. Build the JAR first:
 
 ```bash
 cd backend/http_server
 sbt assembly
 ```
 
-When `CHATBOT_HTTP_URL` **is set**, point it at a running http_server and the harness will use it directly.
-
 ---
 
 ## Running the Tests
 
-### Mode 1: mock-plan (default)
+### Mode 1: mock-plan (default, no credentials needed)
 
 ```bash
 cd client/chatbot_tests
 
-# Run first 3 scenarios (default)
+# Run first 3 scenarios
 python -m tool_harness.harness
 
 # Run a specific scenario (1-based)
@@ -120,26 +170,26 @@ python -m tool_harness.harness --scenario 4 --verbose
 ### Mode 2: mock-loop — Bedrock backend (default)
 
 ```bash
-# Set AWS credentials first
-export AWS_ACCESS_KEY_ID=...
-export AWS_SECRET_ACCESS_KEY=...
-export AWS_SESSION_TOKEN=...
+export BEDROCK_API_KEY=ABSKYmVkcm9...   # once; valid 365 days
 
 python -m tool_harness.harness --mode mock-loop
-python -m tool_harness.harness --mode mock-loop --scenario 1
+python -m tool_harness.harness --mode mock-loop --scenario 3
 python -m tool_harness.harness --mode mock-loop --all
 python -m tool_harness.harness --mode mock-loop --scenario 3 --verbose
 
-# Use a different model
+# Use Haiku for faster/cheaper runs
 python -m tool_harness.harness --mode mock-loop --model us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
 
-### Mode 2: mock-loop — claude-p backend (no AWS needed)
+### Mode 2: mock-loop — claude-p backend (no credentials needed)
 
 ```bash
 python -m tool_harness.harness --mode mock-loop --backend claude-p
-python -m tool_harness.harness --mode mock-loop --backend claude-p --scenario 1
+python -m tool_harness.harness --mode mock-loop --backend claude-p --scenario 1 --verbose
 ```
+
+Note: claude-p is significantly slower (~30s/call) due to explanation tokens Claude generates
+alongside the JSON. Use it only when Bedrock credentials are unavailable.
 
 ### Mode 3: live-loop — Bedrock backend (default)
 
@@ -149,17 +199,13 @@ cd backend/http_server && sbt assembly && cd -
 ```
 
 ```bash
-export AWS_ACCESS_KEY_ID=...
-export AWS_SECRET_ACCESS_KEY=...
-export AWS_SESSION_TOKEN=...
+export BEDROCK_API_KEY=ABSKYmVkcm9...
 
-# Auto-starts http_server on port 8181 using myassistanttest DB (default)
+# Auto-starts http_server on port 8181 using myassistanttest DB
 python -m tool_harness.harness --mode live-loop --scenario 1
 python -m tool_harness.harness --mode live-loop --all
-```
 
-To target the production `myassistant` database instead:
-```bash
+# Target production DB instead
 CHATBOT_DB=myassistant python -m tool_harness.harness --mode live-loop --scenario 1
 ```
 
@@ -172,6 +218,7 @@ DB_URL="jdbc:postgresql://localhost:5432/myassistanttest" sbt run
 # Terminal 2 — run harness
 export CHATBOT_HTTP_URL=http://localhost:8080
 export CHATBOT_AUTH_TOKEN=dev-token-change-me-in-production
+export BEDROCK_API_KEY=ABSKYmVkcm9...
 
 python -m tool_harness.harness --mode live-loop --scenario 1
 ```
@@ -185,7 +232,8 @@ cd client/chatbot_tests
 pytest
 ```
 
-Tests cover: `MockExecutor`, `LiveExecutor` dispatch table, `AgenticRunner` subprocess loop logic, `server_manager` env-var passthrough.
+Tests cover: `MockExecutor`, `LiveExecutor` dispatch table, `AgenticRunner` subprocess loop logic,
+`server_manager` env-var passthrough. Tests run without any credentials (use `claude-p` backend internally).
 
 ---
 
@@ -210,7 +258,8 @@ Edit `tool_harness/scenarios.py`. Each scenario is a dict:
 }
 ```
 
-Append it to the `SCENARIOS` list. It will be run by `--all` and accessible by its 1-based index with `--scenario N`.
+Append it to the `SCENARIOS` list. It will be run by `--all` and accessible by its 1-based index
+with `--scenario N`.
 
 ---
 
@@ -221,7 +270,7 @@ client/chatbot_tests/
   kickstart.md              this file
   pyproject.toml            dependencies: anthropic, boto3, httpx, pytest
   tool_harness/
-    harness.py              CLI entry point — --mode, --backend, --scenario, --all, --verbose
+    harness.py              CLI entry point — --mode, --backend, --model, --scenario, --all, --verbose
     agentic_runner.py       agentic loop — bedrock (native tool use) or claude-p (subprocess)
     executors.py            MockExecutor (mock data) + LiveExecutor (real server)
     server_manager.py       http_server auto-start / env-var passthrough
