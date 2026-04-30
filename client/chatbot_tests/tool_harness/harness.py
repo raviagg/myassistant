@@ -40,7 +40,7 @@ THIN = "─" * 72
 # ── Prompt construction ──────────────────────────────────────────────────
 
 def _tools_summary() -> str:
-    """Compact human-readable summary of all 43 tools for the planning prompt."""
+    """Compact human-readable summary of all 42 tools for the planning prompt."""
     lines = []
     current_group = None
 
@@ -75,9 +75,8 @@ def _tools_summary() -> str:
         "list_domains": "4 Reference",
         "list_source_types": "4 Reference",
         "list_kinship_aliases": "4 Reference",
-        "log_interaction": "5 Audit",
-        "save_file": "6 Files", "extract_text_from_file": "6 Files",
-        "get_file": "6 Files", "delete_file": "6 Files",
+        "save_file": "5 Files", "extract_text_from_file": "5 Files",
+        "get_file": "5 Files", "delete_file": "5 Files",
     }
 
     for tool in ALL_TOOLS:
@@ -381,8 +380,10 @@ def main() -> None:
                 n_turns = len(scenario["turns"])
                 turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
                 print(f"\nRunning {scenario['name']} ({turn_label})...", end=" ", flush=True)
+                executor = MockExecutor()
+                executor.set_scenario(scenario)
                 all_turn_calls, error = bedrock_plan_scenario(
-                    scenario, model=model, verbose=args.verbose
+                    scenario, model=model, verbose=args.verbose, executor=executor
                 )
                 print("done" if not error else "error")
                 print_result(scenario, all_turn_calls, error)

@@ -14,7 +14,6 @@ Changes from v4:
   and update_entity_type_schema; every gather/correction turn lists it as forbidden_tools.
 - All scenarios use 'turns' format: list of {user_message, expected_tools, forbidden_tools?}.
 - Per-turn expected_tools and forbidden_tools validated independently.
-- log_interaction required in every turn (gather, correction, write, and query turns alike).
 - GLOBAL_FORBIDDEN_TOOLS: list_source_types enforced across all turns of all scenarios.
 """
 from .mock_server import (
@@ -45,7 +44,7 @@ RULES — follow exactly:
 
 0. CLASSIFY: Determine whether the user is providing new information or asking a question.
    - QUESTION / QUERY → use only read tools (get_*, search_*, list_*, resolve_*).
-     Answer the question. End with log_interaction. No write tools.
+     Answer the question. No write tools.
    - NEW INFORMATION → proceed with the GATHER phase (Rule 1).
 
 1. GATHER PHASE (new-information turns only):
@@ -65,7 +64,6 @@ RULES — follow exactly:
       Ask the user to confirm.
    d. Do NOT call any write tools (create_*, update_*, add_*, delete_*, confirm_*,
       propose_entity_type_schema, evolve_entity_type_schema) in this turn.
-   e. End with log_interaction.
 
 2. CONFIRMATION: Never call write tools until the user explicitly approves.
    "yes", "go ahead", "do it", "correct", "confirmed", or equivalent counts as approval.
@@ -73,7 +71,7 @@ RULES — follow exactly:
 3. CORRECTION TURNS: If the user corrects something before approving:
    a. Do any needed re-reads (search_current_facts, get_person, etc.).
    b. Update the proposal in text.
-   c. Do NOT call any write tools. End with log_interaction.
+   c. Do NOT call any write tools.
    Repeat until explicit approval.
 
 4. WRITE PHASE: After explicit user approval, execute writes:
@@ -82,7 +80,6 @@ RULES — follow exactly:
    b. Document: create_document (with supersedes_ids if this replaces existing data).
    c. Fact: create_fact with the operation_type determined in the gather phase
       (create if no existing entity; update if entity_instance_id found at ≥ 0.8).
-   d. End with log_interaction.
 
 5. SCHEMA DISCOVERY (in gather phase, after list_domains):
    a. list_entity_type_schemas(domain_id=...) — see ALL types in the domain.
@@ -107,10 +104,7 @@ RULES — follow exactly:
    - search_documents:
      (a) SUPERSEDING — when data has changed (renewed, raised, replaced): find the old
          source document, then pass its document_id in supersedes_ids on create_document.
-     (b) HISTORICAL/SOURCE QUERIES — when the user asks about original source content.
-
-8. AUDIT: log_interaction is the FINAL call in EVERY turn — query turns, gather turns,
-   correction turns, and write turns alike.\
+     (b) HISTORICAL/SOURCE QUERIES — when the user asks about original source content.\
 """
 
 # list_source_types must never appear in any turn — source_type_id is always the chatbot ID.
@@ -124,8 +118,7 @@ GATHER_FORBIDDEN = [
     "create_relationship", "update_relationship", "delete_relationship",
     "create_document", "create_fact",
     "create_entity_type_schema", "update_entity_type_schema",
-    "deactivate_entity_type_schema",
-]
+    "deactivate_entity_type_schema"]
 
 SCENARIOS = [
 
@@ -136,29 +129,36 @@ SCENARIOS = [
         "turns": [
             {
                 "user_message": "What's my name and date of birth?",
-                "expected_tools": ["get_person", "log_interaction"],
-            },
-        ],
+                "expected_tools": ["get_person"],
+            }],
     },
     {
         "name": "02 · Update own profile — gather then write",
+        "mock_overrides": {"get_person": {
+            "id": "aaaaaaaa-0000-0000-0000-000000000001",
+            "full_name": "Ravi Aggarwal",
+            "preferred_name": None,
+            "gender": "male",
+            "date_of_birth": "1985-03-22",
+            "user_identifier": "raaggarw@adobe.com",
+        }},
         "turns": [
             {
                 "user_message": "I go by Ravi, please update my preferred name.",
-                "expected_tools": ["get_person", "log_interaction"],
+                "expected_tools": ["get_person"],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
                 "user_message": "Yes, update it.",
-                "expected_tools": ["update_person", "log_interaction"],
-            },
-        ],
+                "expected_tools": ["update_person"],
+            }],
     },
 
     # ── B: Todo CRUD ──────────────────────────────────────────────────────
 
     {
         "name": "03 · Add todo — gather + propose, then write",
+        "mock_overrides": {"search_current_facts": []},
         "turns": [
             {
                 "user_message": "Remind me to renew my passport by June 30, 2026.",
@@ -167,8 +167,7 @@ SCENARIOS = [
                     "list_entity_type_schemas",
                     "get_current_entity_type_schema",
                     "search_current_facts",         # dedup check — expects no existing match
-                    "log_interaction",
-                ],
+                    ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -176,13 +175,12 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_document",
                     "create_fact",                  # operation_type=create
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "04 · Add todo — correction turn before approval (3-turn flow)",
+        "mock_overrides": {"search_current_facts": []},
         "turns": [
             {
                 "user_message": "Remind me to schedule a dentist appointment by end of March.",
@@ -190,15 +188,13 @@ SCENARIOS = [
                     "list_domains",
                     "list_entity_type_schemas",
                     "get_current_entity_type_schema",
-                    "search_current_facts",
-                    "log_interaction",
-                ],
+                    "search_current_facts"],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
                 "user_message": "Actually make that end of April, not March.",
                 "expected_tools": [
-                    "log_interaction",              # update proposal text; no writes
+                    # update proposal text; no writes
                 ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
@@ -207,10 +203,8 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_document",
                     "create_fact",                  # due_date = end of April
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "05 · Update todo due date — search finds existing → update",
@@ -222,8 +216,7 @@ SCENARIOS = [
                     "list_entity_type_schemas",
                     "get_current_entity_type_schema",
                     "search_current_facts",         # finds existing passport todo (≥0.8)
-                    "log_interaction",
-                ],
+                    ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -231,10 +224,8 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_document",
                     "create_fact",                  # operation_type=update, fields={due_date}
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "06 · Update todo status to in_progress",
@@ -245,9 +236,7 @@ SCENARIOS = [
                     "list_domains",
                     "list_entity_type_schemas",
                     "get_current_entity_type_schema",
-                    "search_current_facts",
-                    "log_interaction",
-                ],
+                    "search_current_facts"],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -255,10 +244,8 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_document",
                     "create_fact",                  # operation_type=update, fields={status:in_progress}
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "07 · Mark todo as done",
@@ -269,9 +256,7 @@ SCENARIOS = [
                     "list_domains",
                     "list_entity_type_schemas",
                     "get_current_entity_type_schema",
-                    "search_current_facts",
-                    "log_interaction",
-                ],
+                    "search_current_facts"],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -279,19 +264,16 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_document",
                     "create_fact",                  # operation_type=update/delete
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "08 · List open todos",
         "turns": [
             {
                 "user_message": "Show me all my open tasks.",
-                "expected_tools": ["list_current_facts", "log_interaction"],
-            },
-        ],
+                "expected_tools": ["list_current_facts"],
+            }],
     },
     {
         "name": "09 · Delete a todo — gather then delete",
@@ -301,8 +283,7 @@ SCENARIOS = [
                 "expected_tools": [
                     "list_domains",
                     "search_current_facts",             # finds existing todo (≥0.8)
-                    "log_interaction",
-                ],
+                    ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -310,10 +291,8 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_document",
                     "create_fact",                  # operation_type=delete
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
 
     # ── C: Relationships & kinship ────────────────────────────────────────
@@ -325,8 +304,7 @@ SCENARIOS = [
                 "user_message": "My wife is Priya Sharma, born March 15 1988.",
                 "expected_tools": [
                     "search_persons",               # check if Priya already exists
-                    "log_interaction",
-                ],
+                    ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -334,19 +312,16 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_person",
                     "create_relationship",          # Ravi → wife → Priya
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "11 · Direct kinship query with Hindi term",
         "turns": [
             {
                 "user_message": "What is Priya's relation to me? Give me the Hindi term.",
-                "expected_tools": ["search_persons", "resolve_kinship", "log_interaction"],
-            },
-        ],
+                "expected_tools": ["search_persons", "resolve_kinship"],
+            }],
     },
     {
         "name": "12 · Multi-hop kinship — answer question + propose adding person",
@@ -355,7 +330,7 @@ SCENARIOS = [
                 "user_message": "My dad's sister is Savita. What do I call her in Hindi?",
                 "expected_tools": [
                     "search_persons",               # find dad + check if Savita exists
-                    "log_interaction",              # kinship answer via resolve_kinship or list_kinship_aliases
+                    # kinship answer via resolve_kinship or list_kinship_aliases
                 ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
@@ -364,25 +339,23 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_person",
                     "create_relationship",          # dad → sister → Savita
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "13 · List all family members",
         "turns": [
             {
                 "user_message": "Who are all the people recorded in my family?",
-                "expected_tools": ["list_relationships", "log_interaction"],
-            },
-        ],
+                "expected_tools": ["list_relationships"],
+            }],
     },
 
     # ── D: Health / Insurance ─────────────────────────────────────────────
 
     {
         "name": "14 · Store insurance — gather then write",
+        "mock_overrides": {"search_current_facts": []},
         "turns": [
             {
                 "user_message": (
@@ -394,9 +367,7 @@ SCENARIOS = [
                     "list_domains",
                     "list_entity_type_schemas",
                     "get_current_entity_type_schema",
-                    "search_current_facts",
-                    "log_interaction",
-                ],
+                    "search_current_facts"],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -404,10 +375,8 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_document",
                     "create_fact",                  # operation_type=create
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "15 · Update insurance — supersedes old document",
@@ -423,8 +392,7 @@ SCENARIOS = [
                     "get_current_entity_type_schema",
                     "search_current_facts",         # find existing insurance entity (Rule 1)
                     "search_documents",             # find old doc to supersede (Rule 7a)
-                    "log_interaction",
-                ],
+                    ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -432,25 +400,23 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_document",              # supersedes_ids=[old_doc_id]
                     "create_fact",                  # operation_type=update
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "16 · Query insurance deductible",
         "turns": [
             {
                 "user_message": "What is my current health insurance deductible?",
-                "expected_tools": ["search_current_facts", "log_interaction"],
-            },
-        ],
+                "expected_tools": ["search_current_facts"],
+            }],
     },
 
     # ── E: Employment ─────────────────────────────────────────────────────
 
     {
         "name": "17 · Add new job — gather then write",
+        "mock_overrides": {"search_current_facts": []},
         "turns": [
             {
                 "user_message": (
@@ -461,20 +427,15 @@ SCENARIOS = [
                     "list_domains",
                     "list_entity_type_schemas",
                     "get_current_entity_type_schema",
-                    "search_current_facts",
-                    "log_interaction",
-                ],
+                    "search_current_facts"],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
                 "user_message": "Yes, add it.",
                 "expected_tools": [
                     "create_document",
-                    "create_fact",
-                    "log_interaction",
-                ],
-            },
-        ],
+                    "create_fact"],
+            }],
     },
     {
         "name": "18 · Salary change — supersedes old employment document",
@@ -487,8 +448,7 @@ SCENARIOS = [
                     "get_current_entity_type_schema",
                     "search_current_facts",         # find existing job entity
                     "search_documents",             # find old employment doc to supersede
-                    "log_interaction",
-                ],
+                    ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -496,25 +456,23 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_document",              # supersedes_ids=[old_doc_id]
                     "create_fact",                  # operation_type=update, fields={salary:145000}
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "19 · Query current salary",
         "turns": [
             {
                 "user_message": "What is my current salary?",
-                "expected_tools": ["log_interaction"],
-            },
-        ],
+                "expected_tools": [],
+            }],
     },
 
     # ── F: File handling ──────────────────────────────────────────────────
 
     {
         "name": "20 · Upload payslip PDF — gather (save+extract) then write",
+        "mock_overrides": {"search_current_facts": []},
         "turns": [
             {
                 "user_message": (
@@ -527,23 +485,19 @@ SCENARIOS = [
                     "list_domains",
                     "list_entity_type_schemas",
                     "get_current_entity_type_schema",
-                    "search_current_facts",
-                    "log_interaction",
-                ],
+                    "search_current_facts"],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
                 "user_message": "Yes, save the payslip data.",
                 "expected_tools": [
                     "create_document",
-                    "create_fact",
-                    "log_interaction",
-                ],
-            },
-        ],
+                    "create_fact"],
+            }],
     },
     {
         "name": "21 · Upload insurance card image — gather (OCR) then write",
+        "mock_overrides": {"search_current_facts": []},
         "turns": [
             {
                 "user_message": (
@@ -556,20 +510,15 @@ SCENARIOS = [
                     "list_domains",
                     "list_entity_type_schemas",
                     "get_current_entity_type_schema",
-                    "search_current_facts",
-                    "log_interaction",
-                ],
+                    "search_current_facts"],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
                 "user_message": "Yes, save the insurance card details.",
                 "expected_tools": [
                     "create_document",
-                    "create_fact",
-                    "log_interaction",
-                ],
-            },
-        ],
+                    "create_fact"],
+            }],
     },
 
     # ── G: Household ──────────────────────────────────────────────────────
@@ -582,8 +531,7 @@ SCENARIOS = [
                 "expected_tools": [
                     "search_persons",               # find Priya's person_id
                     "search_households",            # check if household already exists
-                    "log_interaction",
-                ],
+                    ],
                 "forbidden_tools": GATHER_FORBIDDEN,
             },
             {
@@ -592,10 +540,8 @@ SCENARIOS = [
                     "create_household",
                     "add_person_to_household",      # add Ravi
                     "add_person_to_household",      # add Priya
-                    "log_interaction",
-                ],
-            },
-        ],
+                    ],
+            }],
     },
     {
         "name": "23 · List household members",
@@ -604,11 +550,8 @@ SCENARIOS = [
                 "user_message": "Who is in the Aggarwal Family household?",
                 "expected_tools": [
                     "search_households",
-                    "list_household_members",
-                    "log_interaction",
-                ],
-            },
-        ],
+                    "list_household_members"],
+            }],
     },
 
     # ── H: Schema governance ──────────────────────────────────────────────
@@ -621,8 +564,7 @@ SCENARIOS = [
                 "expected_tools": [
                     "list_domains",
                     "list_entity_type_schemas",        # gym_membership absent → describe in text
-                    "log_interaction",
-                ],
+                    ],
                 "forbidden_tools": GATHER_FORBIDDEN,  # create_entity_type_schema is in here
             },
             {
@@ -630,11 +572,8 @@ SCENARIOS = [
                 "expected_tools": [
                     "create_entity_type_schema",       # creates schema, immediately active
                     "create_document",
-                    "create_fact",
-                    "log_interaction",
-                ],
-            },
-        ],
+                    "create_fact"],
+            }],
     },
     {
         "name": "25 · Update schema — gather + propose in text, then write evolution",
@@ -647,17 +586,13 @@ SCENARIOS = [
                     "list_domains",
                     "list_entity_type_schemas",        # find insurance_card in health domain
                     "get_current_entity_type_schema",  # get full current schema
-                    "log_interaction",
-                ],
+                    ],
                 "forbidden_tools": GATHER_FORBIDDEN,  # update_entity_type_schema is in here
             },
             {
                 "user_message": "Yes, add that field.",
                 "expected_tools": [
                     "update_entity_type_schema",       # full field list, new version immediately active
-                    "log_interaction",
-                ],
-            },
-        ],
-    },
-]
+                    ],
+            }],
+    }]

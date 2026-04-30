@@ -99,6 +99,66 @@ def _fmt_scenario_stats(s: dict) -> str:
     )
 
 
+# ── Verbose formatting helpers ────────────────────────────────────────────────
+
+def _fmt_request_messages(messages: list[dict]) -> list[str]:
+    """Format the messages array for verbose request display (no system prompt / tools)."""
+    # Build tool_use_id → name map from assistant messages so results can show the name.
+    id_to_name: dict[str, str] = {}
+    for msg in messages:
+        if msg["role"] == "assistant":
+            for block in (msg.get("content") or []):
+                if hasattr(block, "type") and block.type == "tool_use":
+                    id_to_name[block.id] = block.name
+
+    lines = []
+    for msg in messages:
+        role    = msg["role"]
+        content = msg["content"]
+        tag     = "user" if role == "user" else "asst"
+
+        if isinstance(content, str):
+            preview = content.replace("\n", " ")
+            if len(preview) > 120:
+                preview = preview[:117] + "..."
+            lines.append(f"        {tag}  \"{preview}\"")
+        elif isinstance(content, list):
+            for block in content:
+                if hasattr(block, "type"):           # SDK object (assistant content)
+                    if block.type == "tool_use":
+                        lines.append(f"        {tag}  [tool_use] {block.name}")
+                    elif block.type == "text" and block.text.strip():
+                        preview = block.text.replace("\n", " ")
+                        if len(preview) > 120:
+                            preview = preview[:117] + "..."
+                        lines.append(f"        {tag}  [text] \"{preview}\"")
+                elif isinstance(block, dict):        # tool_result (user content)
+                    name    = id_to_name.get(block.get("tool_use_id", ""), "?")
+                    raw     = block.get("content", "")
+                    preview = raw[:100] + ("..." if len(raw) > 100 else "")
+                    lines.append(f"        {tag}  [result] {name} → {preview}")
+    return lines
+
+
+def _fmt_response_blocks(content) -> list[str]:
+    """Format response content blocks (tool_use and text) for verbose output."""
+    lines = []
+    for block in (content or []):
+        if not hasattr(block, "type"):
+            continue
+        if block.type == "tool_use":
+            params = json.dumps(block.input)
+            if len(params) > 120:
+                params = params[:117] + "..."
+            lines.append(f"        tool  {block.name}({params})")
+        elif block.type == "text" and block.text.strip():
+            text = block.text.replace("\n", " ")
+            if len(text) > 200:
+                text = text[:197] + "..."
+            lines.append(f"        text  \"{text}\"")
+    return lines
+
+
 # ── Bedrock helpers ───────────────────────────────────────────────────────────
 
 # Cache_control on the last tool caches all 43 tool definitions as one prefix block.
@@ -265,60 +325,79 @@ def bedrock_plan_scenario(
     scenario: dict,
     model: str = "us.anthropic.claude-sonnet-4-6",
     verbose: bool = False,
+    executor=None,
 ) -> tuple[list[list[dict]] | None, str | None]:
     """
     Run mock-plan for all turns using Bedrock native tool use.
 
-    Makes one API call per turn. The tool_use blocks Claude returns on
-    the first response are the "plan" — no execution, no agentic loop.
+    Runs a full tool-call mini-loop per turn (same as AgenticRunner) so that
+    sequential gather chains (list_domains → list_entity_type_schemas → …) are
+    fully resolved within a single turn.  Tool calls are executed through the
+    executor (MockExecutor) so real results flow into each subsequent call.
+    The turn ends when Claude's stop_reason is not "tool_use" (i.e. it gave a
+    text response — typically the gather summary / write confirmation).
+
     Returns (list_of_turn_call_lists, error) — same shape as harness.run_scenario().
     """
     client = _make_bedrock_client()
-    all_turn_calls:   list[list[dict]] = []
-    prior_turns_data: list[dict]       = []
+    all_turn_calls: list[list[dict]] = []
+    messages:       list[dict]       = []
+    call_num = 0
 
     for turn_idx, turn in enumerate(scenario["turns"]):
-        messages: list[dict] = []
-        for t in prior_turns_data:
-            messages.append({"role": "user", "content": t["user_message"]})
-            tool_names = [tc["tool"] for tc in t["tool_calls"]]
-            summary    = ", ".join(tool_names) if tool_names else "no tools"
-            messages.append({"role": "assistant", "content": f"[Turn complete — tools: {summary}]"})
         messages.append({"role": "user", "content": turn["user_message"]})
+        turn_calls: list[dict] = []
 
-        try:
-            t0       = time.perf_counter()
-            response = client.messages.create(
-                model      = model,
-                max_tokens = 4096,
-                system     = _BEDROCK_SYSTEM,
-                tools      = _BEDROCK_TOOLS,
-                messages   = messages,
-            )
-            duration_ms = int((time.perf_counter() - t0) * 1000)
-        except Exception as exc:
-            return None, f"Turn {turn_idx + 1}: {exc}"
+        while True:
+            call_num += 1
+            try:
+                t0       = time.perf_counter()
+                response = client.messages.create(
+                    model      = model,
+                    max_tokens = 4096,
+                    system     = _BEDROCK_SYSTEM,
+                    tools      = _BEDROCK_TOOLS,
+                    messages   = messages,
+                )
+                duration_ms = int((time.perf_counter() - t0) * 1000)
+            except Exception as exc:
+                return None, f"Turn {turn_idx + 1}: {exc}"
 
-        if verbose:
-            u = response.usage
-            print(
-                f"  [turn {turn_idx + 1}] {duration_ms:,}ms  "
-                f"in={u.input_tokens}  "
-                f"hit={getattr(u, 'cache_read_input_tokens', 0)}  "
-                f"new={getattr(u, 'cache_creation_input_tokens', 0)}  "
-                f"out={u.output_tokens}"
-            )
+            if verbose:
+                u = response.usage
+                print(
+                    f"  [turn {turn_idx + 1} call {call_num}] {duration_ms:,}ms  "
+                    f"in={u.input_tokens}  "
+                    f"hit={getattr(u, 'cache_read_input_tokens', 0)}  "
+                    f"new={getattr(u, 'cache_creation_input_tokens', 0)}  "
+                    f"out={u.output_tokens}"
+                )
 
-        calls = [
-            {"tool": b.name, "params": b.input}
-            for b in response.content
-            if b.type == "tool_use"
-        ]
-        all_turn_calls.append(calls)
-        prior_turns_data.append({
-            "user_message": turn["user_message"],
-            "tool_calls":   calls,
-        })
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+            for b in tool_blocks:
+                turn_calls.append({"tool": b.name, "params": b.input})
+
+            if response.stop_reason != "tool_use" or not tool_blocks or executor is None:
+                # Claude is done with this turn (gave text response), or no executor
+                messages.append({"role": "assistant", "content": response.content})
+                break
+
+            # Execute tools and loop
+            tool_results = []
+            for block in tool_blocks:
+                try:
+                    result = executor.call(block.name, block.input)
+                except Exception as exc:
+                    result = {"error": str(exc)}
+                tool_results.append({
+                    "type":        "tool_result",
+                    "tool_use_id": block.id,
+                    "content":     json.dumps(result),
+                })
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user",      "content": tool_results})
+
+        all_turn_calls.append(turn_calls)
 
     return all_turn_calls, None
 
@@ -359,6 +438,13 @@ class AgenticRunner:
         Run all turns of a scenario.
         Returns (list_of_tool_name_lists_per_turn, scenario_stats, error).
         """
+        if hasattr(self._executor, "set_scenario"):
+            self._executor.set_scenario(scenario)
+
+        # Bedrock: persistent full-fidelity message history carried across turns so
+        # Claude can reference prior tool results without re-fetching them.
+        self._bedrock_messages: list[dict] = []
+
         prior_turns:         list[dict]      = []
         all_turn_tool_names: list[list[str]] = []
         all_turn_stats:      list[dict]      = []
@@ -393,6 +479,17 @@ class AgenticRunner:
             None,
         )
 
+    def _call_log_interaction(self, user_message: str) -> None:
+        """Fire-and-forget audit call — not an MCP tool, not visible to Claude."""
+        try:
+            self._executor.call("log_interaction", {
+                "message_text": user_message,
+                "response_text": "[harness]",
+                "status": "success",
+            })
+        except Exception:
+            pass
+
     # ── Internal dispatch ─────────────────────────────────────────────────
 
     def _run_turn(
@@ -416,16 +513,21 @@ class AgenticRunner:
         turn_totals = _empty_totals()
         call_num    = 0
 
-        # Represent prior turns as simplified user/assistant pairs.
-        messages: list[dict] = []
-        for t in prior_turns:
-            messages.append({"role": "user", "content": t["user_message"]})
-            summary = ", ".join(t["tool_names"]) if t["tool_names"] else "no tools"
-            messages.append({"role": "assistant", "content": f"[Turn complete — tools: {summary}]"})
+        # Continue from accumulated full history (tool results included) so Claude
+        # doesn't re-read data gathered in prior turns.
+        messages: list[dict] = list(self._bedrock_messages)
         messages.append({"role": "user", "content": user_message})
 
         while True:
             call_num += 1
+
+            if verbose:
+                n = len(messages)
+                print(f"\n    [call {call_num}]")
+                print(f"      request  ({n} message{'s' if n != 1 else ''})")
+                for line in _fmt_request_messages(messages):
+                    print(line)
+
             t0 = time.perf_counter()
             response = self._bedrock.messages.create(
                 model      = self._model,
@@ -446,12 +548,16 @@ class AgenticRunner:
                 "cost_usd":              0.0,  # Bedrock does not return cost
             }
             _accumulate(turn_totals, call_stats)
+
             if verbose:
-                print(f"  [call {call_num}] {_fmt_call_stats(call_stats)}")
+                print(f"      response  {_fmt_call_stats(call_stats)}")
+                for line in _fmt_response_blocks(response.content):
+                    print(line)
 
             tool_blocks = [b for b in response.content if b.type == "tool_use"]
 
             if response.stop_reason != "tool_use" or not tool_blocks:
+                messages.append({"role": "assistant", "content": response.content})
                 break
 
             tool_results = []
@@ -459,8 +565,6 @@ class AgenticRunner:
                 name   = block.name
                 params = block.input
                 tool_names.append(name)
-                if verbose:
-                    print(f"  [tool] {name}({json.dumps(params)[:120]})")
                 try:
                     result = self._executor.call(name, params)
                 except Exception as exc:
@@ -474,6 +578,9 @@ class AgenticRunner:
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user",      "content": tool_results})
 
+        # Persist full history for the next turn (tool results, proposal text, etc.)
+        self._bedrock_messages = messages
+        self._call_log_interaction(user_message)
         return tool_names, turn_totals
 
     # ── claude-p backend ──────────────────────────────────────────────────
@@ -517,6 +624,7 @@ class AgenticRunner:
                     result = {"error": str(exc)}
                 step_results.append({"tool": name, "params": params, "result": result})
 
+        self._call_log_interaction(user_message)
         return tool_names, turn_totals
 
     def _build_step_prompt(
