@@ -11,6 +11,3 @@ dependencies = [
     "boto3>=1.34",
     "httpx>=0.27",
 ]
-
-[tool.hatch.build.targets.wheel]
-packages = ["common"]

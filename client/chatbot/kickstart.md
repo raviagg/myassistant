@@ -29,7 +29,7 @@ final response. In verbose mode, tool calls are shown between each user/assistan
 Run directly from the repo root — no pip install needed:
 
 ```bash
-python run_chatbot.py --person-id <your-uuid>
+python client/chatbot/run.py --person-id <your-uuid>
 ```
 
 ---
@@ -42,7 +42,7 @@ pip install -e client/common
 pip install -e client/chatbot
 ```
 
-After installing you can also use `python -m chatbot` instead of `python run_chatbot.py`.
+After installing you can also use `python -m chatbot` instead of `python client/chatbot/run.py`.
 
 ---
 
@@ -69,7 +69,7 @@ psql -d myassistant -c "SELECT id, full_name FROM person;"
 ```bash
 export BEDROCK_API_KEY=ABSKYmVkcm9...
 
-python run_chatbot.py --person-id <your-uuid>
+python client/chatbot/run.py --person-id <your-uuid>
 ```
 
 The http_server is started automatically on port 8181 using the `myassistanttest` database.
@@ -85,13 +85,13 @@ In verbose mode, every tool the agent calls is printed in yellow between your me
 and the assistant's response, along with per-turn token stats.
 
 ```bash
-python run_chatbot.py --person-id <your-uuid> --verbose
+python client/chatbot/run.py --person-id <your-uuid> --verbose
 ```
 
 ### No colors
 
 ```bash
-python run_chatbot.py --person-id <your-uuid> --no-color
+python client/chatbot/run.py --person-id <your-uuid> --no-color
 ```
 
 ### claude-p backend (no AWS credentials needed)
@@ -100,13 +100,13 @@ Slower (~30 s/turn) because Claude generates explanation text alongside tool cal
 but works without Bedrock credentials.
 
 ```bash
-python run_chatbot.py --person-id <your-uuid> --backend claude-p
+python client/chatbot/run.py --person-id <your-uuid> --backend claude-p
 ```
 
 ### Point at a production database
 
 ```bash
-CHATBOT_DB=myassistant python run_chatbot.py --person-id <your-uuid>
+CHATBOT_DB=myassistant python client/chatbot/run.py --person-id <your-uuid>
 ```
 
 ### Point at a manually started http_server
@@ -120,7 +120,7 @@ DB_URL="jdbc:postgresql://localhost:5432/myassistant" sbt run
 export CHATBOT_HTTP_URL=http://localhost:8080
 export CHATBOT_AUTH_TOKEN=dev-token-change-me-in-production
 export BEDROCK_API_KEY=ABSKYmVkcm9...
-python run_chatbot.py --person-id <your-uuid>
+python client/chatbot/run.py --person-id <your-uuid>
 ```
 
 ---
