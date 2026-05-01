@@ -70,8 +70,8 @@ lazy val testDeps = Seq(
   "com.github.sbt"                 % "junit-interface"                      % "0.13.3"            % Test,
   // Required for ZConnectionPool.h2test used in unit tests
   "com.h2database"                 % "h2"                                   % "2.3.232"           % Test,
-  // SLF4J backend so Testcontainers Docker output is visible during test runs
-  "ch.qos.logback"                 % "logback-classic"                      % "1.5.6"             % Test,
+  // SLF4J backend — runtime logging via logback
+  "ch.qos.logback"                 % "logback-classic"                      % "1.5.6",
 )
 
 // ── Main project ──────────────────────────────────────────────
