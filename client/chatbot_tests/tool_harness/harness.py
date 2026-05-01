@@ -392,7 +392,9 @@ def _run_one_mock_plan(
     if backend == "bedrock":
         executor = MockExecutor()
         executor.set_scenario(scenario)
-        raw, error = bedrock_plan_scenario(scenario, model=model, verbose=False, executor=executor)
+        raw, error = bedrock_plan_scenario(
+            scenario, system_prompt=SYSTEM_PROMPT, model=model, verbose=False, executor=executor
+        )
     else:
         raw, error = run_scenario(scenario, verbose=False)
     if error or raw is None:
@@ -405,7 +407,10 @@ def _run_one_mock_loop(
 ) -> tuple[list[list[str]] | None, str | None]:
     """Run a single mock-loop scenario with its own executor/runner."""
     executor = MockExecutor()
-    runner   = AgenticRunner(executor=executor, model=model, backend=backend)
+    runner   = AgenticRunner(
+        executor=executor, system_prompt=SYSTEM_PROMPT,
+        model=model, backend=backend, global_forbidden=GLOBAL_FORBIDDEN_TOOLS,
+    )
     tool_names, _, error = runner.run_scenario(scenario, verbose=False)
     return tool_names, error
 
@@ -433,7 +438,10 @@ def run_parallel(
         elif mode == "mock-loop":
             tool_names, error = _run_one_mock_loop(scenario, model, backend)
         else:  # live-loop
-            runner = AgenticRunner(executor=live_executor, model=model, backend=backend)
+            runner = AgenticRunner(
+                executor=live_executor, system_prompt=SYSTEM_PROMPT,
+                model=model, backend=backend, global_forbidden=GLOBAL_FORBIDDEN_TOOLS,
+            )
             tool_names, _, error = runner.run_scenario(scenario, verbose=False)
         passed = _scenario_passed(scenario, tool_names) if not error else False
         status = "PASS ✓" if passed else "FAIL ✗"
@@ -540,7 +548,8 @@ def main() -> None:
                 executor = MockExecutor()
                 executor.set_scenario(scenario)
                 all_turn_calls, error = bedrock_plan_scenario(
-                    scenario, model=model, verbose=args.verbose, executor=executor
+                    scenario, system_prompt=SYSTEM_PROMPT,
+                    model=model, verbose=args.verbose, executor=executor,
                 )
                 print("done" if not error else "error")
                 print_result(scenario, all_turn_calls, error)
@@ -557,7 +566,10 @@ def main() -> None:
 
     if args.mode == "mock-loop":
         executor = MockExecutor()
-        runner   = AgenticRunner(executor=executor, model=args.model, backend=args.backend)
+        runner   = AgenticRunner(
+            executor=executor, system_prompt=SYSTEM_PROMPT,
+            model=args.model, backend=args.backend, global_forbidden=GLOBAL_FORBIDDEN_TOOLS,
+        )
         for scenario in to_run:
             n_turns = len(scenario["turns"])
             turn_label = f"{n_turns} turn{'s' if n_turns > 1 else ''}"
@@ -572,7 +584,10 @@ def main() -> None:
     with managed_server() as base_url:
         token    = auth_token()
         executor = LiveExecutor(base_url=base_url, auth_token=token)
-        runner   = AgenticRunner(executor=executor, model=args.model, backend=args.backend)
+        runner   = AgenticRunner(
+            executor=executor, system_prompt=SYSTEM_PROMPT,
+            model=args.model, backend=args.backend, global_forbidden=GLOBAL_FORBIDDEN_TOOLS,
+        )
         try:
             for scenario in to_run:
                 n_turns = len(scenario["turns"])

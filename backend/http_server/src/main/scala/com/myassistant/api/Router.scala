@@ -1,6 +1,6 @@
 package com.myassistant.api
 
-import com.myassistant.api.middleware.AuthMiddleware
+import com.myassistant.api.middleware.{AuthMiddleware, LoggingMiddleware}
 import com.myassistant.api.routes.*
 import com.myassistant.config.AuthConfig
 import com.myassistant.services.*
@@ -51,5 +51,5 @@ object Router:
           AuditRoutes.routes ++
           FileRoutes.routes) @@ AuthMiddleware(authCfg.token)
 
-      publicRoutes ++ protectedRoutes
+      (publicRoutes ++ protectedRoutes) @@ LoggingMiddleware.logRequests
     }

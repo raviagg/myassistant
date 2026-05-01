@@ -86,7 +86,7 @@ object Main extends ZIOAppDefault:
              )
       cfg <- ZIO.service[AppConfig].provide(AppConfig.live)
       app <- Router.app.provide(appLayer)
-      _   <- ZIO.logInfo(s"Server starting on 0.0.0.0:${cfg.server.port}")
+      _   <- ZIO.logInfo(s"Server listening on port ${cfg.server.port}")
       _   <- Server
                .serve(app)
                .provide(
