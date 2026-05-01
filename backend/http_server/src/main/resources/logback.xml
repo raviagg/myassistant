@@ -1,7 +1,6 @@
 <configuration>
-  <!-- Write to stderr so logs are visible even when stdout is suppressed. -->
-  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
-    <target>System.err</target>
+  <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.out</target>
     <encoder>
       <!-- ZIO LogFormat already builds the full line; just emit it. -->
       <pattern>%msg%n</pattern>
@@ -9,6 +8,6 @@
   </appender>
 
   <root level="INFO">
-    <appender-ref ref="STDERR"/>
+    <appender-ref ref="STDOUT"/>
   </root>
 </configuration>

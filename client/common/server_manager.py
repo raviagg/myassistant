@@ -73,8 +73,8 @@ def managed_server():
     proc = subprocess.Popen(
         ["java", "-jar", jar],
         env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=None,
+        stdout=None,
+        stderr=subprocess.DEVNULL,
     )
     try:
         _wait_for_health(url)
