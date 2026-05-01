@@ -46,10 +46,10 @@ def _c(code: str, text: str, use_colors: bool) -> str:
 def _lookup_source_type_id(executor: LiveExecutor) -> str:
     """Call list_source_types and return the user_input source type UUID."""
     result = executor.call("list_source_types", {})
-    if isinstance(result, list):
-        for st in result:
-            if st.get("name") == "user_input":
-                return st["id"]
+    items = result.get("items", []) if isinstance(result, dict) else result
+    for st in items:
+        if st.get("name") == "user_input":
+            return st["id"]
     raise RuntimeError(
         "Could not find 'user_input' source type in the DB.\n"
         "Ensure the DB is seeded (run schema migrations 01–07)."
