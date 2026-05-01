@@ -21,7 +21,7 @@ def _find_jar() -> str:
     # client/common/ → client/ → myassistant/ (repo root)
     repo_root = pathlib.Path(__file__).parents[2]
     pattern   = str(repo_root / "backend" / "http_server" / "target" / "scala-3.4.2"
-                    / "myassistant-backend-assembly-*.jar")
+                    / "myassistant-backend.jar")
     matches   = glob.glob(pattern)
     if not matches:
         raise FileNotFoundError(

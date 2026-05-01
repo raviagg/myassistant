@@ -80,7 +80,7 @@ class LiveExecutor:
         self._http = httpx.Client(
             base_url=base_url,
             headers={"Authorization": f"Bearer {auth_token}"},
-            timeout=30.0,
+            timeout=120.0,
         )
         self._dispatch = _build_dispatch(self._http)
 
