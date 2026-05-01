@@ -392,12 +392,14 @@ class AgenticRunner:
         backend: str = "bedrock",
         global_forbidden: list[str] | None = None,
         colors: bool = False,
+        person_id: str | None = None,
     ):
         self._executor         = executor
         self._system_prompt    = system_prompt
         self._backend          = backend
         self._global_forbidden = global_forbidden or []
         self._colors           = colors
+        self._person_id        = person_id
 
         self._bedrock_system = [
             {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
@@ -664,12 +666,17 @@ class AgenticRunner:
     # ── Logging ───────────────────────────────────────────────────────────
 
     def _call_log_interaction(self, user_message: str) -> None:
+        params: dict = {
+            "message_text":  user_message,
+            "response_text": "[agent]",
+            "status":        "success",
+        }
+        if self._person_id is not None:
+            params["person_id"] = self._person_id
+        else:
+            params["job_type"] = "chatbot"
         try:
-            self._executor.call("log_interaction", {
-                "message_text": user_message,
-                "response_text": "[agent]",
-                "status": "success",
-            })
+            self._executor.call("log_interaction", params)
         except Exception:
             pass
 

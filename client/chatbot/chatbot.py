@@ -203,6 +203,7 @@ def main() -> None:
             model         = args.model,
             backend       = args.backend,
             colors        = use_colors,
+            person_id     = person_id,
         )
 
         try:
