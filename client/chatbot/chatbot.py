@@ -179,6 +179,9 @@ def main() -> None:
 
     use_colors = not args.no_color and sys.stdout.isatty()
 
+    # Chatbot defaults to the production DB; tests use myassistanttest.
+    os.environ.setdefault("CHATBOT_DB", "myassistant")
+
     with managed_server() as base_url:
         token    = auth_token()
         executor = LiveExecutor(base_url=base_url, auth_token=token)
