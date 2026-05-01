@@ -84,13 +84,14 @@ object Main extends ZIOAppDefault:
       _   <- MigrationRunner.migrate.provide(
                AppConfig.live >>> ZLayer.fromFunction((_: AppConfig).database)
              )
-      cfg <- ZIO.service[AppConfig].provide(AppConfig.live)
-      app <- Router.app.provide(appLayer)
-      _   <- ZIO.logInfo(s"Server starting on 0.0.0.0:${cfg.server.port}")
-      _   <- Server
-               .serve(app)
-               .provide(
-                 Server.defaultWithPort(cfg.server.port),
-                 appLayer,
-               )
+      cfg  <- ZIO.service[AppConfig].provide(AppConfig.live)
+      app  <- Router.app.provide(appLayer)
+      port <- Server
+                .install(app)
+                .provide(
+                  Server.defaultWithPort(cfg.server.port),
+                  appLayer,
+                )
+      _    <- ZIO.logInfo(s"Server listening on port $port")
+      _    <- ZIO.never
     yield ()

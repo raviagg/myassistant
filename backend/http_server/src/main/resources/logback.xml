@@ -1,0 +1,14 @@
+<configuration>
+  <!-- Write to stderr so logs are visible even when stdout is suppressed. -->
+  <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
+    <target>System.err</target>
+    <encoder>
+      <!-- ZIO LogFormat already builds the full line; just emit it. -->
+      <pattern>%msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <root level="INFO">
+    <appender-ref ref="STDERR"/>
+  </root>
+</configuration>
