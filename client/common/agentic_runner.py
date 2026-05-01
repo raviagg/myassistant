@@ -514,7 +514,8 @@ class AgenticRunner:
     def _run_turn_bedrock(
         self, user_message: str, prior_turns: list[dict], verbose: bool
     ) -> tuple[list[str], dict]:
-        tool_names:  list[str] = []
+        tool_names:  list[str]  = []
+        tool_calls:  list[dict] = []
         turn_totals = _empty_totals()
         call_num    = 0
 
@@ -568,6 +569,7 @@ class AgenticRunner:
                 name   = block.name
                 params = block.input
                 tool_names.append(name)
+                tool_calls.append({"tool": name, "params": params})
                 try:
                     result = self._executor.call(name, params)
                 except Exception as exc:
@@ -582,7 +584,7 @@ class AgenticRunner:
             messages.append({"role": "user",      "content": tool_results})
 
         self._bedrock_messages = messages
-        self._call_log_interaction(user_message)
+        self._call_log_interaction(user_message, self._extract_last_response_text(), tool_calls)
         return tool_names, turn_totals
 
     # ── claude-p backend ──────────────────────────────────────────────────
@@ -622,7 +624,8 @@ class AgenticRunner:
                     result = {"error": str(exc)}
                 step_results.append({"tool": name, "params": params, "result": result})
 
-        self._call_log_interaction(user_message)
+        tool_calls = [{"tool": s["tool"], "params": s["params"]} for s in step_results]
+        self._call_log_interaction(user_message, "[agent]", tool_calls)
         return tool_names, turn_totals
 
     def _build_step_prompt(
@@ -665,11 +668,17 @@ class AgenticRunner:
 
     # ── Logging ───────────────────────────────────────────────────────────
 
-    def _call_log_interaction(self, user_message: str) -> None:
+    def _call_log_interaction(
+        self,
+        user_message:  str,
+        response_text: str,
+        tool_calls:    list[dict],
+    ) -> None:
         params: dict = {
-            "message_text":  user_message,
-            "response_text": "[agent]",
-            "status":        "success",
+            "message_text":   user_message,
+            "response_text":  response_text,
+            "status":         "success",
+            "tool_calls_json": tool_calls or [],
         }
         if self._person_id is not None:
             params["person_id"] = self._person_id
