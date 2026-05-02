@@ -2,12 +2,13 @@ import json
 import pytest
 import respx
 import httpx
+from unittest.mock import patch
 from tools.facts import (
     create_fact, get_fact_history, get_current_fact,
     list_current_facts, search_current_facts,
 )
 
-_EMBEDDING = [0.1, 0.2, 0.3]
+_FAKE_EMBEDDING = [0.1] * 768
 
 
 def test_create_fact(http):
@@ -15,18 +16,19 @@ def test_create_fact(http):
         respx.post("http://testserver/api/v1/facts").mock(
             return_value=httpx.Response(201, json={"id": "f1", "operationType": "create"})
         )
-        result = create_fact(
-            http, document_id="d1", schema_id="s1",
-            entity_instance_id="ei1", operation_type="create",
-            fields={"title": "test"}, embedding=_EMBEDDING,
-        )
+        with patch("tools.facts.embed", return_value=_FAKE_EMBEDDING):
+            result = create_fact(
+                http, document_id="d1", schema_id="s1",
+                entity_instance_id="ei1", operation_type="create",
+                fields={"title": "test"},
+            )
         body = json.loads(respx.calls[0].request.content)
         assert body["documentId"] == "d1"
         assert body["schemaId"] == "s1"
         assert body["entityInstanceId"] == "ei1"
         assert body["operationType"] == "create"
         assert body["fields"] == {"title": "test"}
-        assert body["embedding"] == _EMBEDDING
+        assert len(body["embedding"]) == 768
         assert result["id"] == "f1"
 
 
@@ -74,9 +76,10 @@ def test_search_current_facts(http):
         respx.post("http://testserver/api/v1/facts/search").mock(
             return_value=httpx.Response(200, json={"items": [], "total": 0})
         )
-        result = search_current_facts(http, embedding=_EMBEDDING)
+        with patch("tools.facts.embed", return_value=_FAKE_EMBEDDING):
+            result = search_current_facts(http, query_text="test query")
         body = json.loads(respx.calls[0].request.content)
-        assert body["embedding"] == _EMBEDDING
+        assert len(body["embedding"]) == 768
         assert body["limit"] == 10
         assert body["similarityThreshold"] == 0.7
         assert result["items"] == []
@@ -87,10 +90,11 @@ def test_search_current_facts_with_filters(http):
         respx.post("http://testserver/api/v1/facts/search").mock(
             return_value=httpx.Response(200, json={"items": [], "total": 0})
         )
-        search_current_facts(
-            http, embedding=_EMBEDDING, domain_id="dom-uuid",
-            entity_type="todo_item", similarity_threshold=0.9,
-        )
+        with patch("tools.facts.embed", return_value=_FAKE_EMBEDDING):
+            search_current_facts(
+                http, query_text="test query", domain_id="dom-uuid",
+                entity_type="todo_item", similarity_threshold=0.9,
+            )
         body = json.loads(respx.calls[0].request.content)
         assert body["domainId"] == "dom-uuid"
         assert body["entityType"] == "todo_item"

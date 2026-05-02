@@ -1,4 +1,7 @@
+import pytest
 from tools.embeddings import embed
+
+pytestmark = pytest.mark.model
 
 
 def test_embed_returns_768_dim_list():
