@@ -1,5 +1,7 @@
+import json
 import httpx
 from client import _check
+from tools.embeddings import embed
 
 
 def create_fact(
@@ -9,7 +11,6 @@ def create_fact(
     entity_instance_id: str,
     operation_type: str,
     fields: dict,
-    embedding: list,
 ) -> dict:
     body: dict = {
         "documentId": document_id,
@@ -17,7 +18,7 @@ def create_fact(
         "entityInstanceId": entity_instance_id,
         "operationType": operation_type,
         "fields": fields,
-        "embedding": embedding,
+        "embedding": embed(json.dumps(fields, sort_keys=True)),
     }
     resp = http.post("/api/v1/facts", json=body)
     _check(resp)
@@ -61,7 +62,7 @@ def list_current_facts(
 
 def search_current_facts(
     http: httpx.Client,
-    embedding: list,
+    query_text: str,
     person_id: str | None = None,
     household_id: str | None = None,
     domain_id: str | None = None,
@@ -70,7 +71,7 @@ def search_current_facts(
     similarity_threshold: float = 0.7,
 ) -> dict:
     body: dict = {
-        "embedding": embedding,
+        "embedding": embed(query_text),
         "limit": limit,
         "similarityThreshold": similarity_threshold,
     }
@@ -95,10 +96,9 @@ def register(mcp, http: httpx.Client) -> None:
         entity_instance_id: str,
         operation_type: str,
         fields: dict,
-        embedding: list,
     ) -> dict:
-        """Persist a single fact operation extracted from a document."""
-        return create_fact(http, document_id, schema_id, entity_instance_id, operation_type, fields, embedding)
+        """Persist a single fact operation. Embedding is generated automatically from fields. For 'update'/'delete': resolve entity_instance_id first via search_current_facts."""
+        return create_fact(http, document_id, schema_id, entity_instance_id, operation_type, fields)
 
     @mcp.tool(name="get_fact_history")
     def _history_tool(entity_instance_id: str) -> dict:
@@ -124,7 +124,7 @@ def register(mcp, http: httpx.Client) -> None:
 
     @mcp.tool(name="search_current_facts")
     def _search_tool(
-        embedding: list,
+        query_text: str,
         person_id: str | None = None,
         household_id: str | None = None,
         domain_id: str | None = None,
@@ -132,5 +132,5 @@ def register(mcp, http: httpx.Client) -> None:
         limit: int = 10,
         similarity_threshold: float = 0.7,
     ) -> dict:
-        """Vector similarity search over current entity states. Primary tool for entity instance resolution."""
-        return search_current_facts(http, embedding, person_id, household_id, domain_id, entity_type, limit, similarity_threshold)
+        """Vector similarity search over current entity states using a natural language query. PRIMARY tool for resolving entity_instance_id by description."""
+        return search_current_facts(http, query_text, person_id, household_id, domain_id, entity_type, limit, similarity_threshold)
