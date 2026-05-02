@@ -384,7 +384,7 @@ ALL_TOOLS = [
                 "limit": {"type": "integer", "description": "Default 10"},
                 "similarity_threshold": {
                     "type": "number",
-                    "description": "Minimum cosine similarity 0-1. Default 0.7",
+                    "description": "Minimum cosine similarity 0-1. Default 0.5",
                 },
             },
             "required": ["query_text"],
@@ -493,7 +493,7 @@ ALL_TOOLS = [
                 "domain_id": {"type": "string"},
                 "entity_type": {"type": "string"},
                 "limit": {"type": "integer", "description": "Default 10"},
-                "similarity_threshold": {"type": "number", "description": "Default 0.7"},
+                "similarity_threshold": {"type": "number", "description": "Default 0.5"},
             },
             "required": ["query_text"],
         },

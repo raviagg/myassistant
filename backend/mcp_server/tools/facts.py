@@ -68,7 +68,7 @@ def search_current_facts(
     domain_id: str | None = None,
     entity_type: str | None = None,
     limit: int = 10,
-    similarity_threshold: float = 0.7,
+    similarity_threshold: float = 0.5,
 ) -> dict:
     body: dict = {
         "embedding": embed(query_text),
@@ -130,7 +130,7 @@ def register(mcp, http: httpx.Client) -> None:
         domain_id: str | None = None,
         entity_type: str | None = None,
         limit: int = 10,
-        similarity_threshold: float = 0.7,
+        similarity_threshold: float = 0.5,
     ) -> dict:
         """Vector similarity search over current entity states using a natural language query. PRIMARY tool for resolving entity_instance_id by description."""
         return search_current_facts(http, query_text, person_id, household_id, domain_id, entity_type, limit, similarity_threshold)

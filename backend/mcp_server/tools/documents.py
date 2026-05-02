@@ -67,7 +67,7 @@ def search_documents(
     household_id: str | None = None,
     source_type_id: str | None = None,
     limit: int = 10,
-    similarity_threshold: float = 0.7,
+    similarity_threshold: float = 0.5,
 ) -> dict:
     body: dict = {
         "embedding": embed(query_text),
@@ -123,7 +123,7 @@ def register(mcp, http: httpx.Client) -> None:
         household_id: str | None = None,
         source_type_id: str | None = None,
         limit: int = 10,
-        similarity_threshold: float = 0.7,
+        similarity_threshold: float = 0.5,
     ) -> dict:
         """Vector similarity search over documents using a natural language query."""
         return search_documents(http, query_text, person_id, household_id, source_type_id, limit, similarity_threshold)
