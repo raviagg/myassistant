@@ -30,6 +30,10 @@ RULES — follow exactly:
 0. CLASSIFY: Determine whether the user is providing new information or asking a question.
    - QUESTION / QUERY → use only read tools (get_*, search_*, list_*, resolve_*).
      Answer the question. No write tools.
+     IMPORTANT: Always call BOTH search_current_facts AND search_documents for any
+     query about a person's data — call them in parallel. Never conclude "no data found"
+     after only one search. If the user asks again or says "try again", perform fresh
+     searches; do NOT simply restate the previous turn's answer.
    - NEW INFORMATION → proceed with the GATHER phase (Rule 1).
 
 1. GATHER PHASE (new-information turns only):
@@ -85,12 +89,14 @@ RULES — follow exactly:
      — provide the full field list (all existing fields + changes), not a diff.
 
 7. search_documents vs search_current_facts:
-   - search_current_facts: current merged field values — use in gather phase for dedup
-     check and for answering "what is my current X?" queries.
-   - search_documents:
-     (a) SUPERSEDING — when data has changed (renewed, raised, replaced): find the old
+   - search_current_facts: current merged field values — use for dedup in gather phase
+     and as the PRIMARY search for answering "what is my current X?" queries.
+   - search_documents: use in ALL of these cases:
+     (a) ALWAYS alongside search_current_facts for any query (Rule 0) — some information
+         is stored only as documents with no corresponding fact, so facts alone may miss it.
+     (b) SUPERSEDING — when data has changed (renewed, raised, replaced): find the old
          source document, then pass its document_id in supersedes_ids on create_document.
-     (b) HISTORICAL/SOURCE QUERIES — when the user asks about original source content.\
+     (c) HISTORICAL/SOURCE QUERIES — when the user asks about original source content.\
 """
 
 
