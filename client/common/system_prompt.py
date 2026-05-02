@@ -3,8 +3,8 @@ Shared system prompt builder for the personal assistant agent.
 
 Both the chatbot (client/chatbot/) and the test harness (client/chatbot_tests/)
 use this as their base. Each adds its own addendum:
-  - Tests append placeholder instructions for embeddings / UUIDs.
-  - The chatbot appends its own embedding guidance.
+  - Tests append placeholder instructions for UUIDs.
+  - The chatbot appends entity ID guidance.
 """
 
 
@@ -97,16 +97,11 @@ RULES — follow exactly:
 # Appended by test harness only — keeps test-specific instructions out of the chatbot.
 TEST_PROMPT_ADDENDUM = """
 
-EMBEDDING PARAMETERS: For any embedding parameter, pass [0.1, 0.2, 0.3] as placeholder.
 For entity_instance_id on a new create, use a descriptive placeholder like "NEW-UUID-passport-renewal".
 For UUID values from earlier tool calls, use placeholders like "DOMAIN-ID-FROM-LIST-DOMAINS"."""
 
 
-# Appended by chatbot — same placeholder for now; real embeddings are a future TODO.
 CHATBOT_PROMPT_ADDENDUM = """
-
-EMBEDDINGS: Pass [0.1, 0.2, 0.3] as a placeholder for all embedding parameters.
-Real vector generation will be integrated in a future release.
 
 ENTITY IDs: When creating a new fact (operation_type="create"), generate a fresh UUID v4
 for entity_instance_id in the format xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx."""
