@@ -1,12 +1,12 @@
 import httpx
 from client import _check
+from tools.embeddings import embed
 
 
 def create_document(
     http: httpx.Client,
     content_text: str,
     source_type_id: str,
-    embedding: list,
     person_id: str | None = None,
     household_id: str | None = None,
     supersedes_ids: list | None = None,
@@ -15,7 +15,7 @@ def create_document(
     body: dict = {
         "contentText": content_text,
         "sourceTypeId": source_type_id,
-        "embedding": embedding,
+        "embedding": embed(content_text),
         "supersedesIds": supersedes_ids or [],
         "files": files or [],
     }
@@ -62,15 +62,15 @@ def list_documents(
 
 def search_documents(
     http: httpx.Client,
-    embedding: list,
+    query_text: str,
     person_id: str | None = None,
     household_id: str | None = None,
     source_type_id: str | None = None,
     limit: int = 10,
-    similarity_threshold: float = 0.7,
+    similarity_threshold: float = 0.5,
 ) -> dict:
     body: dict = {
-        "embedding": embedding,
+        "embedding": embed(query_text),
         "limit": limit,
         "similarityThreshold": similarity_threshold,
     }
@@ -90,14 +90,13 @@ def register(mcp, http: httpx.Client) -> None:
     def _create_tool(
         content_text: str,
         source_type_id: str,
-        embedding: list,
         person_id: str | None = None,
         household_id: str | None = None,
         supersedes_ids: list | None = None,
         files: list | None = None,
     ) -> dict:
-        """Persist a new document and its embedding. At least one of person_id or household_id must be provided."""
-        return create_document(http, content_text, source_type_id, embedding, person_id, household_id, supersedes_ids, files)
+        """Persist a new immutable document. Embedding is generated automatically from content_text. At least one of person_id or household_id must be provided."""
+        return create_document(http, content_text, source_type_id, person_id, household_id, supersedes_ids, files)
 
     @mcp.tool(name="get_document")
     def _get_tool(document_id: str) -> dict:
@@ -119,12 +118,12 @@ def register(mcp, http: httpx.Client) -> None:
 
     @mcp.tool(name="search_documents")
     def _search_tool(
-        embedding: list,
+        query_text: str,
         person_id: str | None = None,
         household_id: str | None = None,
         source_type_id: str | None = None,
         limit: int = 10,
-        similarity_threshold: float = 0.7,
+        similarity_threshold: float = 0.5,
     ) -> dict:
-        """Vector similarity search over documents using a pre-generated embedding."""
-        return search_documents(http, embedding, person_id, household_id, source_type_id, limit, similarity_threshold)
+        """Vector similarity search over documents using a natural language query."""
+        return search_documents(http, query_text, person_id, household_id, source_type_id, limit, similarity_threshold)

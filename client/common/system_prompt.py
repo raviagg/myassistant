@@ -3,8 +3,8 @@ Shared system prompt builder for the personal assistant agent.
 
 Both the chatbot (client/chatbot/) and the test harness (client/chatbot_tests/)
 use this as their base. Each adds its own addendum:
-  - Tests append placeholder instructions for embeddings / UUIDs.
-  - The chatbot appends its own embedding guidance.
+  - Tests append placeholder instructions for UUIDs.
+  - The chatbot appends entity ID guidance.
 """
 
 
@@ -30,6 +30,10 @@ RULES — follow exactly:
 0. CLASSIFY: Determine whether the user is providing new information or asking a question.
    - QUESTION / QUERY → use only read tools (get_*, search_*, list_*, resolve_*).
      Answer the question. No write tools.
+     IMPORTANT: Always call BOTH search_current_facts AND search_documents for any
+     query about a person's data — call them in parallel. Never conclude "no data found"
+     after only one search. If the user asks again or says "try again", perform fresh
+     searches; do NOT simply restate the previous turn's answer.
    - NEW INFORMATION → proceed with the GATHER phase (Rule 1).
 
 1. GATHER PHASE (new-information turns only):
@@ -85,28 +89,25 @@ RULES — follow exactly:
      — provide the full field list (all existing fields + changes), not a diff.
 
 7. search_documents vs search_current_facts:
-   - search_current_facts: current merged field values — use in gather phase for dedup
-     check and for answering "what is my current X?" queries.
-   - search_documents:
-     (a) SUPERSEDING — when data has changed (renewed, raised, replaced): find the old
+   - search_current_facts: current merged field values — use for dedup in gather phase
+     and as the PRIMARY search for answering "what is my current X?" queries.
+   - search_documents: use in ALL of these cases:
+     (a) ALWAYS alongside search_current_facts for any query (Rule 0) — some information
+         is stored only as documents with no corresponding fact, so facts alone may miss it.
+     (b) SUPERSEDING — when data has changed (renewed, raised, replaced): find the old
          source document, then pass its document_id in supersedes_ids on create_document.
-     (b) HISTORICAL/SOURCE QUERIES — when the user asks about original source content.\
+     (c) HISTORICAL/SOURCE QUERIES — when the user asks about original source content.\
 """
 
 
 # Appended by test harness only — keeps test-specific instructions out of the chatbot.
 TEST_PROMPT_ADDENDUM = """
 
-EMBEDDING PARAMETERS: For any embedding parameter, pass [0.1, 0.2, 0.3] as placeholder.
 For entity_instance_id on a new create, use a descriptive placeholder like "NEW-UUID-passport-renewal".
 For UUID values from earlier tool calls, use placeholders like "DOMAIN-ID-FROM-LIST-DOMAINS"."""
 
 
-# Appended by chatbot — same placeholder for now; real embeddings are a future TODO.
 CHATBOT_PROMPT_ADDENDUM = """
-
-EMBEDDINGS: Pass [0.1, 0.2, 0.3] as a placeholder for all embedding parameters.
-Real vector generation will be integrated in a future release.
 
 ENTITY IDs: When creating a new fact (operation_type="create"), generate a fresh UUID v4
 for entity_instance_id in the format xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx."""
