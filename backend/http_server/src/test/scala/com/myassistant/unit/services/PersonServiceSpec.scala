@@ -50,6 +50,7 @@ object PersonServiceSpec extends ZIOSpecDefault:
         dateOfBirthFrom: Option[LocalDate],
         dateOfBirthTo:   Option[LocalDate],
         householdId:     Option[UUID],
+        userIdentifier:  Option[String],
         limit:           Int,
         offset:          Int,
     ): ZIO[ZConnectionPool, AppError, List[Person]] =
@@ -58,6 +59,7 @@ object PersonServiceSpec extends ZIOSpecDefault:
           .filter(p => name.forall(n => p.fullName.toLowerCase.contains(n.toLowerCase)))
           .filter(p => gender.forall(g => p.gender.toString.equalsIgnoreCase(g)))
           .filter(p => dateOfBirth.forall(d => p.dateOfBirth.contains(d)))
+          .filter(p => userIdentifier.forall(u => p.userIdentifier.contains(u)))
           .sortBy(_.fullName)
           .slice(offset, offset + limit)
 
@@ -150,7 +152,7 @@ object PersonServiceSpec extends ZIOSpecDefault:
           test("returns empty list when no persons exist") {
             for
               svc    <- ZIO.service[PersonService]
-              result <- svc.searchPersons(None, None, None, None, None, None, 50, 0)
+              result <- svc.searchPersons(None, None, None, None, None, None, None, 50, 0)
             yield assertTrue(result.isEmpty)
           },
 
@@ -159,7 +161,7 @@ object PersonServiceSpec extends ZIOSpecDefault:
               svc  <- ZIO.service[PersonService]
               _    <- svc.createPerson(makeReq("Alice"))
               _    <- svc.createPerson(makeReq("Bob"))
-              list <- svc.searchPersons(None, None, None, None, None, None, 50, 0)
+              list <- svc.searchPersons(None, None, None, None, None, None, None, 50, 0)
             yield assertTrue(list.size == 2) &&
                   assertTrue(list.map(_.fullName).contains("Alice")) &&
                   assertTrue(list.map(_.fullName).contains("Bob"))
@@ -170,7 +172,7 @@ object PersonServiceSpec extends ZIOSpecDefault:
               svc  <- ZIO.service[PersonService]
               _    <- svc.createPerson(makeReq("Alice Smith"))
               _    <- svc.createPerson(makeReq("Bob Jones"))
-              list <- svc.searchPersons(Some("Alice"), None, None, None, None, None, 50, 0)
+              list <- svc.searchPersons(Some("Alice"), None, None, None, None, None, None, 50, 0)
             yield assertTrue(list.size == 1) &&
                   assertTrue(list.head.fullName == "Alice Smith")
           },

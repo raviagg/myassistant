@@ -117,7 +117,7 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
         _       <- repo.create(CreatePerson("Alice",   Gender.Female, None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
         _       <- repo.create(CreatePerson("Bob",     Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
         _       <- repo.create(CreatePerson("Charlie", Gender.Male,   None, None, None)).provideEnvironment(ZEnvironment(sharedPool))
-        list    <- repo.search(None, None, None, None, None, None, 100, 0).provideEnvironment(ZEnvironment(sharedPool))
+        list    <- repo.search(None, None, None, None, None, None, None, 100, 0).provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
     persons.size should be >= 3
@@ -244,7 +244,7 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
         household    <- hRepo.create(CreateHousehold("Search Household")).provideEnvironment(ZEnvironment(sharedPool))
         _            <- hRepo.addMember(p1.id, household.id).provideEnvironment(ZEnvironment(sharedPool))
         _            <- hRepo.addMember(p2.id, household.id).provideEnvironment(ZEnvironment(sharedPool))
-        list         <- personRepo.search(None, None, None, None, None, Some(household.id), 100, 0).provideEnvironment(ZEnvironment(sharedPool))
+        list         <- personRepo.search(None, None, None, None, None, Some(household.id), None, 100, 0).provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }
     members.size shouldBe 2
@@ -298,7 +298,7 @@ class PersonRepositorySpec extends AnyFunSuite with Matchers with TestContainerF
                      .provideEnvironment(ZEnvironment(sharedPool))
         _       <- repo.create(CreatePerson("Bob Irrelevant", Gender.Male, None, None, None))
                      .provideEnvironment(ZEnvironment(sharedPool))
-        list    <- repo.search(Some("Alice"), Some("female"), None, None, None, None, 10, 0)
+        list    <- repo.search(Some("Alice"), Some("female"), None, None, None, None, None, 10, 0)
                      .provideEnvironment(ZEnvironment(sharedPool))
       yield list
     }

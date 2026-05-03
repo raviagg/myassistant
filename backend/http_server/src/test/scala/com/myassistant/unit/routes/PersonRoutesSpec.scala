@@ -48,10 +48,13 @@ object PersonRoutesSpec extends ZIOSpecDefault:
         dateOfBirthFrom: Option[java.time.LocalDate],
         dateOfBirthTo:   Option[java.time.LocalDate],
         householdId:     Option[UUID],
+        userIdentifier:  Option[String],
         limit:           Int,
         offset:          Int,
     ): ZIO[ZConnectionPool, AppError, List[Person]] =
-      store.get.map(_.values.toList.sortBy(_.fullName))
+      store.get.map(_.values.toList
+        .filter(p => userIdentifier.forall(u => p.userIdentifier.contains(u)))
+        .sortBy(_.fullName))
 
     def update(id: UUID, patch: UpdatePerson): ZIO[ZConnectionPool, AppError, Option[Person]] =
       store.get.flatMap: m =>
@@ -96,6 +99,24 @@ object PersonRoutesSpec extends ZIOSpecDefault:
               body     <- response.body.asString
             yield assertTrue(response.status == Status.Ok) &&
                   assertTrue(body.contains("items"))
+          },
+
+          test("filters by userIdentifier query param") {
+            val createReq = Request
+              .post(
+                getUrl("/api/v1/persons"),
+                Body.fromString("""{"fullName":"Login User","gender":"male","userIdentifier":"loginuser"}"""),
+              )
+              .addHeader(Header.ContentType(MediaType.application.json))
+            for
+              _        <- PersonRoutes.routes.runZIO(createReq)
+              response <- PersonRoutes.routes.runZIO(
+                            Request.get(getUrl("/api/v1/persons?userIdentifier=loginuser"))
+                          )
+              body     <- response.body.asString
+            yield assertTrue(response.status == Status.Ok) &&
+                  assertTrue(body.contains("Login User")) &&
+                  assertTrue(body.contains("loginuser"))
           },
 
         )
