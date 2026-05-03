@@ -23,5 +23,8 @@ dev = [
     "respx>=0.21",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
