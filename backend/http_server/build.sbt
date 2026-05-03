@@ -24,6 +24,8 @@ val testcontainersVersion  = "0.41.3"
 val scalatestVersion       = "3.2.19"
 val cucumberScalaVersion   = "8.27.0"
 val cucumberJvmVersion     = "7.22.1"
+val pdfboxVersion          = "3.0.3"
+val tess4jVersion          = "5.11.0"
 
 // ── Dependencies ─────────────────────────────────────────────
 lazy val zioDeps = Seq(
@@ -57,6 +59,11 @@ lazy val prometheusDeps = Seq(
   "io.prometheus" % "simpleclient_httpserver" % prometheusVersion,
 )
 
+lazy val fileDeps = Seq(
+  "org.apache.pdfbox"         % "pdfbox"  % pdfboxVersion,
+  "net.sourceforge.tess4j"    % "tess4j"  % tess4jVersion,
+)
+
 lazy val testDeps = Seq(
   "dev.zio"                       %% "zio-test"                             % zioVersion          % Test,
   "dev.zio"                       %% "zio-test-sbt"                         % zioVersion          % Test,
@@ -79,7 +86,7 @@ lazy val backend = (project in file("."))
   .settings(
     name := "myassistant-backend",
 
-    libraryDependencies ++= zioDeps ++ circeDeps ++ dbDeps ++ prometheusDeps ++ testDeps,
+    libraryDependencies ++= zioDeps ++ circeDeps ++ dbDeps ++ prometheusDeps ++ fileDeps ++ testDeps,
 
     // ── Scala compiler options ────────────────────────────────
     scalacOptions ++= Seq(
