@@ -80,7 +80,7 @@ async def chat(body: ChatRequest):
     runner = _get_runner(body.personId)
     user_message = _build_user_message(body.message, body.filePaths)
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
     def run_sync():
@@ -88,7 +88,7 @@ async def chat(body: ChatRequest):
             loop.call_soon_threadsafe(queue.put_nowait, chunk)
         loop.call_soon_threadsafe(queue.put_nowait, None)
 
-    loop.run_in_executor(None, run_sync)
+    await loop.run_in_executor(None, run_sync)
 
     async def generate():
         while True:
