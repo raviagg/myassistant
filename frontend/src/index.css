@@ -29,3 +29,8 @@ body {
 
 button { cursor: pointer; border: none; }
 input, textarea { outline: none; }
+
+@keyframes blink {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 1; }
+}
