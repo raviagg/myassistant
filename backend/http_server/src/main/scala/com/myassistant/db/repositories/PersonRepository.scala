@@ -21,14 +21,15 @@ trait PersonRepository:
 
   /** Search persons with optional filter parameters. */
   def search(
-      name:           Option[String],
-      gender:         Option[String],
-      dateOfBirth:    Option[java.time.LocalDate],
+      name:            Option[String],
+      gender:          Option[String],
+      dateOfBirth:     Option[java.time.LocalDate],
       dateOfBirthFrom: Option[java.time.LocalDate],
-      dateOfBirthTo:  Option[java.time.LocalDate],
-      householdId:    Option[UUID],
-      limit:          Int,
-      offset:         Int,
+      dateOfBirthTo:   Option[java.time.LocalDate],
+      householdId:     Option[UUID],
+      userIdentifier:  Option[String],
+      limit:           Int,
+      offset:          Int,
   ): ZIO[ZConnectionPool, AppError, List[Person]]
 
   /** Apply a partial update to a person record. */
@@ -120,6 +121,7 @@ object PersonRepository:
         dateOfBirthFrom: Option[java.time.LocalDate],
         dateOfBirthTo:   Option[java.time.LocalDate],
         householdId:     Option[UUID],
+        userIdentifier:  Option[String],
         limit:           Int,
         offset:          Int,
     ): ZIO[ZConnectionPool, AppError, List[Person]] =
@@ -130,6 +132,7 @@ object PersonRepository:
         dateOfBirth.map(d    => sql"p.date_of_birth = ${java.sql.Date.valueOf(d)}"),
         dateOfBirthFrom.map(d => sql"p.date_of_birth >= ${java.sql.Date.valueOf(d)}"),
         dateOfBirthTo.map(d   => sql"p.date_of_birth <= ${java.sql.Date.valueOf(d)}"),
+        userIdentifier.map(u  => sql"p.user_identifier = $u"),
       )
       val (joinFrag, whereFrag) = householdId match
         case None =>

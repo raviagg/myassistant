@@ -29,6 +29,7 @@ trait PersonService:
       dateOfBirthFrom: Option[java.time.LocalDate],
       dateOfBirthTo:   Option[java.time.LocalDate],
       householdId:     Option[UUID],
+      userIdentifier:  Option[String],
       limit:           Int,
       offset:          Int,
   ): ZIO[ZConnectionPool, AppError, List[Person]]
@@ -62,10 +63,11 @@ object PersonService:
         dateOfBirthFrom: Option[java.time.LocalDate],
         dateOfBirthTo:   Option[java.time.LocalDate],
         householdId:     Option[UUID],
+        userIdentifier:  Option[String],
         limit:           Int,
         offset:          Int,
     ): ZIO[ZConnectionPool, AppError, List[Person]] =
-      repo.search(name, gender, dateOfBirth, dateOfBirthFrom, dateOfBirthTo, householdId, limit, offset)
+      repo.search(name, gender, dateOfBirth, dateOfBirthFrom, dateOfBirthTo, householdId, userIdentifier, limit, offset)
 
     /** Apply a partial update; fails with NotFound if no record matched. */
     def updatePerson(id: UUID, patch: UpdatePerson): ZIO[ZConnectionPool, AppError, Person] =

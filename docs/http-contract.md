@@ -145,6 +145,7 @@ Filter-based person search. All query parameters are optional and ANDed together
 | `dateOfBirthFrom` | date | Range lower bound inclusive |
 | `dateOfBirthTo` | date | Range upper bound inclusive |
 | `householdId` | UUID | Only persons who are members of this household |
+| `userIdentifier` | string | Exact match on `user_identifier` column |
 | `limit` | int | Default `50` |
 | `offset` | int | Default `0` |
 

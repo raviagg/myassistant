@@ -35,9 +35,10 @@ object PersonRoutes:
           val dateOfBirthFrom = req.queryParam("dateOfBirthFrom").flatMap(s => scala.util.Try(LocalDate.parse(s)).toOption)
           val dateOfBirthTo   = req.queryParam("dateOfBirthTo").flatMap(s => scala.util.Try(LocalDate.parse(s)).toOption)
           val householdId     = req.queryParam("householdId").flatMap(s => Try(UUID.fromString(s)).toOption)
+          val userIdentifier  = req.queryParam("userIdentifier")
           val limit           = req.queryParam("limit").flatMap(_.toIntOption).getOrElse(50)
           val offset          = req.queryParam("offset").flatMap(_.toIntOption).getOrElse(0)
-          ZIO.serviceWithZIO[PersonService](_.searchPersons(name, gender, dateOfBirth, dateOfBirthFrom, dateOfBirthTo, householdId, limit, offset))
+          ZIO.serviceWithZIO[PersonService](_.searchPersons(name, gender, dateOfBirth, dateOfBirthFrom, dateOfBirthTo, householdId, userIdentifier, limit, offset))
             .foldZIO(
               err     => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
               persons =>
