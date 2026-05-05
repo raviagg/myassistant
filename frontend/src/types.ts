@@ -10,9 +10,14 @@ export interface ToolCall {
   result: Record<string, unknown>
 }
 
+export interface ResponseBlock {
+  type: string
+  name?: string
+}
+
 export interface ApiCallDebug {
   requestMessages: Array<{ role: string }>
-  responseBlocks: unknown[]
+  responseBlocks: ResponseBlock[]
   stats: {
     durationMs: number
     inputTokens: number

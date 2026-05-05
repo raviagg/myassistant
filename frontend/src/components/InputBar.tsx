@@ -76,6 +76,6 @@ const styles: Record<string, React.CSSProperties> = {
   chipRemove: { background: 'none', color: 'var(--text-muted)', fontSize: 11, padding: 0 },
   box:        { display: 'flex', alignItems: 'flex-end', gap: 8, background: 'var(--bg-input)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 10px' },
   fileBtn:    { width: 30, height: 30, background: 'none', color: 'var(--text-muted)', fontSize: 17, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  textarea:   { flex: 1, background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 13, resize: 'none', fontFamily: 'inherit', minHeight: 20, maxHeight: 90, lineHeight: 1.5 },
+  textarea:   { flex: 1, background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: 15, resize: 'none', fontFamily: 'inherit', minHeight: 20, maxHeight: 90, lineHeight: 1.5 },
   sendBtn:    { width: 30, height: 30, background: 'linear-gradient(135deg,#4a6fa5,#7c5cbf)', borderRadius: 7, color: '#fff', fontSize: 15, display: 'flex', alignItems: 'center', justifyContent: 'center' },
 }

@@ -3,3 +3,7 @@ __pycache__/
 *.pyo
 .env
 .worktrees/
+.logs/
+.metals/
+.superpowers/
+.vscode/

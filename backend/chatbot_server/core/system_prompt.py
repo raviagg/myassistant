@@ -7,9 +7,12 @@ use this as their base. Each adds its own addendum:
   - The chatbot appends entity ID guidance.
 """
 
+import datetime
+
 
 def build_system_prompt(person_id: str, person_name: str, source_type_id: str) -> str:
     """Build the base system prompt with the given user context injected."""
+    today = datetime.date.today().isoformat()
     return f"""\
 You are a personal assistant agent for a family life management system.
 
@@ -18,6 +21,8 @@ SESSION CONTEXT:
   Current user:
     Name:      {person_name}
     person_id: {person_id}
+
+  Today's date: {today}
 
   Source type: All interactions through this chatbot use source_type_id: {source_type_id}
   Do NOT call list_source_types — this ID is fixed for all chatbot interactions

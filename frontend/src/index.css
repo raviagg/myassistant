@@ -10,8 +10,13 @@
   --text-muted: #505070;
   --accent-blue: #4a6fa5;
   --accent-purple: #7c5cbf;
-  --bubble-user: #2d3a5a;
-  --bubble-asst: #1e2438;
+  --bubble-user: #1e3d6b;
+  --bubble-user-text: #c8e0ff;
+  --bubble-asst: #163326;
+  --bubble-asst-text: #a8e6c0;
+  --bubble-debug-bg: #1e1a0a;
+  --bubble-debug-text: #c8a83a;
+  --bubble-debug-border: #3a3010;
   --error: #e06060;
 }
 
@@ -33,4 +38,35 @@ input, textarea { outline: none; }
 @keyframes blink {
   0%, 100% { opacity: 0.4; }
   50%       { opacity: 1; }
+}
+
+/* Markdown body inside assistant bubbles */
+.md-body p  { margin: 0 0 0.5em; }
+.md-body p:last-child { margin-bottom: 0; }
+.md-body ul, .md-body ol { margin: 0.3em 0 0.5em 1.4em; }
+.md-body li { margin-bottom: 0.2em; }
+.md-body code { background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px 5px; font-size: 0.88em; font-family: 'SFMono-Regular', Consolas, monospace; }
+.md-body pre  { background: rgba(0,0,0,0.35); border-radius: 6px; padding: 10px 12px; overflow-x: auto; margin: 0.4em 0; }
+.md-body pre code { background: none; padding: 0; font-size: 0.85em; }
+.md-body strong { color: inherit; opacity: 0.95; }
+
+/* Tables */
+.md-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.6em 0;
+  font-size: 0.93em;
+}
+.md-body th, .md-body td {
+  padding: 6px 12px;
+  border: 1px solid var(--border-hover);
+  text-align: left;
+}
+.md-body th {
+  background: rgba(0,0,0,0.3);
+  font-weight: 600;
+  color: var(--bubble-asst-text);
+}
+.md-body tr:nth-child(even) td {
+  background: rgba(0,0,0,0.15);
 }
