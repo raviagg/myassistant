@@ -115,4 +115,10 @@ For UUID values from earlier tool calls, use placeholders like "DOMAIN-ID-FROM-L
 CHATBOT_PROMPT_ADDENDUM = """
 
 ENTITY IDs: When creating a new fact (operation_type="create"), generate a fresh UUID v4
-for entity_instance_id in the format xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx."""
+for entity_instance_id in the format xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx.
+
+FILE DISPLAY: The chat UI automatically renders thumbnails and download links for any
+files attached to documents you retrieve or create — you do NOT need to describe file paths
+or tell the user they need to open the file separately. Simply confirm the document was
+stored or retrieved; the UI handles display. Never say you "cannot display" or "cannot
+render" images — the interface does that for you."""

@@ -73,6 +73,53 @@ _BEDROCK_TOOLS = [
 ]
 
 
+# ── History trimming ─────────────────────────────────────────────────────────
+
+def _trim_base64_fields(obj, max_len: int = 200):
+    """Recursively replace long base64 values with a size note."""
+    if isinstance(obj, dict):
+        return {
+            k: (f"[{len(v)} chars base64 omitted]"
+                if isinstance(v, str) and "base64" in k and len(v) > max_len
+                else _trim_base64_fields(v, max_len))
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_trim_base64_fields(item, max_len) for item in obj]
+    return obj
+
+
+def _trim_history_messages(messages: list[dict]) -> list[dict]:
+    """
+    Strip large base64 blobs from tool_result blocks before persisting to conversation history.
+    The LLM already saw the full content in the same call; storing it forever bloats every
+    subsequent request (a 1 MB image ≈ 350 K tokens re-sent on every turn).
+    """
+    result = []
+    for msg in messages:
+        if msg.get("role") != "user":
+            result.append(msg)
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            result.append(msg)
+            continue
+        new_blocks = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                raw = block.get("content", "")
+                if isinstance(raw, str) and len(raw) > 1000:
+                    try:
+                        trimmed = json.dumps(_trim_base64_fields(json.loads(raw)))
+                        if len(trimmed) < len(raw):
+                            block = {**block, "content": trimmed}
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            new_blocks.append(block)
+        result.append({**msg, "content": new_blocks})
+    return result
+
+
 # ── Stats helpers ─────────────────────────────────────────────────────────────
 
 def _empty_totals() -> dict:
@@ -278,7 +325,9 @@ class _BedrockBearerClient:
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._api_key}",
         }) as response:
-            response.raise_for_status()
+            if not response.is_success:
+                detail = response.read().decode(errors="replace")[:600]
+                raise RuntimeError(f"Bedrock {response.status_code}: {detail}")
             for chunk in response.iter_bytes(4096):
                 buf += chunk
                 while len(buf) >= 12:
@@ -667,7 +716,7 @@ class AgenticRunner:
                 })
             messages.append({"role": "user", "content": tool_results})
 
-        self._bedrock_messages = messages
+        self._bedrock_messages = _trim_history_messages(messages)
         self._call_log_interaction(
             user_message, full_text,
             [{"tool": t["name"], "params": t["input"]} for t in all_tool_calls],
@@ -790,7 +839,7 @@ class AgenticRunner:
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user",      "content": tool_results})
 
-        self._bedrock_messages = messages
+        self._bedrock_messages = _trim_history_messages(messages)
         self._call_log_interaction(user_message, self._extract_last_response_text(), tool_calls)
         return tool_names, turn_totals
 

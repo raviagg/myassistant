@@ -26,7 +26,8 @@ export default function InputBar({ onSend, disabled }: Props) {
 
   function handleFiles(e: ChangeEvent<HTMLInputElement>) {
     if (e.target.files) {
-      setFiles(prev => [...prev, ...Array.from(e.target.files!)])
+      const picked = Array.from(e.target.files)
+      setFiles(prev => [...prev, ...picked])
     }
     e.target.value = ''
   }
