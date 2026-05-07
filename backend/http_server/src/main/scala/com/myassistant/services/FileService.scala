@@ -110,12 +110,23 @@ object FileService:
 
     private def extractViaOcr(filePath: String): ZIO[Any, AppError, (String, String)] =
       ZIO.attempt {
+        val tessdata = findTessdata().getOrElse(
+          throw new RuntimeException(
+            "Tesseract tessdata not found. Install Tesseract: brew install tesseract"
+          )
+        )
+        // Help JNA find libtesseract.dylib on Apple Silicon (Homebrew installs to /opt/homebrew/lib)
+        findTesseractLib().foreach { libDir =>
+          val existing = java.lang.System.getProperty("jna.library.path", "")
+          if !existing.contains(libDir) then
+            java.lang.System.setProperty("jna.library.path", if existing.isEmpty then libDir else s"$existing:$libDir")
+        }
         val instance = new Tesseract()
-        findTessdata().foreach(instance.setDatapath)
+        instance.setDatapath(tessdata)
         instance.setLanguage("eng")
         val text = instance.doOCR(new java.io.File(filePath))
         (text.trim, "ocr")
-      }.mapError(e => AppError.FileSystemError(e))
+      }.mapError(e => AppError.FileSystemError(new RuntimeException(s"OCR failed: ${e.getMessage}", e)))
 
     private def findTessdata(): Option[String] =
       List(
@@ -124,6 +135,13 @@ object FileService:
         Some("/usr/local/share/tessdata"),      // macOS Intel / Linux
         Some("/usr/share/tessdata"),            // Linux system package
       ).flatten.find(p => java.io.File(p).isDirectory)
+
+    private def findTesseractLib(): Option[String] =
+      List(
+        Some("/opt/homebrew/lib"),   // macOS Apple Silicon (Homebrew)
+        Some("/usr/local/lib"),      // macOS Intel / Linux
+        Some("/usr/lib"),            // Linux system package
+      ).flatten.find(p => java.io.File(s"$p/libtesseract.dylib").exists || java.io.File(s"$p/libtesseract.so").exists)
 
   val live: ZLayer[FileStorageConfig, Nothing, FileService] =
     ZLayer.fromFunction(new Live(_))

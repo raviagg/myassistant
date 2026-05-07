@@ -1,7 +1,9 @@
 import base64
+import mimetypes
 import os
 import httpx
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -14,6 +16,23 @@ class FileUploadResponse(BaseModel):
     filePath: str
     filename: str
     mimeType: str
+
+
+@router.get("/api/download")
+async def download_file(path: str = Query(...)):
+    with httpx.Client(base_url=_BASE_URL, headers={"Authorization": f"Bearer {_AUTH_TOKEN}"}) as http:
+        resp = http.get("/api/v1/files", params={"path": path})
+    if not resp.is_success:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    data = resp.json()
+    raw = base64.b64decode(data["contentBase64"])
+    filename = data.get("filename", path.split("/")[-1])
+    mime = mimetypes.guess_type(filename)[0] or data.get("mimeType", "application/octet-stream")
+    return Response(
+        content=raw,
+        media_type=mime,
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 @router.post("/api/files", response_model=FileUploadResponse)

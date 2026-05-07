@@ -25,8 +25,8 @@ object ErrorMiddleware:
           Some(blocking.map((k, v) => s""""$k":"$v"""").mkString("{", ",", "}")))
       case DatabaseError(_) =>
         (Status.InternalServerError, "database_error", "A database error occurred", None)
-      case FileSystemError(_) =>
-        (Status.InternalServerError, "filesystem_error", "A file system error occurred", None)
+      case FileSystemError(cause) =>
+        (Status.InternalServerError, "filesystem_error", cause.getMessage, None)
       case AuthError =>
         (Status.Unauthorized, "unauthorized", "Authentication required", None)
       case InternalError(_) =>

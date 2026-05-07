@@ -679,17 +679,6 @@ ALL_TOOLS = [
         },
     },
     {
-        "name": "get_file",
-        "description": "Retrieve a previously saved file. Returns base64-encoded content.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string"},
-            },
-            "required": ["file_path"],
-        },
-    },
-    {
         "name": "delete_file",
         "description": (
             "Delete a file from the filesystem. "
@@ -706,4 +695,4 @@ ALL_TOOLS = [
     },
 ]
 
-assert len(ALL_TOOLS) == 42, f"Expected 42 tools, got {len(ALL_TOOLS)}"
+assert len(ALL_TOOLS) == 41, f"Expected 41 tools, got {len(ALL_TOOLS)}"

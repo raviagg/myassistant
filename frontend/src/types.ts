@@ -31,11 +31,18 @@ export interface DebugInfo {
   toolCalls: ToolCall[]
 }
 
+export interface AttachedFile {
+  path: string
+  name: string
+  mimeType: string
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
   text: string
   filePaths?: string[]
+  attachedFiles?: AttachedFile[]
   debugInfo?: DebugInfo
   streaming?: boolean
 }

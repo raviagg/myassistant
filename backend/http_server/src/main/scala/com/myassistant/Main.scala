@@ -90,7 +90,7 @@ object Main extends ZIOAppDefault:
       _   <- Server
                .serve(app)
                .provide(
-                 Server.defaultWithPort(cfg.server.port),
+                 Server.defaultWith(_.port(cfg.server.port).disableRequestStreaming(50 * 1024 * 1024)),
                  appLayer,
                )
     yield ()

@@ -16,6 +16,9 @@ router = APIRouter()
 _BASE_URL   = os.environ.get("CHATBOT_HTTP_URL", "http://localhost:8080")
 _AUTH_TOKEN = os.environ.get("CHATBOT_AUTH_TOKEN", "dev-token-change-me-in-production")
 
+# Keyed by person_id — preserves conversation history across requests.
+_runner_cache: dict[str, AgenticRunner] = {}
+
 
 class ChatRequest(BaseModel):
     personId: str
@@ -77,18 +80,26 @@ def _stream_events(runner: AgenticRunner, user_message: str) -> Generator[str, N
 
 @router.post("/api/chat")
 async def chat(body: ChatRequest):
-    runner = _get_runner(body.personId)
+    if body.personId not in _runner_cache:
+        _runner_cache[body.personId] = _get_runner(body.personId)
+    runner = _runner_cache[body.personId]
     user_message = _build_user_message(body.message, body.filePaths)
 
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
     def run_sync():
-        for chunk in _stream_events(runner, user_message):
-            loop.call_soon_threadsafe(queue.put_nowait, chunk)
-        loop.call_soon_threadsafe(queue.put_nowait, None)
+        try:
+            for chunk in _stream_events(runner, user_message):
+                loop.call_soon_threadsafe(queue.put_nowait, chunk)
+        except Exception as exc:
+            err_chunk = _event_line("error", {"message": str(exc)})
+            loop.call_soon_threadsafe(queue.put_nowait, err_chunk)
+        finally:
+            loop.call_soon_threadsafe(queue.put_nowait, None)
 
-    await loop.run_in_executor(None, run_sync)
+    # Fire without awaiting so the HTTP response starts immediately (true streaming).
+    loop.run_in_executor(None, run_sync)
 
     async def generate():
         while True:

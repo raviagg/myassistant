@@ -1,6 +1,35 @@
 import { useState, useCallback } from 'react'
-import type { Message, DebugInfo, ToolCall, ApiCallDebug } from '../types'
+import type { Message, DebugInfo, ToolCall, ApiCallDebug, AttachedFile } from '../types'
 import { uploadFile } from '../api'
+
+function extractAttachedFiles(toolCalls: ToolCall[]): AttachedFile[] {
+  const seen = new Set<string>()
+  const files: AttachedFile[] = []
+  const FILE_TOOLS = new Set(['get_document', 'create_document', 'list_documents', 'search_documents'])
+
+  for (const tc of toolCalls) {
+    if (!FILE_TOOLS.has(tc.name)) continue
+    const result = tc.result as Record<string, unknown>
+    // single doc (get_document, create_document) or list (items array)
+    const docs: unknown[] = Array.isArray(result.items) ? result.items : [result]
+    for (const doc of docs) {
+      const d = doc as Record<string, unknown>
+      if (!Array.isArray(d.files)) continue
+      for (const f of d.files as Array<Record<string, string>>) {
+        const path = f.file_path
+        if (path && !seen.has(path)) {
+          seen.add(path)
+          files.push({
+            path,
+            name: path.split('/').pop() ?? path,
+            mimeType: f.file_type ?? 'application/octet-stream',
+          })
+        }
+      }
+    }
+  }
+  return files
+}
 
 function makeId() {
   return Math.random().toString(36).slice(2)
@@ -19,40 +48,40 @@ export function useChatStream(): UseChatStreamResult {
   const sendMessage = useCallback(async (text: string, files: File[], personId: string) => {
     setIsStreaming(true)
 
-    // 1. Upload files first
-    const filePaths: string[] = []
-    for (const file of files) {
-      const path = await uploadFile(file)
-      filePaths.push(path)
-    }
-
-    // 2. Add user message to chat
-    const userMsg: Message = {
-      id: makeId(),
-      role: 'user',
-      text,
-      filePaths: filePaths.length > 0 ? filePaths : undefined,
-    }
-    setMessages(prev => [...prev, userMsg])
-
-    // 3. Start assistant message placeholder
+    // Show user message and assistant placeholder immediately so the chat
+    // doesn't look frozen while the upload is in progress.
+    const userMsgId  = makeId()
     const assistantId = makeId()
-    const assistantMsg: Message = { id: assistantId, role: 'assistant', text: '', streaming: true }
-    setMessages(prev => [...prev, assistantMsg])
+    setMessages(prev => [...prev, { id: userMsgId,   role: 'user',      text }])
+    setMessages(prev => [...prev, { id: assistantId, role: 'assistant', text: '', streaming: true }])
 
-    // 4. Open SSE stream
     try {
+      // 1. Upload files — inside try so any failure resets isStreaming
+      const filePaths: string[] = []
+      for (const file of files) {
+        filePaths.push(await uploadFile(file))
+      }
+      // Patch user message with resolved file paths
+      if (filePaths.length > 0) {
+        setMessages(prev => prev.map(m =>
+          m.id === userMsgId ? { ...m, filePaths } : m
+        ))
+      }
+
+      // 2. Open SSE stream
       const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ personId, message: text, filePaths }),
       })
 
+      if (!resp.ok) throw new Error(`Server error ${resp.status}`)
       if (!resp.body) throw new Error('No response body')
 
       const reader = resp.body.getReader()
       const decoder = new TextDecoder()
       let buf = ''
+      let currentEventType = ''  // persists across chunks
 
       while (true) {
         const { done, value } = await reader.read()
@@ -62,7 +91,6 @@ export function useChatStream(): UseChatStreamResult {
         const lines = buf.split('\n')
         buf = lines.pop() ?? ''
 
-        let currentEventType = ''
         for (const line of lines) {
           if (line.startsWith('event: ')) {
             currentEventType = line.slice(7).trim()
@@ -75,11 +103,14 @@ export function useChatStream(): UseChatStreamResult {
               ))
             } else if (currentEventType === 'done') {
               const debugInfo: DebugInfo = payload.debugInfo
+              const attachedFiles = extractAttachedFiles(debugInfo?.toolCalls ?? [])
               setMessages(prev => prev.map(m =>
                 m.id === assistantId
-                  ? { ...m, text: payload.fullText, streaming: false, debugInfo }
+                  ? { ...m, text: payload.fullText, streaming: false, debugInfo, attachedFiles }
                   : m
               ))
+            } else if (currentEventType === 'error') {
+              throw new Error(payload.message)
             }
             currentEventType = ''
           }
@@ -87,8 +118,10 @@ export function useChatStream(): UseChatStreamResult {
       }
     } catch (err) {
       if ((err as Error).name !== 'AbortError') {
+        console.error('[useChatStream] error:', err)
+        const msg = (err instanceof Error) ? err.message : String(err)
         setMessages(prev => prev.map(m =>
-          m.id === assistantId ? { ...m, text: 'Error: could not reach server.', streaming: false } : m
+          m.id === assistantId ? { ...m, text: `Error: ${msg}`, streaming: false } : m
         ))
       }
     } finally {
