@@ -82,10 +82,11 @@ merged AS (
   -- merge all create/update rows per entity instance
   -- later field values overwrite earlier ones (patch semantics)
   -- null values mean the field was explicitly removed
+  -- document_id is taken from the first (create) fact for stable provenance
   SELECT
     f.entity_instance_id,
     f.schema_id,
-    f.document_id,
+    (array_agg(f.document_id ORDER BY f.created_at ASC))[1] AS document_id,
     jsonb_strip_nulls(
       jsonb_object_agg(
         kv.key, kv.value
@@ -99,8 +100,7 @@ merged AS (
   WHERE f.operation_type != 'delete'
   GROUP BY
     f.entity_instance_id,
-    f.schema_id,
-    f.document_id
+    f.schema_id
 )
 SELECT m.*
 FROM merged m
