@@ -5,7 +5,7 @@ import { uploadFile } from '../api'
 function extractAttachedFiles(toolCalls: ToolCall[]): AttachedFile[] {
   const seen = new Set<string>()
   const files: AttachedFile[] = []
-  const FILE_TOOLS = new Set(['get_document', 'create_document', 'list_documents', 'search_documents'])
+  const FILE_TOOLS = new Set(['get_document', 'create_document'])
 
   for (const tc of toolCalls) {
     if (!FILE_TOOLS.has(tc.name)) continue
