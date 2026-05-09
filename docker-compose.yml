@@ -1,0 +1,97 @@
+# docker-compose.yml
+# Env vars are loaded from .env in the working directory.
+# On Synology, run from /volume1/docker/myassistant/ where the .env lives.
+name: myassistant
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - /volume1/docker/myassistant/postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    networks:
+      - app-net
+
+  http-server:
+    image: ghcr.io/raviagg/myassistant/http-server:latest
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      AUTH_TOKEN: ${AUTH_TOKEN}
+      FILE_STORAGE_BASE_PATH: /data/files
+      JAVA_OPTS: -Xms64m -Xmx256m
+    volumes:
+      - /volume1/docker/myassistant/uploads:/data/files
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    networks:
+      - app-net
+
+  chatbot-server:
+    image: ghcr.io/raviagg/myassistant/chatbot-server:latest
+    restart: unless-stopped
+    environment:
+      CHATBOT_HTTP_URL: http://http-server:8080
+      CHATBOT_AUTH_TOKEN: ${AUTH_TOKEN}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CORS_ORIGIN: https://assistant.raviagg.com
+    depends_on:
+      http-server:
+        condition: service_healthy
+    networks:
+      - app-net
+
+  frontend:
+    image: ghcr.io/raviagg/myassistant/frontend:latest
+    restart: unless-stopped
+    depends_on:
+      - chatbot-server
+    networks:
+      - app-net
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - frontend
+    networks:
+      - app-net
+
+  github-runner:
+    image: myoung34/github-runner:latest
+    restart: unless-stopped
+    environment:
+      REPO_URL: https://github.com/raviagg/myassistant
+      RUNNER_NAME: synology-runner
+      RUNNER_LABELS: synology
+      ACCESS_TOKEN: ${GITHUB_PAT}
+      RUNNER_WORKDIR: /tmp/runner/work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /volume1/docker/myassistant:/volume1/docker/myassistant
+
+networks:
+  app-net:
+    driver: bridge
