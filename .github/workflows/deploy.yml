@@ -24,6 +24,9 @@ jobs:
           distribution: 'temurin'
           cache: 'sbt'
 
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
       - name: Build Scala fat JAR
         working-directory: backend/http_server
         run: sbt assembly
