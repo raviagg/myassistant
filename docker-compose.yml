@@ -1,4 +1,6 @@
 # docker-compose.yml
+# Env vars are loaded from .env in the working directory.
+# On Synology, run from /volume1/docker/myassistant/ where the .env lives.
 name: myassistant
 services:
 
