@@ -1,4 +1,5 @@
 # docker-compose.yml
+name: myassistant
 services:
 
   postgres:
@@ -14,6 +15,7 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
+      start_period: 10s
       retries: 5
     networks:
       - app-net
