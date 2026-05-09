@@ -53,7 +53,8 @@ jobs:
       - name: Build and push chatbot-server
         uses: docker/build-push-action@v6
         with:
-          context: backend/chatbot_server
+          context: backend
+          file: backend/chatbot_server/Dockerfile
           push: ${{ github.ref == 'refs/heads/main' }}
           tags: ghcr.io/${{ github.repository }}/chatbot-server:latest
           cache-from: type=gha

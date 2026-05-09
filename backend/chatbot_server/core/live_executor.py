@@ -4,7 +4,13 @@ import httpx
 
 
 def _build_tool_map() -> dict:
-    mcp_path = pathlib.Path(__file__).parents[3] / "backend" / "mcp_server"  # repo_root/backend/mcp_server
+    file_path = pathlib.Path(__file__)
+    try:
+        mcp_path = file_path.parents[3] / "backend" / "mcp_server"
+        if not mcp_path.is_dir():
+            raise IndexError
+    except IndexError:
+        mcp_path = file_path.parents[1] / "mcp_server"  # Docker: /app/mcp_server
     if str(mcp_path) not in sys.path:
         sys.path.insert(0, str(mcp_path))
 
