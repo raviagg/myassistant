@@ -4,7 +4,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY pyproject.toml .
-RUN pip install --no-cache-dir . && pip install --no-cache-dir "uvicorn[standard]>=0.30"
+RUN pip install --no-cache-dir .
 
 COPY . .
 
