@@ -1,0 +1,6 @@
+# Exclude everything by default
+*
+# Allow the fat JAR
+!target/
+!target/scala-3.4.2/
+!target/scala-3.4.2/myassistant-backend.jar
