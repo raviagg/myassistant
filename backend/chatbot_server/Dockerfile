@@ -3,10 +3,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY pyproject.toml .
+COPY chatbot_server/pyproject.toml .
 RUN pip install --no-cache-dir .
 
-COPY . .
+COPY chatbot_server/ .
+COPY mcp_server/ ./mcp_server/
 
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 \
