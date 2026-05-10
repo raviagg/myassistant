@@ -67,6 +67,14 @@ object ScheduledJobResponse:
       createdAt      = j.createdAt,
     )
 
+/** HTTP request body for POST /scheduled-jobs/:id/runs. */
+final case class CreateScheduledJobRunRequest(
+    status:         String,
+    finishedAt:     Option[Instant],
+    error:          Option[String],
+    articlesStored: Int = 0,
+) derives Codec.AsObject
+
 /** HTTP response body for a single scheduled job run. */
 final case class ScheduledJobRunResponse(
     id:             UUID,

@@ -1,7 +1,7 @@
 package com.myassistant.services
 
 import com.myassistant.api.models.{
-  CreateScheduledJobRequest, ScheduledJobResponse, ScheduledJobRunResponse, UpdateScheduledJobRequest
+  CreateScheduledJobRequest, CreateScheduledJobRunRequest, ScheduledJobResponse, ScheduledJobRunResponse, UpdateScheduledJobRequest
 }
 import com.myassistant.db.repositories.ScheduledJobRepository
 import com.myassistant.domain.ScheduledJobRun
@@ -9,6 +9,7 @@ import com.myassistant.errors.AppError
 import zio.*
 import zio.jdbc.*
 
+import java.time.Instant
 import java.util.UUID
 
 trait ScheduledJobService:
@@ -19,7 +20,7 @@ trait ScheduledJobService:
   def listDue(): ZIO[ZConnectionPool, AppError, List[ScheduledJobResponse]]
   def update(id: UUID, req: UpdateScheduledJobRequest): ZIO[ZConnectionPool, AppError, Option[ScheduledJobResponse]]
   def delete(id: UUID): ZIO[ZConnectionPool, AppError, Boolean]
-  def createRun(run: ScheduledJobRun): ZIO[ZConnectionPool, AppError, ScheduledJobRunResponse]
+  def createRun(jobId: UUID, req: CreateScheduledJobRunRequest): ZIO[ZConnectionPool, AppError, ScheduledJobRunResponse]
   def getRunsByJobId(jobId: UUID): ZIO[ZConnectionPool, AppError, List[ScheduledJobRunResponse]]
 
 object ScheduledJobService:
@@ -27,7 +28,12 @@ object ScheduledJobService:
   final class Live(repo: ScheduledJobRepository) extends ScheduledJobService:
 
     def create(req: CreateScheduledJobRequest): ZIO[ZConnectionPool, AppError, ScheduledJobResponse] =
-      repo.create(req.toDomain).map(ScheduledJobResponse.fromDomain)
+      if req.personId.isEmpty && req.householdId.isEmpty then
+        ZIO.fail(AppError.ValidationError("A scheduled job must be scoped to a person or a household"))
+      else if req.personId.isDefined && req.householdId.isDefined then
+        ZIO.fail(AppError.ValidationError("A scheduled job cannot be scoped to both a person and a household"))
+      else
+        repo.create(req.toDomain).map(ScheduledJobResponse.fromDomain)
 
     def getById(id: UUID): ZIO[ZConnectionPool, AppError, Option[ScheduledJobResponse]] =
       repo.findById(id).map(_.map(ScheduledJobResponse.fromDomain))
@@ -47,7 +53,16 @@ object ScheduledJobService:
     def delete(id: UUID): ZIO[ZConnectionPool, AppError, Boolean] =
       repo.delete(id)
 
-    def createRun(run: ScheduledJobRun): ZIO[ZConnectionPool, AppError, ScheduledJobRunResponse] =
+    def createRun(jobId: UUID, req: CreateScheduledJobRunRequest): ZIO[ZConnectionPool, AppError, ScheduledJobRunResponse] =
+      val run = ScheduledJobRun(
+        id             = UUID.randomUUID(),
+        jobId          = jobId,
+        startedAt      = Instant.now(),
+        finishedAt     = req.finishedAt,
+        status         = req.status,
+        error          = req.error,
+        articlesStored = req.articlesStored,
+      )
       repo.createRun(run).map(ScheduledJobRunResponse.fromDomain)
 
     def getRunsByJobId(jobId: UUID): ZIO[ZConnectionPool, AppError, List[ScheduledJobRunResponse]] =
