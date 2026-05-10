@@ -168,7 +168,7 @@ object ScheduledJobRepository:
           sql"config = ${c.asJson.noSpaces}::jsonb"
         ),
         req.enabled.map(e =>
-          SqlFragment(s"enabled = $e")
+          sql"enabled = $e"
         ),
       )
       if assignments.isEmpty then
