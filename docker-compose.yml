@@ -65,6 +65,8 @@ services:
   frontend:
     image: ghcr.io/raviagg/myassistant/frontend:latest
     restart: unless-stopped
+    ports:
+      - "3000:80"
     depends_on:
       - chatbot-server
     networks:
