@@ -162,10 +162,10 @@ object ScheduledJobRepository:
     def update(id: UUID, req: UpdateScheduledJob): ZIO[ZConnectionPool, AppError, Option[ScheduledJob]] =
       val assignments: List[SqlFragment] = List.concat(
         req.cronExpression.map(v =>
-          SqlFragment(s"cron_expression = '${v.replace("'", "''")}'")
+          sql"cron_expression = $v"
         ),
         req.config.map(c =>
-          SqlFragment(s"config = '${c.asJson.noSpaces.replace("'", "''")}'::jsonb")
+          sql"config = ${c.asJson.noSpaces}::jsonb"
         ),
         req.enabled.map(e =>
           SqlFragment(s"enabled = $e")
