@@ -28,7 +28,9 @@ This document defines all MCP tools exposed to the Claude agent (or any other or
 | [4 — Reference](#group-4--reference-3-tools) | 3 |
 | [5 — Audit](#group-5--audit-1-tool) | 1 |
 | [6 — File Handling](#group-6--file-handling-4-tools) | 4 |
-| **Total** | **43** |
+| [7 — Scheduled Job Management](#group-7--scheduled-job-management-4-tools) | 4 |
+| [8 — Web Tools](#group-8--web-tools-2-tools) | 2 |
+| **Total** | **49** |
 
 ---
 
@@ -657,6 +659,87 @@ Note: documents are immutable, so a referenced file cannot be cleaned up by upda
 
 ---
 
+## Group 7 — Scheduled Job Management (4 tools)
+
+Manages cron-based scheduled jobs that drive background work (e.g. periodic news fetching). The scheduler service calls `list_scheduled_jobs` (or reads due jobs directly from the backend) and records run results after each execution. Claude uses these tools to let users configure and inspect their polling schedules.
+
+### `create_scheduled_job`
+
+**Purpose:** Create a new scheduled job for a person or household. The job will be picked up by the scheduler service on its next poll cycle.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `source_type` | string | yes | e.g. `newsapi`, `gmail_poll` — identifies the integration to run |
+| `cron_expression` | string | yes | Standard 5-field cron syntax e.g. `"0 * * * *"` (hourly) |
+| `person_id` | UUID | no | Owner person (at least one of person/household required) |
+| `household_id` | UUID | no | Owner household |
+| `config` | dict | no | Provider-specific configuration e.g. `{"topics": ["technology"]}` |
+
+**Returns:** Full `ScheduledJobResponse` row including generated `id` and computed `nextRunAt`.
+
+### `list_scheduled_jobs`
+
+**Purpose:** List all scheduled jobs belonging to a person or household. Used to show the user their current polling schedule.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `person_id` | UUID | no | (one of person/household required) |
+| `household_id` | UUID | no | |
+
+**Returns:** `ScheduledJobResponse[]`
+
+### `update_scheduled_job`
+
+**Purpose:** Modify a scheduled job's cron expression, config, or enabled state. PATCH semantics — only supplied fields are changed.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `job_id` | UUID | yes | |
+| `cron_expression` | string | no | New cron schedule |
+| `config` | dict | no | Replacement config object (full replace, not merge) |
+| `enabled` | bool | no | Pass `false` to pause the job without deleting it |
+
+**Returns:** Updated `ScheduledJobResponse`.
+
+### `delete_scheduled_job`
+
+**Purpose:** Permanently delete a scheduled job and its run history. Use `update_scheduled_job(enabled=false)` to pause instead of delete.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `job_id` | UUID | yes | |
+
+**Returns:** void
+
+---
+
+## Group 8 — Web Tools (2 tools)
+
+General-purpose web access tools available to the agent for research and news retrieval. These tools are used internally by the scheduler when fetching news articles, and can also be used by Claude during a conversation when the user asks about current events or wants to look something up.
+
+### `fetch_url`
+
+**Purpose:** Fetch the content of a URL and return it as plain text. Strips HTML tags and boilerplate, returning the readable content. Used to retrieve full article text after search results surface URLs.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `url` | string | yes | Fully qualified URL to fetch |
+
+**Returns:** `{ url: string, content: string, title: string }`
+
+### `web_search`
+
+**Purpose:** Perform a web search and return a list of result snippets with URLs. The underlying provider is configurable (`duckduckgo` by default, `brave` if `BRAVE_API_KEY` is set). Results can be followed up with `fetch_url` to retrieve full article text.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `query` | string | yes | Search query |
+| `num_results` | int | no | Number of results to return. Default 5 |
+
+**Returns:** `{ results: [{ title, url, snippet }] }`
+
+---
+
 ## Summary
 
 | Group | Tools |
@@ -671,4 +754,6 @@ Note: documents are immutable, so a referenced file cannot be cleaned up by upda
 | 4 — Reference | 3 |
 | 5 — Audit | 1 |
 | 6 — File Handling | 4 |
-| **Total** | **43** |
+| 7 — Scheduled Job Management | 4 |
+| 8 — Web Tools | 2 |
+| **Total** | **49** |

@@ -72,6 +72,22 @@ services:
     networks:
       - app-net
 
+  scheduler:
+    image: ghcr.io/raviagg/myassistant/scheduler:latest
+    restart: unless-stopped
+    environment:
+      HTTP_SERVER_URL: http://http-server:8080
+      AUTH_TOKEN: ${AUTH_TOKEN}
+      NEWS_SOURCE_PROVIDER: ${NEWS_SOURCE_PROVIDER:-newsapi}
+      NEWSAPI_KEY: ${NEWSAPI_KEY}
+      WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-duckduckgo}
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+    depends_on:
+      http-server:
+        condition: service_healthy
+    networks:
+      - app-net
+
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
