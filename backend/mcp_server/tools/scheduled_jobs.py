@@ -4,18 +4,23 @@ from client import _check
 
 def create_scheduled_job(
     http: httpx.Client,
-    source_type_id: str,
-    person_id: str,
+    source_type: str,
     cron_expression: str,
-    config: dict,
+    person_id: str | None = None,
+    household_id: str | None = None,
+    config: dict | None = None,
 ) -> dict:
     """Create a new scheduled job."""
     body: dict = {
-        "sourceTypeId": source_type_id,
-        "personId": person_id,
+        "sourceType": source_type,
         "cronExpression": cron_expression,
-        "config": config,
     }
+    if person_id is not None:
+        body["personId"] = person_id
+    if household_id is not None:
+        body["householdId"] = household_id
+    if config is not None:
+        body["config"] = config
     resp = http.post("/api/v1/scheduled-jobs", json=body)
     _check(resp)
     return resp.json()
