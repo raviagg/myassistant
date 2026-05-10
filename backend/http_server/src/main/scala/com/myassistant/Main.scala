@@ -50,6 +50,7 @@ object Main extends ZIOAppDefault:
     val referenceRepoLayer    = ReferenceRepository.live
     val auditRepoLayer        = AuditRepository.live
     val fileRepoLayer         = FileRepository.live
+    val scheduledJobRepoLayer = ScheduledJobRepository.live
 
     // ── Services ──────────────────────────────────────────────
     val personSvcLayer       = personRepoLayer       >>> PersonService.live
@@ -60,8 +61,9 @@ object Main extends ZIOAppDefault:
     val factSvcLayer         = factRepoLayer         >>> FactService.live
     val schemaSvcLayer       = schemaRepoLayer       >>> SchemaService.live
     val referenceSvcLayer    = referenceRepoLayer    >>> ReferenceService.live
-    val auditSvcLayer        = auditRepoLayer        >>> AuditService.live
-    val fileSvcLayer         = fileConfigLayer       >>> FileService.live
+    val auditSvcLayer          = auditRepoLayer          >>> AuditService.live
+    val fileSvcLayer           = fileConfigLayer         >>> FileService.live
+    val scheduledJobSvcLayer   = scheduledJobRepoLayer   >>> ScheduledJobService.live
 
     poolLayer ++
       personSvcLayer ++
@@ -74,6 +76,7 @@ object Main extends ZIOAppDefault:
       referenceSvcLayer ++
       auditSvcLayer ++
       fileSvcLayer ++
+      scheduledJobSvcLayer ++
       authConfigLayer
 
   /** Application entry point — start the HTTP server. */
