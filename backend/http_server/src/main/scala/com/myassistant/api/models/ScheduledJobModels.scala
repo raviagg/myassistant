@@ -72,7 +72,7 @@ final case class CreateScheduledJobRunRequest(
     status:         String,
     finishedAt:     Option[Instant],
     error:          Option[String],
-    articlesStored: Int = 0,
+    articlesStored: Option[Int],
 ) derives Codec.AsObject
 
 /** HTTP response body for a single scheduled job run. */

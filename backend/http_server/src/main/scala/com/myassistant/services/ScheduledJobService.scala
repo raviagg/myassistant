@@ -54,16 +54,24 @@ object ScheduledJobService:
       repo.delete(id)
 
     def createRun(jobId: UUID, req: CreateScheduledJobRunRequest): ZIO[ZConnectionPool, AppError, ScheduledJobRunResponse] =
-      val run = ScheduledJobRun(
-        id             = UUID.randomUUID(),
-        jobId          = jobId,
-        startedAt      = Instant.now(),
-        finishedAt     = req.finishedAt,
-        status         = req.status,
-        error          = req.error,
-        articlesStored = req.articlesStored,
-      )
-      repo.createRun(run).map(ScheduledJobRunResponse.fromDomain)
+      val validStatuses = Set("success", "error", "partial")
+      if !validStatuses.contains(req.status) then
+        ZIO.fail(AppError.ValidationError(s"status must be one of: ${validStatuses.mkString(", ")}"))
+      else
+        repo.findById(jobId).flatMap {
+          case None => ZIO.fail(AppError.NotFound("scheduled_job", jobId.toString))
+          case Some(_) =>
+            val run = ScheduledJobRun(
+              id             = UUID.randomUUID(),
+              jobId          = jobId,
+              startedAt      = Instant.now(),
+              finishedAt     = req.finishedAt,
+              status         = req.status,
+              error          = req.error,
+              articlesStored = req.articlesStored.getOrElse(0),
+            )
+            repo.createRun(run).map(ScheduledJobRunResponse.fromDomain)
+        }
 
     def getRunsByJobId(jobId: UUID): ZIO[ZConnectionPool, AppError, List[ScheduledJobRunResponse]] =
       repo.findRunsByJobId(jobId).map(_.map(ScheduledJobRunResponse.fromDomain))
