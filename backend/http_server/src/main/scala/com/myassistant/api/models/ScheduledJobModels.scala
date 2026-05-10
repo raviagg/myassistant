@@ -31,6 +31,7 @@ final case class UpdateScheduledJobRequest(
     cronExpression: Option[String],
     config:         Option[JsonObject],
     enabled:        Option[Boolean],
+    nextRunAt:      Option[Instant],
 ) derives Codec.AsObject:
 
   def toDomain: UpdateScheduledJob =
@@ -38,6 +39,7 @@ final case class UpdateScheduledJobRequest(
       cronExpression = cronExpression,
       config         = config,
       enabled        = enabled,
+      nextRunAt      = nextRunAt,
     )
 
 /** HTTP response body for a single scheduled job. */

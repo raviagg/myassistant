@@ -170,6 +170,9 @@ object ScheduledJobRepository:
         req.enabled.map(e =>
           sql"enabled = $e"
         ),
+        req.nextRunAt.map(ts =>
+          sql"next_run_at = ${java.sql.Timestamp.from(ts)}"
+        ),
       )
       if assignments.isEmpty then
         findById(id)
