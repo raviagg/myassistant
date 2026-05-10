@@ -54,7 +54,7 @@ services:
     environment:
       CHATBOT_HTTP_URL: http://http-server:8080
       CHATBOT_AUTH_TOKEN: ${AUTH_TOKEN}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      BEDROCK_API_KEY: ${BEDROCK_API_KEY}
       CORS_ORIGIN: https://assistant.raviagg.com
     depends_on:
       http-server:
