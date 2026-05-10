@@ -29,6 +29,9 @@ CREATE TABLE scheduled_job (
     )
 );
 
+CREATE INDEX idx_scheduled_job_person_id ON scheduled_job(person_id) WHERE person_id IS NOT NULL;
+CREATE INDEX idx_scheduled_job_next_run  ON scheduled_job(next_run_at) WHERE enabled = true;
+
 -- scheduled_job_run: one row per execution of a scheduled_job
 CREATE TABLE scheduled_job_run (
     id              UUID        PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -39,6 +42,8 @@ CREATE TABLE scheduled_job_run (
     error           TEXT,
     articles_stored INT         NOT NULL DEFAULT 0
 );
+
+CREATE INDEX idx_scheduled_job_run_job_id ON scheduled_job_run(job_id);
 
 -- news_topic entity type schema
 INSERT INTO entity_type_schema (domain, entity_type, schema_version, description, field_definitions, extraction_prompt, change_description)
