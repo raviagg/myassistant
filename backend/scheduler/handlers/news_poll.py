@@ -1,6 +1,7 @@
 import os
 from datetime import datetime, timedelta, timezone
 import httpx
+from croniter import croniter
 from handlers.base import BaseHandler
 from providers.news_source import NewsSource, Article
 from providers.newsapi_source import NewsApiSource
@@ -89,10 +90,9 @@ class NewsPollHandler(BaseHandler):
         # Compute next run time from cron expression and update the job.
         # This prevents the job from re-triggering on every 60-second poll cycle.
         try:
-            from croniter import croniter
             cron = croniter(job["cronExpression"], datetime.now(timezone.utc))
             next_run = cron.get_next(datetime)
-        except Exception:
+        except (ValueError, KeyError):
             next_run = datetime.now(timezone.utc) + timedelta(hours=24)
 
         self.http.patch(f"/api/v1/scheduled-jobs/{job_id}", json={
