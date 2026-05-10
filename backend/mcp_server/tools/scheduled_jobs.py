@@ -41,7 +41,7 @@ def list_scheduled_jobs(
         params["householdId"] = household_id
     resp = http.get("/api/v1/scheduled-jobs", params=params)
     _check(resp)
-    return resp.json()
+    return resp.json().get("items", [])
 
 
 def update_scheduled_job(
