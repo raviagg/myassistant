@@ -15,17 +15,39 @@ class NewsPollHandler(BaseHandler):
     def __init__(self, http: httpx.Client):
         self.http = http
         self._news_article_schema_id: str | None = None
+        self._news_poll_source_type_id: str | None = None
+        self._news_domain_id: str | None = None
         provider_name = os.environ.get("NEWS_SOURCE_PROVIDER", "newsapi").lower()
         if provider_name == "rss":
             self.source: NewsSource = RssSource()
         else:
             self.source: NewsSource = NewsApiSource()
 
+    def _get_news_poll_source_type_id(self) -> str:
+        if self._news_poll_source_type_id is None:
+            resp = self.http.get("/api/v1/reference/source-types")
+            resp.raise_for_status()
+            match = next((st for st in resp.json() if st["name"] == "news_poll"), None)
+            if match is None:
+                raise RuntimeError("news_poll source type not found in reference data")
+            self._news_poll_source_type_id = match["id"]
+        return self._news_poll_source_type_id
+
+    def _get_news_domain_id(self) -> str:
+        if self._news_domain_id is None:
+            resp = self.http.get("/api/v1/reference/domains")
+            resp.raise_for_status()
+            match = next((d for d in resp.json() if d["name"] == "news"), None)
+            if match is None:
+                raise RuntimeError("news domain not found in reference data")
+            self._news_domain_id = match["id"]
+        return self._news_domain_id
+
     def _get_news_article_schema_id(self) -> str:
         if self._news_article_schema_id is None:
             resp = self.http.get(
                 "/api/v1/schemas/current",
-                params={"domainId": "news", "entityType": "news_article"},
+                params={"domainId": self._get_news_domain_id(), "entityType": "news_article"},
             )
             resp.raise_for_status()
             self._news_article_schema_id = resp.json()["id"]
@@ -72,7 +94,7 @@ class NewsPollHandler(BaseHandler):
                         # Store document
                         doc_resp = self.http.post("/api/v1/documents", json={
                             "contentText": content_text,
-                            "sourceTypeId": "news_poll",
+                            "sourceTypeId": self._get_news_poll_source_type_id(),
                             "embedding": embed(content_text),
                             "supersedesIds": [],
                             "files": [],
