@@ -39,7 +39,7 @@ final case class UpdateScheduledJobRequest(
       cronExpression = cronExpression,
       config         = config,
       enabled        = enabled,
-      nextRunAt      = nextRunAt,
+      nextRunAt      = nextRunAt.map(Some(_)),
     )
 
 /** HTTP response body for a single scheduled job. */

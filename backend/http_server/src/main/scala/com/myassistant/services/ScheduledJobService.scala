@@ -48,13 +48,20 @@ object ScheduledJobService:
       repo.findDueJobs().map(_.map(ScheduledJobResponse.fromDomain))
 
     def update(id: UUID, req: UpdateScheduledJobRequest): ZIO[ZConnectionPool, AppError, Option[ScheduledJobResponse]] =
-      repo.update(id, req.toDomain).map(_.map(ScheduledJobResponse.fromDomain))
+      // When cron changes without an explicit nextRunAt, reset to NULL so the
+      // scheduler fires it on the next poll and recalculates the proper next time.
+      val domain = req.toDomain
+      val effective = if req.cronExpression.isDefined && req.nextRunAt.isEmpty then
+        domain.copy(nextRunAt = Some(None))
+      else
+        domain
+      repo.update(id, effective).map(_.map(ScheduledJobResponse.fromDomain))
 
     def delete(id: UUID): ZIO[ZConnectionPool, AppError, Boolean] =
       repo.delete(id)
 
     def createRun(jobId: UUID, req: CreateScheduledJobRunRequest): ZIO[ZConnectionPool, AppError, ScheduledJobRunResponse] =
-      val validStatuses = Set("success", "error", "partial")
+      val validStatuses = Set("success", "error", "partial", "skipped")
       if !validStatuses.contains(req.status) then
         ZIO.fail(AppError.ValidationError(s"status must be one of: ${validStatuses.mkString(", ")}"))
       else

@@ -31,12 +31,14 @@ final case class CreateScheduledJob(
     enabled:        Boolean,
 )
 
-/** Patch-style update model — all fields optional (None = no change). */
+/** Patch-style update model — all fields optional (None = no change).
+ *  nextRunAt uses Option[Option[Instant]]: None = no change, Some(None) = set NULL, Some(Some(ts)) = set value.
+ */
 final case class UpdateScheduledJob(
     cronExpression: Option[String],
     config:         Option[io.circe.JsonObject],
     enabled:        Option[Boolean],
-    nextRunAt:      Option[Instant],
+    nextRunAt:      Option[Option[Instant]],
 )
 
 /** A single execution record for a ScheduledJob. */

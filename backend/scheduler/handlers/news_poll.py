@@ -2,8 +2,11 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import httpx
 from croniter import croniter
+
+_SCHEDULER_TZ = ZoneInfo(os.environ.get("SCHEDULER_TIMEZONE", "UTC"))
 from handlers.base import BaseHandler
 from providers.news_source import NewsSource, Article
 from providers.newsapi_source import NewsApiSource
@@ -27,7 +30,7 @@ class NewsPollHandler(BaseHandler):
         if self._news_poll_source_type_id is None:
             resp = self.http.get("/api/v1/reference/source-types")
             resp.raise_for_status()
-            match = next((st for st in resp.json() if st["name"] == "news_poll"), None)
+            match = next((st for st in resp.json().get("items", []) if st["name"] == "news_poll"), None)
             if match is None:
                 raise RuntimeError("news_poll source type not found in reference data")
             self._news_poll_source_type_id = match["id"]
@@ -37,7 +40,7 @@ class NewsPollHandler(BaseHandler):
         if self._news_domain_id is None:
             resp = self.http.get("/api/v1/reference/domains")
             resp.raise_for_status()
-            match = next((d for d in resp.json() if d["name"] == "news"), None)
+            match = next((d for d in resp.json().get("items", []) if d["name"] == "news"), None)
             if match is None:
                 raise RuntimeError("news domain not found in reference data")
             self._news_domain_id = match["id"]
@@ -64,11 +67,14 @@ class NewsPollHandler(BaseHandler):
             # Find last run time
             runs_resp = self.http.get(f"/api/v1/scheduled-jobs/{job_id}/runs")
             runs = runs_resp.json().get("items", []) if runs_resp.is_success else []
+            floor = datetime.now(timezone.utc) - timedelta(hours=48)
             if runs:
-                # Most recent run's startedAt
-                last_run_at = datetime.fromisoformat(runs[0]["startedAt"].replace("Z", "+00:00"))
+                last_run_at = min(
+                    datetime.fromisoformat(runs[0]["startedAt"].replace("Z", "+00:00")),
+                    floor,
+                )
             else:
-                last_run_at = datetime.now(timezone.utc) - timedelta(hours=24)
+                last_run_at = floor
 
             # Get active news topics for this person
             topics_resp = self.http.get(
@@ -83,11 +89,13 @@ class NewsPollHandler(BaseHandler):
                 if f.get("fields", {}).get("active", True) is not False
             ]
 
+            print(f"[news_poll] last_run_at={last_run_at.isoformat()}, topics={active_topics}")
             schema_id = self._get_news_article_schema_id()
 
             for topic in active_topics:
                 try:
                     articles = self.source.fetch(topic, since=last_run_at)
+                    print(f"[news_poll] topic={topic!r} → {len(articles)} articles")
                     for article in articles:
                         content_text = f"{article.headline}\n\n{article.description or ''}"
 
@@ -129,19 +137,27 @@ class NewsPollHandler(BaseHandler):
         except Exception as e:
             errors.append(str(e))
         finally:
-            # Record the job run (skip if nothing happened at all)
-            if not (articles_stored == 0 and not errors):
-                status = "error" if errors and articles_stored == 0 else ("partial" if errors else "success")
-                self.http.post(f"/api/v1/scheduled-jobs/{job_id}/runs", json={
-                    "status": status,
-                    "articlesStored": articles_stored,
-                    "error": "; ".join(errors) if errors else None,
-                })
+            # Always record the run so the history is complete
+            if errors and articles_stored == 0:
+                status = "error"
+            elif errors:
+                status = "partial"
+            elif articles_stored == 0:
+                status = "skipped"
+            else:
+                status = "success"
+            run_resp = self.http.post(f"/api/v1/scheduled-jobs/{job_id}/runs", json={
+                "status": status,
+                "articlesStored": articles_stored,
+                "error": "; ".join(errors) if errors else None,
+            })
+            if not run_resp.is_success:
+                print(f"[news_poll] WARNING: failed to record run: {run_resp.status_code} {run_resp.text}")
 
             # Always advance nextRunAt to prevent re-triggering every 60s
             try:
-                cron = croniter(job["cronExpression"], datetime.now(timezone.utc))
-                next_run = cron.get_next(datetime)
+                cron = croniter(job["cronExpression"], datetime.now(_SCHEDULER_TZ))
+                next_run = cron.get_next(datetime).replace(tzinfo=_SCHEDULER_TZ).astimezone(timezone.utc)
             except (ValueError, KeyError):
                 next_run = datetime.now(timezone.utc) + timedelta(hours=24)
             self.http.patch(f"/api/v1/scheduled-jobs/{job_id}", json={

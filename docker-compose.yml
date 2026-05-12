@@ -82,6 +82,7 @@ services:
       NEWSAPI_KEY: ${NEWSAPI_KEY}
       WEB_SEARCH_PROVIDER: ${WEB_SEARCH_PROVIDER:-duckduckgo}
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      SCHEDULER_TIMEZONE: ${SCHEDULER_TIMEZONE:-UTC}
     depends_on:
       http-server:
         condition: service_healthy

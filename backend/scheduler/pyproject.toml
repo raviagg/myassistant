@@ -10,6 +10,7 @@ dependencies = [
     "httpx>=0.27",
     "croniter>=2.0",
     "sentence-transformers>=2.7",
+    "newsapi-python>=0.2.7",
 ]
 
 [tool.hatch.build.targets.wheel]
