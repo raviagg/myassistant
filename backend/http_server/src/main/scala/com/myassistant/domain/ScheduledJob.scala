@@ -43,11 +43,10 @@ final case class UpdateScheduledJob(
 
 /** A single execution record for a ScheduledJob. */
 final case class ScheduledJobRun(
-    id:             UUID,
-    jobId:          UUID,
-    startedAt:      Instant,
-    finishedAt:     Option[Instant],
-    status:         String,
-    error:          Option[String],
-    articlesStored: Int,
+    id:           UUID,
+    jobId:        UUID,
+    startedAt:    Instant,
+    finishedAt:   Option[Instant],
+    status:       String,
+    statusDetail: Option[String],
 )

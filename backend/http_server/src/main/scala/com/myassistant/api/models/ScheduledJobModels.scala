@@ -71,31 +71,28 @@ object ScheduledJobResponse:
 
 /** HTTP request body for POST /scheduled-jobs/:id/runs. */
 final case class CreateScheduledJobRunRequest(
-    status:         String,
-    finishedAt:     Option[Instant],
-    error:          Option[String],
-    articlesStored: Option[Int],
+    status:       String,
+    finishedAt:   Option[Instant],
+    statusDetail: Option[String],
 ) derives Codec.AsObject
 
 /** HTTP response body for a single scheduled job run. */
 final case class ScheduledJobRunResponse(
-    id:             UUID,
-    jobId:          UUID,
-    startedAt:      Instant,
-    finishedAt:     Option[Instant],
-    status:         String,
-    error:          Option[String],
-    articlesStored: Int,
+    id:           UUID,
+    jobId:        UUID,
+    startedAt:    Instant,
+    finishedAt:   Option[Instant],
+    status:       String,
+    statusDetail: Option[String],
 ) derives Codec.AsObject
 
 object ScheduledJobRunResponse:
   def fromDomain(r: ScheduledJobRun): ScheduledJobRunResponse =
     ScheduledJobRunResponse(
-      id             = r.id,
-      jobId          = r.jobId,
-      startedAt      = r.startedAt,
-      finishedAt     = r.finishedAt,
-      status         = r.status,
-      error          = r.error,
-      articlesStored = r.articlesStored,
+      id           = r.id,
+      jobId        = r.jobId,
+      startedAt    = r.startedAt,
+      finishedAt   = r.finishedAt,
+      status       = r.status,
+      statusDetail = r.statusDetail,
     )

@@ -17,7 +17,7 @@ def _build_tool_map() -> dict:
     from tools import (
         persons, households, person_household, relationships,
         documents, facts, schemas, reference, audit, files,
-        scheduled_jobs, web,
+        scheduled_jobs, web, news,
     )
 
     return {
@@ -68,9 +68,11 @@ def _build_tool_map() -> dict:
         "list_scheduled_jobs":         scheduled_jobs.list_scheduled_jobs,
         "update_scheduled_job":        scheduled_jobs.update_scheduled_job,
         "delete_scheduled_job":        scheduled_jobs.delete_scheduled_job,
-        # web tools do not take an http client — wrap to accept and discard it
+        # web and news tools do not take an http client — wrap to accept and discard it
         "fetch_url":                   lambda http, **kw: web.fetch_url(**kw),
         "web_search":                  lambda http, **kw: web.web_search(**kw),
+        "search_news_categories":      lambda http, **kw: news.search_news_categories(**kw),
+        "search_news_sources":         lambda http, **kw: news.search_news_sources(**kw),
     }
 
 

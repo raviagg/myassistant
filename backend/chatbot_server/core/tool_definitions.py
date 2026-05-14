@@ -711,7 +711,40 @@ ALL_TOOLS = [
             "required": ["job_id"],
         },
     },
-    # ── Group 7 — Web ────────────────────────────────────────────────────
+    # ── Group 7 — News ───────────────────────────────────────────────────
+    {
+        "name": "search_news_categories",
+        "description": (
+            "Search newsapi.ai for category URIs matching a query. "
+            "Always call this before writing news_preference categories to get the exact URI. "
+            "Returns a list of {uri, label} objects."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Category name to search for. Example: Finance, Technology, Politics"},
+                "count": {"type": "integer", "description": "Max results to return. Default 10"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_news_sources",
+        "description": (
+            "Search newsapi.ai for news source URIs matching a query. "
+            "Always call this before writing news_preference sources to get the exact URI. "
+            "Returns a list of {uri, title} objects."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "News outlet name to search for. Example: Reuters, BBC, Wall Street Journal"},
+                "count": {"type": "integer", "description": "Max results to return. Default 10"},
+            },
+            "required": ["query"],
+        },
+    },
+    # ── Group 8 — Web ────────────────────────────────────────────────────
     {
         "name": "fetch_url",
         "description": (
@@ -793,4 +826,4 @@ ALL_TOOLS = [
     },
 ]
 
-assert len(ALL_TOOLS) == 47, f"Expected 47 tools, got {len(ALL_TOOLS)}"
+assert len(ALL_TOOLS) == 49, f"Expected 49 tools, got {len(ALL_TOOLS)}"

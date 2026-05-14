@@ -17,6 +17,7 @@ dependencies = [
     "sentence-transformers>=3.0",
     "beautifulsoup4>=4.12",
     "duckduckgo-search>=6.0",
+    "eventregistry>=9.1",
 ]
 
 [project.optional-dependencies]

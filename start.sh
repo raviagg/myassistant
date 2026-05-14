@@ -117,16 +117,15 @@ PIDS+=($!)
 info "  Frontend PID=${PIDS[-1]} — logs: $LOG_DIR/frontend.log"
 
 # ── 5. Scheduler ──────────────────────────────────────────────────────────────
-if [ -z "${NEWSAPI_KEY:-}" ]; then
-  warn "NEWSAPI_KEY is not set — skipping scheduler (news polling will not run)."
+if [ -z "${NEWSAPIAI_KEY:-}" ]; then
+  warn "NEWSAPIAI_KEY is not set — skipping scheduler (news polling will not run)."
 else
   info "Starting scheduler..."
   (
     cd "$ROOT/backend/scheduler"
     HTTP_SERVER_URL="http://localhost:${HTTP_PORT}" \
     AUTH_TOKEN="${AUTH_TOKEN:-}" \
-    NEWS_SOURCE_PROVIDER="${NEWS_SOURCE_PROVIDER:-newsapi}" \
-    NEWSAPI_KEY="${NEWSAPI_KEY}" \
+    NEWSAPIAI_KEY="${NEWSAPIAI_KEY}" \
     WEB_SEARCH_PROVIDER="${WEB_SEARCH_PROVIDER:-duckduckgo}" \
     BRAVE_API_KEY="${BRAVE_API_KEY:-}" \
     SCHEDULER_TIMEZONE="${SCHEDULER_TIMEZONE:-UTC}" \
@@ -143,7 +142,7 @@ echo "  DB (postgres)    → localhost:5432"
 echo "  HTTP server      → http://localhost:${HTTP_PORT}"
 echo "  Chatbot server   → http://localhost:${CHATBOT_PORT}"
 echo "  Frontend         → http://localhost:${FRONTEND_PORT}"
-if [ -n "${NEWSAPI_KEY:-}" ]; then
+if [ -n "${NEWSAPIAI_KEY:-}" ]; then
   echo "  Scheduler        → background (polls every 60s)"
 fi
 echo ""

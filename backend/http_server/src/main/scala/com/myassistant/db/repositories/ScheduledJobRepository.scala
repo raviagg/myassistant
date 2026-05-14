@@ -54,10 +54,10 @@ object ScheduledJobRepository:
     (String, String, Option[String], Option[String], String, String,
      Boolean, Option[java.sql.Timestamp], java.sql.Timestamp)
 
-  // id, job_id, started_at, finished_at, status, error, articles_stored
+  // id, job_id, started_at, finished_at, status, status_detail
   private type RunRow =
     (String, String, java.sql.Timestamp, Option[java.sql.Timestamp],
-     String, Option[String], Int)
+     String, Option[String])
 
   // ── Shared column lists ───────────────────────────────────────────────────
   private val jobCols = SqlFragment(
@@ -66,7 +66,7 @@ object ScheduledJobRepository:
   )
 
   private val runCols = SqlFragment(
-    """id::text, job_id::text, started_at, finished_at, status, error, articles_stored"""
+    """id::text, job_id::text, started_at, finished_at, status, status_detail"""
   )
 
   // ── Row → domain ──────────────────────────────────────────────────────────
@@ -89,15 +89,14 @@ object ScheduledJobRepository:
     )
 
   private def rowToRun(row: RunRow): ScheduledJobRun =
-    val (id, jobId, startedAt, finishedAt, status, error, articlesStored) = row
+    val (id, jobId, startedAt, finishedAt, status, statusDetail) = row
     ScheduledJobRun(
-      id             = UUID.fromString(id),
-      jobId          = UUID.fromString(jobId),
-      startedAt      = startedAt.toInstant,
-      finishedAt     = finishedAt.map(_.toInstant),
-      status         = status,
-      error          = error,
-      articlesStored = articlesStored,
+      id           = UUID.fromString(id),
+      jobId        = UUID.fromString(jobId),
+      startedAt    = startedAt.toInstant,
+      finishedAt   = finishedAt.map(_.toInstant),
+      status       = status,
+      statusDetail = statusDetail,
     )
 
   // ── SQL error mapper ──────────────────────────────────────────────────────
@@ -195,9 +194,9 @@ object ScheduledJobRepository:
       val startedTs  = java.sql.Timestamp.from(run.startedAt)
       val finishedTs = run.finishedAt.map(java.sql.Timestamp.from)
       val q =
-        sql"INSERT INTO scheduled_job_run(id, job_id, started_at, finished_at, status, error, articles_stored) " ++
+        sql"INSERT INTO scheduled_job_run(id, job_id, started_at, finished_at, status, status_detail) " ++
         sql"VALUES (${run.id.toString}::uuid, ${run.jobId.toString}::uuid, $startedTs, $finishedTs, " ++
-        sql"${run.status}, ${run.error}, ${run.articlesStored}) " ++
+        sql"${run.status}, ${run.statusDetail}) " ++
         sql"RETURNING " ++ runCols
       transaction(q.query[RunRow].selectOne)
         .mapError(mapSqlError)
