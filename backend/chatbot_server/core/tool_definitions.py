@@ -646,6 +646,137 @@ ALL_TOOLS = [
             "required": [],
         },
     },
+    # ── Group 5 — Scheduled Jobs ────────────────────────────────────────
+    {
+        "name": "create_scheduled_job",
+        "description": (
+            "Create a recurring scheduled job. Use source_type='news_poll' for news fetching. "
+            "Exactly one of person_id or household_id must be provided."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_type": {
+                    "type": "string",
+                    "description": "Source type identifier e.g. news_poll",
+                },
+                "cron_expression": {
+                    "type": "string",
+                    "description": "Cron schedule expression e.g. '0 7 * * *' for daily at 7am",
+                },
+                "person_id": {"type": "string", "description": "Owner person UUID"},
+                "household_id": {"type": "string", "description": "Owner household UUID"},
+                "config": {
+                    "type": "object",
+                    "description": "Arbitrary JSON config passed to the job handler. Default {}",
+                },
+            },
+            "required": ["source_type", "cron_expression"],
+        },
+    },
+    {
+        "name": "list_scheduled_jobs",
+        "description": "List scheduled jobs for a person or household.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "person_id": {"type": "string"},
+                "household_id": {"type": "string"},
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "update_scheduled_job",
+        "description": "Update a scheduled job. Only provided fields are changed.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "UUID of the job to update"},
+                "cron_expression": {"type": "string"},
+                "config": {"type": "object"},
+                "enabled": {"type": "boolean"},
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "delete_scheduled_job",
+        "description": "Delete a scheduled job. Returns true if deleted.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "UUID of the job to delete"},
+            },
+            "required": ["job_id"],
+        },
+    },
+    # ── Group 7 — News ───────────────────────────────────────────────────
+    {
+        "name": "search_news_categories",
+        "description": (
+            "Search newsapi.ai for category URIs matching a query. "
+            "Always call this before writing news_preference categories to get the exact URI. "
+            "Returns a list of {uri, label} objects."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Category name to search for. Example: Finance, Technology, Politics"},
+                "count": {"type": "integer", "description": "Max results to return. Default 10"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "search_news_sources",
+        "description": (
+            "Search newsapi.ai for news source URIs matching a query. "
+            "Always call this before writing news_preference sources to get the exact URI. "
+            "Returns a list of {uri, title} objects."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "News outlet name to search for. Example: Reuters, BBC, Wall Street Journal"},
+                "count": {"type": "integer", "description": "Max results to return. Default 10"},
+            },
+            "required": ["query"],
+        },
+    },
+    # ── Group 8 — Web ────────────────────────────────────────────────────
+    {
+        "name": "fetch_url",
+        "description": (
+            "Fetch a webpage and return its readable plain text content. "
+            "Use this to read the full content of a news article given its URL."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to fetch"},
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "web_search",
+        "description": (
+            "Search the web and return top results. Use this to answer background questions "
+            "(e.g. 'What is quantitative easing?') or find current information not stored as facts."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+                "num_results": {
+                    "type": "integer",
+                    "description": "Number of results to return. Default 5",
+                },
+            },
+            "required": ["query"],
+        },
+    },
     # ── Group 6 — File Handling ──────────────────────────────────────────
     {
         "name": "save_file",
@@ -695,4 +826,4 @@ ALL_TOOLS = [
     },
 ]
 
-assert len(ALL_TOOLS) == 41, f"Expected 41 tools, got {len(ALL_TOOLS)}"
+assert len(ALL_TOOLS) == 49, f"Expected 49 tools, got {len(ALL_TOOLS)}"

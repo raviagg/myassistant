@@ -1,0 +1,17 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "myassistant-scheduler"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "croniter>=2.0",
+    "sentence-transformers>=2.7",
+    "eventregistry>=9.1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

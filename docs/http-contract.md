@@ -21,7 +21,8 @@
 | [4 — Reference](#group-4--reference) | 3 |
 | [5 — Audit](#group-5--audit) | 1 |
 | [6 — File Handling](#group-6--file-handling) | 4 |
-| **Total** | **43** |
+| [7 — Scheduled Jobs](#group-7--scheduled-jobs) | 8 |
+| **Total** | **51** |
 
 ---
 
@@ -1281,6 +1282,209 @@ Delete a file from the filesystem. Rejected if the path is still referenced in a
 
 ---
 
+## Group 7 — Scheduled Jobs
+
+Scheduled jobs drive periodic background work such as news fetching. Each job has a cron expression, an optional config object, and a run history. The scheduler service reads due jobs via `GET /api/v1/scheduled-jobs/due`, executes them, and records results via `POST /api/v1/scheduled-jobs/{id}/runs`.
+
+### Response shapes
+
+**`ScheduledJobResponse`:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | |
+| `sourceType` | string | e.g. `newsapi`, `gmail_poll` |
+| `personId` | UUID \| null | |
+| `householdId` | UUID \| null | |
+| `cronExpression` | string | Standard 5-field cron syntax |
+| `config` | object \| null | Provider-specific configuration (JSONB) |
+| `enabled` | boolean | Whether the job runs on schedule |
+| `nextRunAt` | timestamp \| null | Next scheduled execution time |
+| `createdAt` | timestamp | |
+
+**`ScheduledJobRunResponse`:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | |
+| `jobId` | UUID | FK to scheduled job |
+| `startedAt` | timestamp | |
+| `finishedAt` | timestamp \| null | |
+| `status` | `"success"` \| `"error"` \| `"running"` | |
+| `error` | string \| null | |
+| `articlesStored` | int \| null | Count of articles stored in this run |
+
+---
+
+### `POST /api/v1/scheduled-jobs`
+
+**MCP tool:** `create_scheduled_job`
+
+Create a new scheduled job.
+
+**Request body:**
+```json
+{
+  "sourceType": "newsapi",
+  "cronExpression": "0 * * * *",
+  "personId": "uuid",
+  "householdId": null,
+  "config": { "topics": ["technology", "finance"] },
+  "enabled": true
+}
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `sourceType` | string | yes |
+| `cronExpression` | string | yes |
+| `personId` | UUID | no (one of personId/householdId required) |
+| `householdId` | UUID | no |
+| `config` | object | no |
+| `enabled` | boolean | no — defaults to `true` |
+
+**Response `201`:** `ScheduledJobResponse`
+
+**Errors:** `400`, `404` (person or household not found)
+
+---
+
+### `GET /api/v1/scheduled-jobs`
+
+**MCP tool:** `list_scheduled_jobs`
+
+List scheduled jobs for a person or household.
+
+**Query parameters:**
+
+| Parameter | Type | Required |
+|---|---|---|
+| `personId` | UUID | no (one of personId/householdId required) |
+| `householdId` | UUID | no |
+
+**Response `200`:**
+```json
+{ "items": [ /* ScheduledJobResponse[] */ ] }
+```
+
+**Errors:** `400` (neither personId nor householdId supplied)
+
+---
+
+### `GET /api/v1/scheduled-jobs/due`
+
+List all enabled jobs whose `nextRunAt` is in the past or null. Used by the scheduler process to discover work to execute.
+
+**Parameters:** none
+
+**Response `200`:**
+```json
+{ "items": [ /* ScheduledJobResponse[] */ ] }
+```
+
+---
+
+### `GET /api/v1/scheduled-jobs/{id}`
+
+Fetch a single scheduled job by UUID.
+
+**Path parameter:** `id` — UUID
+
+**Response `200`:** `ScheduledJobResponse`
+
+**Errors:** `404`
+
+---
+
+### `PATCH /api/v1/scheduled-jobs/{id}`
+
+**MCP tool:** `update_scheduled_job`
+
+Update mutable fields on a scheduled job. Only supplied fields are changed (PATCH semantics).
+
+**Path parameter:** `id` — UUID
+
+**Request body:** Any subset of:
+```json
+{
+  "cronExpression": "0 */6 * * *",
+  "config": { "topics": ["health"] },
+  "enabled": false,
+  "nextRunAt": "2026-05-11T00:00:00Z"
+}
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `cronExpression` | string | no |
+| `config` | object | no |
+| `enabled` | boolean | no |
+| `nextRunAt` | timestamp | no |
+
+**Response `200`:** Updated `ScheduledJobResponse`
+
+**Errors:** `400`, `404`
+
+---
+
+### `DELETE /api/v1/scheduled-jobs/{id}`
+
+**MCP tool:** `delete_scheduled_job`
+
+Delete a scheduled job and its run history.
+
+**Path parameter:** `id` — UUID
+
+**Response `204`:** Empty body on success.
+
+**Errors:** `404`
+
+---
+
+### `GET /api/v1/scheduled-jobs/{id}/runs`
+
+Retrieve the run history for a scheduled job, newest first.
+
+**Path parameter:** `id` — UUID
+
+**Response `200`:**
+```json
+{ "items": [ /* ScheduledJobRunResponse[] */ ] }
+```
+
+**Errors:** `404`
+
+---
+
+### `POST /api/v1/scheduled-jobs/{id}/runs`
+
+Record the result of a scheduled job execution.
+
+**Path parameter:** `id` — UUID
+
+**Request body:**
+```json
+{
+  "status": "success",
+  "finishedAt": "2026-05-10T01:02:03Z",
+  "error": null,
+  "articlesStored": 12
+}
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `status` | `"success"` \| `"error"` \| `"running"` | yes |
+| `finishedAt` | timestamp | no |
+| `error` | string | no |
+| `articlesStored` | int | no |
+
+**Response `201`:** `ScheduledJobRunResponse`
+
+**Errors:** `404` (job not found)
+
+---
+
 ## Health Check
 
 ### `GET /health`
@@ -1354,4 +1558,12 @@ Not under `/api/v1` — no auth required. Returns service liveness and database 
 | 41 | POST | `/api/v1/files/extract-text` | `extract_text_from_file` |
 | 42 | GET | `/api/v1/files` | `get_file` |
 | 43 | DELETE | `/api/v1/files` | `delete_file` |
+| 44 | POST | `/api/v1/scheduled-jobs` | `create_scheduled_job` |
+| 45 | GET | `/api/v1/scheduled-jobs` | `list_scheduled_jobs` |
+| 46 | GET | `/api/v1/scheduled-jobs/due` | (scheduler internal) |
+| 47 | GET | `/api/v1/scheduled-jobs/{id}` | — |
+| 48 | PATCH | `/api/v1/scheduled-jobs/{id}` | `update_scheduled_job` |
+| 49 | DELETE | `/api/v1/scheduled-jobs/{id}` | `delete_scheduled_job` |
+| 50 | GET | `/api/v1/scheduled-jobs/{id}/runs` | — |
+| 51 | POST | `/api/v1/scheduled-jobs/{id}/runs` | (scheduler internal) |
 | — | GET | `/health` | (health check, no auth) |

@@ -101,7 +101,13 @@ RULES — follow exactly:
          is stored only as documents with no corresponding fact, so facts alone may miss it.
      (b) SUPERSEDING — when data has changed (renewed, raised, replaced): find the old
          source document, then pass its document_id in supersedes_ids on create_document.
-     (c) HISTORICAL/SOURCE QUERIES — when the user asks about original source content.\
+     (c) HISTORICAL/SOURCE QUERIES — when the user asks about original source content.
+
+8. NEWS QUERIES: When the user asks about today's news, recent events, or current stories:
+   - Use list_current_facts(entity_type="news_event", limit=50) — NOT search_current_facts.
+   - Semantic search biases toward certain topics; list_current_facts returns ALL stored events.
+   - Present events grouped by category. For each event the user wants to explore further,
+     use list_current_facts(entity_type="news_article") filtered by event_id to get articles.\
 """
 
 

@@ -27,6 +27,7 @@ object Router:
       & ReferenceService
       & AuditService
       & FileService
+      & ScheduledJobService
       & ZConnectionPool
       & AuthConfig
 
@@ -49,7 +50,8 @@ object Router:
           SchemaRoutes.routes ++
           ReferenceRoutes.routes ++
           AuditRoutes.routes ++
-          FileRoutes.routes) @@ AuthMiddleware(authCfg.token)
+          FileRoutes.routes ++
+          ScheduledJobRoutes.routes) @@ AuthMiddleware(authCfg.token)
 
       (publicRoutes ++ protectedRoutes) @@ LoggingMiddleware.logRequests
     }

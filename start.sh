@@ -116,6 +116,25 @@ info "Starting frontend (port $FRONTEND_PORT)..."
 PIDS+=($!)
 info "  Frontend PID=${PIDS[-1]} — logs: $LOG_DIR/frontend.log"
 
+# ── 5. Scheduler ──────────────────────────────────────────────────────────────
+if [ -z "${NEWSAPIAI_KEY:-}" ]; then
+  warn "NEWSAPIAI_KEY is not set — skipping scheduler (news polling will not run)."
+else
+  info "Starting scheduler..."
+  (
+    cd "$ROOT/backend/scheduler"
+    HTTP_SERVER_URL="http://localhost:${HTTP_PORT}" \
+    AUTH_TOKEN="${AUTH_TOKEN:-}" \
+    NEWSAPIAI_KEY="${NEWSAPIAI_KEY}" \
+    WEB_SEARCH_PROVIDER="${WEB_SEARCH_PROVIDER:-duckduckgo}" \
+    BRAVE_API_KEY="${BRAVE_API_KEY:-}" \
+    SCHEDULER_TIMEZONE="${SCHEDULER_TIMEZONE:-UTC}" \
+    python -u main.py
+  ) > "$LOG_DIR/scheduler.log" 2>&1 &
+  PIDS+=($!)
+  info "  Scheduler PID=${PIDS[-1]} — logs: $LOG_DIR/scheduler.log"
+fi
+
 # ── Ready ─────────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}All services started.${NC}"
@@ -123,6 +142,9 @@ echo "  DB (postgres)    → localhost:5432"
 echo "  HTTP server      → http://localhost:${HTTP_PORT}"
 echo "  Chatbot server   → http://localhost:${CHATBOT_PORT}"
 echo "  Frontend         → http://localhost:${FRONTEND_PORT}"
+if [ -n "${NEWSAPIAI_KEY:-}" ]; then
+  echo "  Scheduler        → background (polls every 60s)"
+fi
 echo ""
 echo "Logs: $LOG_DIR/"
 echo "Press Ctrl+C to stop all services."
