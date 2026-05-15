@@ -108,6 +108,7 @@ jobs:
       - name: Deploy
         run: |
           cp docker-compose.yml /volume1/docker/myassistant/docker-compose.yml
+          cp -r observability /volume1/docker/myassistant/
           cd /volume1/docker/myassistant
-          docker-compose pull postgres http-server chatbot-server frontend scheduler cloudflared
-          docker-compose up -d --remove-orphans postgres http-server chatbot-server frontend scheduler cloudflared
+          docker-compose pull postgres http-server chatbot-server frontend scheduler cloudflared loki promtail grafana
+          docker-compose up -d --remove-orphans postgres http-server chatbot-server frontend scheduler cloudflared loki promtail grafana
