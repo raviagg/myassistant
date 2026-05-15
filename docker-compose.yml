@@ -128,8 +128,9 @@ services:
     command: -config.file=/etc/promtail/config.yml
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      # Synology: replace with /var/packages/ContainerManager/var/docker/containers if needed
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # Synology stores Docker data at /volume1/@docker — mount at the same path
+      # so log file paths reported by the Docker socket resolve correctly inside the container.
+      - /volume1/@docker/containers:/volume1/@docker/containers:ro
       - ./observability/promtail-config.yml:/etc/promtail/config.yml:ro
     depends_on:
       - loki
