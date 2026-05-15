@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, field as dc_field
 import struct, base64
@@ -31,6 +32,21 @@ class DoneEvent:
     type: str = "done"
     full_text: str = ""
     debug_info: dict = dc_field(default_factory=dict)
+
+
+@dataclass
+class ContextInfoEvent:
+    type: str = "context_info"
+    context_info: dict = dc_field(default_factory=dict)
+
+
+@dataclass
+class TopicSegment:
+    topic: str
+    size: int = 0           # number of _bedrock_messages belonging to this segment
+    complete: bool = False  # True once a newer topic has started
+    summarized: bool = False
+    summary_text: str = ""
 
 SEP  = "━" * 72
 THIN = "─" * 72
@@ -544,6 +560,15 @@ class AgenticRunner:
         self._bedrock_messages:  list[dict] = []
         self._chat_prior_turns:  list[dict] = []
 
+        # Context summarization state.
+        self._min_raw_turns:         int                 = int(os.environ.get("CHATBOT_MIN_RAW_TURNS", "5"))
+        self._current_topic:         str                 = ""
+        self._topic_segments:        list[TopicSegment]  = []
+        self._summary_msg_count:     int                 = 0
+        self._bg_thread:             threading.Thread | None = None
+        self._context_info:          dict                = {}
+        self._new_summaries_pending: list[dict]          = []
+
     # ── Public API ────────────────────────────────────────────────────────
 
     def run_scenario(
@@ -597,6 +622,206 @@ class AgenticRunner:
         tool_names, stats = self._run_turn(user_message, self._chat_prior_turns, verbose)
         self._chat_prior_turns.append({"user_message": user_message, "tool_names": tool_names})
         return self._extract_last_response_text(), tool_names, stats
+
+    # ── Context summarization ─────────────────────────────────────────────────
+
+    def _detect_topic_change(self, user_msg: str) -> tuple[bool, str]:
+        """Micro-call (~50 max_tokens). Returns (changed, new_topic_label)."""
+        if not self._current_topic:
+            prompt = (
+                f"Name this conversation topic in 5 words or fewer. "
+                f"User said: '{user_msg[:300]}'. "
+                f"JSON only: {{\"topic\": \"label\"}}"
+            )
+            first_turn = True
+        else:
+            prompt = (
+                f"Previous topic: '{self._current_topic}'. "
+                f"User just said: '{user_msg[:300]}'. "
+                f"Has the topic changed? "
+                f"JSON only: {{\"changed\": true, \"topic\": \"label\"}} or {{\"changed\": false, \"topic\": \"same label\"}}"
+            )
+            first_turn = False
+
+        resp = self._bedrock.messages.create(
+            model=self._model,
+            max_tokens=50,
+            system=[{"type": "text", "text": "You are a conversation topic classifier. Respond in JSON only. Do not call any tools."}],
+            tools=_BEDROCK_TOOLS,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        try:
+            text = next((b.text for b in resp.content if hasattr(b, "text")), "")
+            # Strip markdown fences if the LLM wrapped the JSON
+            text = re.sub(r"```(?:json)?\s*|\s*```", "", text).strip()
+            data = json.loads(text)
+            new_topic = data.get("topic", self._current_topic) or self._current_topic
+            changed = True if first_turn else bool(data.get("changed", False))
+            return changed, new_topic
+        except Exception:
+            return False, self._current_topic or "General"
+
+    def _summarize_segment(self, topic: str, messages: list[dict], prior_summaries: list[dict] | None = None) -> str:
+        """Summarize messages into 2-3 sentences. prior_summaries provides running context."""
+        lines = []
+        for m in messages:
+            role    = m.get("role", "")
+            content = m.get("content", "")
+            if isinstance(content, str):
+                lines.append(f"{role}: {content[:400]}")
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        lines.append(f"{role}: {block['text'][:400]}")
+        transcript = "\n".join(lines)
+
+        if prior_summaries:
+            prior_block = "\n".join(
+                f"[{s['topic']}]: {s['summaryText']}" for s in prior_summaries
+            )
+            content = (
+                f"PRIOR CONVERSATION SUMMARIES (for context):\n{prior_block}\n\n"
+                f"SEGMENT TO SUMMARIZE NOW ({topic}):\n{transcript or '[no text content]'}"
+            )
+        else:
+            content = transcript or f"[{topic} — no text content]"
+
+        resp = self._bedrock.messages.create(
+            model=self._model,
+            max_tokens=200,
+            system=[{"type": "text", "text": "Summarize the given conversation segment in 2-3 sentences. Use prior summaries only as background context — do not re-summarize them. Preserve key facts, decisions, and actions. Be concise. Do not call any tools."}],
+            tools=_BEDROCK_TOOLS,
+            messages=[{"role": "user", "content": content}],
+        )
+        try:
+            return next((b.text.strip() for b in resp.content if hasattr(b, "text")), f"[Summary unavailable for: {topic}]")
+        except Exception:
+            return f"[Summary unavailable for: {topic}]"
+
+    def _is_human_user_message(self, m: dict) -> bool:
+        """True for actual human chat messages — excludes tool-result and summary messages."""
+        if m.get("role") != "user":
+            return False
+        content = m.get("content", "")
+        # Tool-result messages have list content; summaries start with the CONTEXT SUMMARY prefix.
+        if not isinstance(content, str):
+            return False
+        return not content.startswith("[CONTEXT SUMMARY")
+
+    def _count_raw_user_turns(self) -> int:
+        """Count human user messages in the non-summarized tail of _bedrock_messages."""
+        return sum(
+            1 for m in self._bedrock_messages[self._summary_msg_count:]
+            if self._is_human_user_message(m)
+        )
+
+    def _find_segment_end(self, start_idx: int, num_turns: int) -> int:
+        """Return the index just past the last bedrock message of num_turns user turns."""
+        turns_seen = 0
+        i = start_idx
+        while i < len(self._bedrock_messages):
+            if self._is_human_user_message(self._bedrock_messages[i]):
+                turns_seen += 1
+                if turns_seen == num_turns:
+                    i += 1
+                    # Advance past assistant replies and tool-result round-trips
+                    while i < len(self._bedrock_messages) and not self._is_human_user_message(self._bedrock_messages[i]):
+                        i += 1
+                    return i
+            i += 1
+        return len(self._bedrock_messages)
+
+    def _check_and_summarize(self) -> None:
+        """
+        Greedily summarize the oldest complete segments while
+        (raw_user_turns - segment.size) >= _min_raw_turns.
+        segment.size counts user turns (one per human message), not bedrock messages.
+        """
+        raw_count = self._count_raw_user_turns()
+        pos = self._summary_msg_count  # current scan position in _bedrock_messages
+
+        for seg in self._topic_segments:
+            if seg.summarized:
+                # Already a single summary message at pos — skip it
+                pos += 1
+                continue
+            if not seg.complete:
+                break
+            if raw_count - seg.size < self._min_raw_turns:
+                break
+
+            end_at = self._find_segment_end(pos, seg.size)
+            msgs   = self._bedrock_messages[pos:end_at]
+
+            # Pass already-summarized segments as running context.
+            prior_summaries = [
+                {"topic": s.topic, "summaryText": s.summary_text}
+                for s in self._topic_segments if s.summarized
+            ]
+            summary_text = self._summarize_segment(seg.topic, msgs, prior_summaries or None)
+            summary_msg  = {
+                "role":    "user",
+                "content": f"[CONTEXT SUMMARY — {seg.topic}]: {summary_text}",
+            }
+            self._bedrock_messages[pos:end_at] = [summary_msg]
+
+            seg.summarized   = True
+            seg.summary_text = summary_text
+            self._summary_msg_count += 1
+            raw_count -= seg.size
+            pos += 1  # advance past the summary message we just inserted
+
+            self._new_summaries_pending.append({
+                "topic":        seg.topic,
+                "summaryText":  summary_text,
+                "messageCount": seg.size,
+            })
+
+    def _background_topic_and_summarize(self, user_msg: str) -> None:
+        """Runs in a daemon thread after each turn's done event is yielded."""
+        try:
+            changed, new_topic = self._detect_topic_change(user_msg)
+
+            if not self._topic_segments:
+                self._topic_segments.append(TopicSegment(topic=new_topic, size=1))
+            elif changed:
+                self._topic_segments[-1].complete = True
+                self._topic_segments.append(TopicSegment(topic=new_topic, size=1))
+            else:
+                self._topic_segments[-1].size += 1
+            self._current_topic = new_topic
+
+            if self._count_raw_user_turns() > self._min_raw_turns:
+                self._check_and_summarize()
+
+            raw_turn_count    = self._count_raw_user_turns()
+            summarized_topics = [
+                {"topic": s.topic, "summaryText": s.summary_text, "messageCount": s.size}
+                for s in self._topic_segments if s.summarized
+            ]
+            all_segments = [
+                {
+                    "topic":        s.topic,
+                    "messageCount": s.size,
+                    "summarized":   s.summarized,
+                    "complete":     s.complete,
+                    "summaryText":  s.summary_text,
+                }
+                for s in self._topic_segments
+            ]
+            self._context_info = {
+                "currentTopic":         self._current_topic,
+                "rawTurnCount":         raw_turn_count,
+                "summarizedTopics":     summarized_topics,
+                "allSegments":          all_segments,
+                "newSummariesThisTurn": len(self._new_summaries_pending),
+                "newSummaries":         list(self._new_summaries_pending),
+            }
+            self._new_summaries_pending.clear()
+        except Exception:
+            pass  # bg failures are silent — never block the user turn
+
+    # ── Streaming public API ──────────────────────────────────────────────────
 
     def chat_turn_streaming(self, user_message: str):
         """
@@ -717,6 +942,7 @@ class AgenticRunner:
             messages.append({"role": "user", "content": tool_results})
 
         self._bedrock_messages = _trim_history_messages(messages)
+
         self._call_log_interaction(
             user_message, full_text,
             [{"tool": t["name"], "params": t["input"]} for t in all_tool_calls],
@@ -725,6 +951,20 @@ class AgenticRunner:
             full_text=full_text,
             debug_info={"apiCalls": api_calls, "toolCalls": all_tool_calls},
         )
+
+        # Run topic detection + summarization in a thread, then push the result
+        # on the same SSE stream so the frontend updates without waiting for the next turn.
+        if self._bedrock is not None:
+            self._bg_thread = threading.Thread(
+                target=self._background_topic_and_summarize,
+                args=(user_message,),
+                daemon=True,
+            )
+            self._bg_thread.start()
+            self._bg_thread.join()
+            if self._context_info:
+                yield ContextInfoEvent(context_info=dict(self._context_info))
+                self._context_info = {}
 
     def _extract_last_response_text(self) -> str:
         """Pull the text content from the last assistant message in _bedrock_messages."""

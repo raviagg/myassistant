@@ -37,6 +37,29 @@ export interface AttachedFile {
   mimeType: string
 }
 
+export interface SummarizedTopic {
+  topic: string
+  summaryText: string
+  messageCount: number
+}
+
+export interface SegmentInfo {
+  topic: string
+  messageCount: number
+  summarized: boolean
+  complete: boolean
+  summaryText: string
+}
+
+export interface ContextInfo {
+  currentTopic: string
+  rawTurnCount: number
+  summarizedTopics: SummarizedTopic[]
+  allSegments: SegmentInfo[]
+  newSummariesThisTurn: number
+  newSummaries: SummarizedTopic[]
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -45,4 +68,6 @@ export interface Message {
   attachedFiles?: AttachedFile[]
   debugInfo?: DebugInfo
   streaming?: boolean
+  isSummaryDivider?: true
+  summaryData?: SummarizedTopic
 }
