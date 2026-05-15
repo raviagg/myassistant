@@ -133,10 +133,11 @@ object FactRepository:
         case OperationType.Create => "create"
         case OperationType.Update => "update"
         case OperationType.Delete => "delete"
-      val fieldsStr   = req.fields.noSpaces
-      val embeddingStr = req.embedding.mkString("[", ",", "]")
+      val fieldsStr    = req.fields.noSpaces
+      val embeddingSql = if req.embedding.isEmpty then SqlFragment("NULL")
+                         else SqlFragment(s"'${req.embedding.mkString("[", ",", "]")}'::vector")
       transaction {
-        sql"""
+        (sql"""
           INSERT INTO fact(id, document_id, schema_id, entity_instance_id, operation_type, fields, embedding)
           VALUES (
             ${id.toString}::uuid,
@@ -145,7 +146,7 @@ object FactRepository:
             ${req.entityInstanceId.toString}::uuid,
             ${opStr}::operation_type,
             ${fieldsStr}::jsonb,
-            ${embeddingStr}::vector
+        """ ++ embeddingSql ++ sql"""
           )
           RETURNING
             id::text,
@@ -155,7 +156,7 @@ object FactRepository:
             operation_type::text,
             fields::text,
             created_at
-        """.query[FactRow].selectOne
+        """).query[FactRow].selectOne
       }.mapError(mapSqlError)
         .flatMap(ZIO.fromOption(_).mapError(_ =>
           AppError.InternalError(new RuntimeException("INSERT fact returned no row"))))
