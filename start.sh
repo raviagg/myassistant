@@ -151,6 +151,7 @@ else
   docker run -d \
     --name myassistant-loki \
     --network "$OBS_NETWORK" \
+    --network-alias loki \
     -p 3100:3100 \
     -v myassistant-loki-data:/loki \
     -v "$ROOT/observability/loki-config.yml:/etc/loki/config.yml:ro" \
