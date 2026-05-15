@@ -98,5 +98,5 @@ jobs:
         run: |
           cp docker-compose.yml /volume1/docker/myassistant/docker-compose.yml
           cd /volume1/docker/myassistant
-          docker compose pull
-          docker compose up -d --remove-orphans
+          docker-compose pull
+          docker-compose up -d --remove-orphans
