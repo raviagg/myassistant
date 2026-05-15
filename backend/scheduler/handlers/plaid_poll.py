@@ -93,11 +93,12 @@ class PlaidPollHandler(BaseHandler):
     # ── Document helper ───────────────────────────────────────────────────
 
     def _create_document(self, person_id: str, content: str) -> str:
+        from embed import embed
         resp = self.http.post("/api/v1/documents", json={
             "personId": person_id,
             "contentText": content,
             "sourceTypeId": self._plaid_poll_source_type(),
-            "embedding": [],
+            "embedding": embed(content),
             "files": [],
             "supersedesIds": [],
         })
@@ -108,13 +109,15 @@ class PlaidPollHandler(BaseHandler):
 
     def _create_fact(self, document_id: str, schema_id: str, instance_id: str,
                      operation: str, fields: dict) -> None:
+        from embed import embed
+        embedding = embed(json.dumps(fields, sort_keys=True)) if fields else []
         resp = self.http.post("/api/v1/facts", json={
             "documentId": document_id,
             "schemaId": schema_id,
             "entityInstanceId": instance_id,
             "operationType": operation,
             "fields": fields,
-            "embedding": [],
+            "embedding": embedding,
         })
         if not resp.is_success:
             print(f"[plaid_poll] WARNING: failed to store fact ({operation}): {resp.status_code} {resp.text[:200]}")
