@@ -2,10 +2,9 @@
 # Promtail discovers all containers in the myassistant compose project
 # and labels each log stream with the compose service name.
 #
-# Note on Synology: Docker root dir may differ from the Linux default.
-# Run `docker info | grep "Docker Root Dir"` on your NAS to confirm.
-# If it is not /var/lib/docker, update the volume mount in docker-compose.yml:
-#   - /var/packages/ContainerManager/var/docker/containers:/var/lib/docker/containers:ro
+# Synology Docker root dir: /volume1/@docker
+# The volume mount in docker-compose.yml maps /volume1/@docker/containers at the same
+# path inside the container so log file paths from the Docker socket resolve correctly.
 
 server:
   http_listen_port: 9080
