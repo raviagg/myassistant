@@ -13,6 +13,9 @@ export default defineConfig({
       '/api/v1': {
         target: `http://localhost:${httpPort}`,
         changeOrigin: true,
+        headers: {
+          Authorization: `Bearer ${process.env.AUTH_TOKEN ?? 'dev-token-change-me-in-production'}`,
+        },
       },
       // Chatbot server — login, chat streaming, file upload
       '/api': {
