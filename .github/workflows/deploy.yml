@@ -69,6 +69,16 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push scheduler
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          file: backend/scheduler/Dockerfile
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: ghcr.io/${{ github.repository }}/scheduler:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   deploy:
     needs: build
     runs-on: [self-hosted, synology]
