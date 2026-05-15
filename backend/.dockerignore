@@ -1,0 +1,15 @@
+# Applies when build context is backend/ (chatbot-server and scheduler images).
+# Excludes Scala build artifacts which can be hundreds of MB.
+
+http_server/target/
+http_server/project/target/
+http_server/project/project/
+http_server/.bsp/
+http_server/.metals/
+
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
+**/venv
+**/.env
