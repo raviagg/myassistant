@@ -55,7 +55,8 @@ object PlaidRoutes:
               case Right(r) =>
                 handleExchange(r.personId, r.publicToken)
                   .foldZIO(
-                    err    => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
+                    err    => ZIO.logError(s"Plaid exchange failed: ${err.getMessage}") *>
+                                ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
                     result => ZIO.succeed(Response.json(result.asJson.noSpaces).status(Status.Created)),
                   )
           yield resp
