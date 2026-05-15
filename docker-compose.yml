@@ -124,6 +124,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /volume1/docker/myassistant:/volume1/docker/myassistant
+    mem_limit: 512m
 
 networks:
   app-net:
