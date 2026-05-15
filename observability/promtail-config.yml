@@ -1,0 +1,37 @@
+# Production: collects logs from Docker containers via Docker socket.
+# Promtail discovers all containers in the myassistant compose project
+# and labels each log stream with the compose service name.
+#
+# Note on Synology: Docker root dir may differ from the Linux default.
+# Run `docker info | grep "Docker Root Dir"` on your NAS to confirm.
+# If it is not /var/lib/docker, update the volume mount in docker-compose.yml:
+#   - /var/packages/ContainerManager/var/docker/containers:/var/lib/docker/containers:ro
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+        filters:
+          - name: label
+            values: ["com.docker.compose.project=myassistant"]
+    relabel_configs:
+      - source_labels: [__meta_docker_container_label_com_docker_compose_service]
+        target_label: service
+      - source_labels: [__meta_docker_container_name]
+        regex: '/?(.+)'
+        target_label: container
+      - source_labels: [__meta_docker_container_log_stream]
+        target_label: stream
+      - replacement: docker
+        target_label: job

@@ -112,6 +112,47 @@ services:
     networks:
       - app-net
 
+  loki:
+    image: grafana/loki:latest
+    restart: unless-stopped
+    command: -config.file=/etc/loki/config.yml
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+    networks:
+      - app-net
+
+  promtail:
+    image: grafana/promtail:latest
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Synology: replace with /var/packages/ContainerManager/var/docker/containers if needed
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./observability/promtail-config.yml:/etc/promtail/config.yml:ro
+    depends_on:
+      - loki
+    networks:
+      - app-net
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    depends_on:
+      - loki
+    networks:
+      - app-net
+
   github-runner:
     image: myoung34/github-runner:latest
     restart: unless-stopped
@@ -129,3 +170,7 @@ services:
 networks:
   app-net:
     driver: bridge
+
+volumes:
+  loki-data:
+  grafana-data:
