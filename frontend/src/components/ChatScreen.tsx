@@ -1,6 +1,7 @@
 import MessageList from './MessageList'
 import InputBar from './InputBar'
 import ProfileMenu from './ProfileMenu'
+import ContextBar from './ContextBar'
 import { useChatStream } from '../hooks/useChatStream'
 import type { Session } from '../types'
 
@@ -10,7 +11,7 @@ interface Props {
 }
 
 export default function ChatScreen({ session, onLogout }: Props) {
-  const { messages, isStreaming, sendMessage } = useChatStream()
+  const { messages, isStreaming, contextInfo, sendMessage } = useChatStream()
 
   function handleSend(text: string, files: File[]) {
     sendMessage(text, files, session.personId)
@@ -25,6 +26,7 @@ export default function ChatScreen({ session, onLogout }: Props) {
         </div>
         <ProfileMenu displayName={session.displayName} onLogout={onLogout} />
       </div>
+      {contextInfo && <ContextBar contextInfo={contextInfo} />}
       <MessageList messages={messages} />
       <InputBar onSend={handleSend} disabled={isStreaming} />
     </div>

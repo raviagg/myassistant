@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import type { Message, DebugInfo, ToolCall, ApiCallDebug, AttachedFile } from '../types'
+import type { Message, DebugInfo, ToolCall, ApiCallDebug, AttachedFile, ContextInfo } from '../types'
 import { uploadFile } from '../api'
 
 function extractAttachedFiles(toolCalls: ToolCall[]): AttachedFile[] {
@@ -38,12 +38,14 @@ function makeId() {
 interface UseChatStreamResult {
   messages: Message[]
   isStreaming: boolean
+  contextInfo: ContextInfo | null
   sendMessage: (text: string, files: File[], personId: string) => Promise<void>
 }
 
 export function useChatStream(): UseChatStreamResult {
   const [messages, setMessages] = useState<Message[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
+  const [contextInfo, setContextInfo] = useState<ContextInfo | null>(null)
 
   const sendMessage = useCallback(async (text: string, files: File[], personId: string) => {
     setIsStreaming(true)
@@ -109,6 +111,28 @@ export function useChatStream(): UseChatStreamResult {
                   ? { ...m, text: payload.fullText, streaming: false, debugInfo, attachedFiles }
                   : m
               ))
+            } else if (currentEventType === 'context_info') {
+              const ci = payload as ContextInfo
+              setContextInfo(ci)
+              if (ci.newSummariesThisTurn > 0) {
+                setMessages(prev => {
+                  // Insert dividers just before the oldest raw turn.
+                  // rawTurnCount is user turns; each turn = 2 frontend messages.
+                  const insertAt = Math.max(0, prev.length - ci.rawTurnCount * 2)
+                  const dividers: Message[] = ci.newSummaries.map((s, i) => ({
+                    id: `summary-${Date.now()}-${i}`,
+                    role: 'assistant' as const,
+                    text: '',
+                    isSummaryDivider: true as const,
+                    summaryData: s,
+                  }))
+                  return [
+                    ...prev.slice(0, insertAt),
+                    ...dividers,
+                    ...prev.slice(insertAt),
+                  ]
+                })
+              }
             } else if (currentEventType === 'error') {
               throw new Error(payload.message)
             }
@@ -129,5 +153,5 @@ export function useChatStream(): UseChatStreamResult {
     }
   }, [])
 
-  return { messages, isStreaming, sendMessage }
+  return { messages, isStreaming, contextInfo, sendMessage }
 }

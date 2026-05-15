@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import MessageBubble from './MessageBubble'
+import SummaryDivider from './SummaryDivider'
 import type { Message } from '../types'
 
 interface Props {
@@ -15,11 +16,16 @@ export default function MessageList({ messages }: Props) {
 
   return (
     <div style={styles.list}>
-      {messages.map(msg => (
-        <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-          <MessageBubble message={msg} />
-        </div>
-      ))}
+      {messages.map(msg => {
+        if (msg.isSummaryDivider && msg.summaryData) {
+          return <SummaryDivider key={msg.id} data={msg.summaryData} />
+        }
+        return (
+          <div key={msg.id} style={{ display: 'flex', justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
+            <MessageBubble message={msg} />
+          </div>
+        )
+      })}
       <div ref={bottomRef} />
     </div>
   )

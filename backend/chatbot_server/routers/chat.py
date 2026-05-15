@@ -7,7 +7,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from core.agentic_runner import AgenticRunner, TokenEvent, ToolCallEvent, ToolResultEvent, DoneEvent
+from core.agentic_runner import AgenticRunner, TokenEvent, ToolCallEvent, ToolResultEvent, DoneEvent, ContextInfoEvent
 from core.live_executor import LiveExecutor
 from core.system_prompt import build_system_prompt, CHATBOT_PROMPT_ADDENDUM
 
@@ -75,7 +75,12 @@ def _stream_events(runner: AgenticRunner, user_message: str) -> Generator[str, N
         elif isinstance(event, ToolResultEvent):
             yield _event_line("tool_result", {"toolName": event.tool_name, "result": event.result})
         elif isinstance(event, DoneEvent):
-            yield _event_line("done", {"fullText": event.full_text, "debugInfo": event.debug_info})
+            yield _event_line("done", {
+                "fullText":  event.full_text,
+                "debugInfo": event.debug_info,
+            })
+        elif isinstance(event, ContextInfoEvent):
+            yield _event_line("context_info", event.context_info)
 
 
 @router.post("/api/chat")
