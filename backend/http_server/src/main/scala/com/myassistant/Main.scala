@@ -1,6 +1,7 @@
 package com.myassistant
 
 import com.myassistant.api.Router
+import com.myassistant.api.plaid.PlaidClient
 import com.myassistant.config.*
 import com.myassistant.db.*
 import com.myassistant.db.repositories.*
@@ -36,6 +37,7 @@ object Main extends ZIOAppDefault:
     val dbConfigLayer     = configLayer >>> ZLayer.fromFunction((_: AppConfig).database)
     val authConfigLayer   = configLayer >>> ZLayer.fromFunction((_: AppConfig).auth)
     val fileConfigLayer   = configLayer >>> ZLayer.fromFunction((_: AppConfig).fileStorage)
+    val plaidConfigLayer  = configLayer >>> ZLayer.fromFunction((_: AppConfig).plaid)
 
     // ── Database ──────────────────────────────────────────────
     val poolLayer = dbConfigLayer >>> DatabaseModule.connectionPoolLive
@@ -64,6 +66,7 @@ object Main extends ZIOAppDefault:
     val auditSvcLayer          = auditRepoLayer          >>> AuditService.live
     val fileSvcLayer           = fileConfigLayer         >>> FileService.live
     val scheduledJobSvcLayer   = scheduledJobRepoLayer   >>> ScheduledJobService.live
+    val plaidClientLayer  = plaidConfigLayer >>> PlaidClient.live
 
     poolLayer ++
       personSvcLayer ++
@@ -77,6 +80,7 @@ object Main extends ZIOAppDefault:
       auditSvcLayer ++
       fileSvcLayer ++
       scheduledJobSvcLayer ++
+      plaidClientLayer ++
       authConfigLayer
 
   /** Application entry point — start the HTTP server. */
