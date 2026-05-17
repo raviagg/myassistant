@@ -187,6 +187,8 @@ class PlaidPollHandler(BaseHandler):
                         cursor=cursor,
                         connection_instance_id=connection_instance_id,
                         connection_doc_id=connection.get("documentId", ""),
+                        institution_id=fields.get("institution_id"),
+                        institution_name=fields.get("institution_name", ""),
                     )
                     connections_synced += 1
                 except Exception as e:
@@ -210,6 +212,8 @@ class PlaidPollHandler(BaseHandler):
         cursor: str | None,
         connection_instance_id: str,
         connection_doc_id: str,
+        institution_id: str | None = None,
+        institution_name: str = "",
     ) -> None:
         all_added: list[dict] = []
         all_modified: list[dict] = []
@@ -295,6 +299,9 @@ class PlaidPollHandler(BaseHandler):
         self._create_fact(doc_id, self._connection_schema(),
                           connection_instance_id,
                           "update", {
-                              "sync_cursor":    next_cursor,
-                              "last_synced_at": now_str,
+                              "item_id":           item_id,
+                              "institution_id":    institution_id,
+                              "institution_name":  institution_name,
+                              "sync_cursor":       next_cursor,
+                              "last_synced_at":    now_str,
                           })
