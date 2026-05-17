@@ -1,5 +1,6 @@
 package com.myassistant.api.routes
 
+import com.myassistant.api.embed.EmbedClient
 import com.myassistant.api.middleware.ErrorMiddleware
 import com.myassistant.api.plaid.*
 import com.myassistant.domain.{CreateDocument, CreateFact, OperationType}
@@ -18,7 +19,7 @@ import java.util.UUID
 
 object PlaidRoutes:
 
-  val routes: Routes[PlaidClient & DocumentService & FactService & SchemaService & ReferenceService & ZConnectionPool, Nothing] =
+  val routes: Routes[PlaidClient & EmbedClient & DocumentService & FactService & SchemaService & ReferenceService & ZConnectionPool, Nothing] =
     Routes(
 
       // POST /api/v1/plaid/link-token
@@ -69,7 +70,7 @@ object PlaidRoutes:
   private def handleExchange(
       personId:    UUID,
       publicToken: String,
-  ): ZIO[PlaidClient & DocumentService & FactService & SchemaService & ReferenceService & ZConnectionPool, AppError, ExchangeResponse] =
+  ): ZIO[PlaidClient & EmbedClient & DocumentService & FactService & SchemaService & ReferenceService & ZConnectionPool, AppError, ExchangeResponse] =
     for
       (accessToken, itemId) <- ZIO.serviceWithZIO[PlaidClient](_.exchangePublicToken(publicToken))
         .mapError(e => AppError.InternalError(e))
@@ -99,54 +100,65 @@ object PlaidRoutes:
       bankAccountSchema <- ZIO.serviceWithZIO[SchemaService](_.getCurrentSchema(financeDomainId, "bank_account"))
 
       now = Instant.now()
+      docText = s"Connected $institutionName via Plaid on ${now.toString.take(10)}"
+      docEmbedding <- ZIO.serviceWithZIO[EmbedClient](_.embed(docText))
+        .mapError(AppError.InternalError(_))
       doc <- ZIO.serviceWithZIO[DocumentService](_.createDocument(CreateDocument(
         personId      = Some(personId),
         householdId   = None,
-        contentText   = s"Connected $institutionName via Plaid on ${now.toString.take(10)}",
+        contentText   = docText,
         sourceTypeId  = userInputSrcId,
-        embedding     = List.empty,
+        embedding     = docEmbedding,
         files         = Json.arr(),
         supersedesIds = List.empty,
       )))
 
       connectionInstanceId = stableId("plaid:item", itemId)
+      connFields = Json.obj(
+        "item_id"          -> Json.fromString(itemId),
+        "institution_id"   -> accountsResp.item.institution_id.fold(Json.Null)(Json.fromString),
+        "institution_name" -> Json.fromString(institutionName),
+        "access_token"     -> Json.fromString(accessToken),
+        "sync_cursor"      -> Json.fromString(""),
+        "last_synced_at"   -> Json.Null,
+      )
+      connEmbedding <- ZIO.serviceWithZIO[EmbedClient](_.embed(connFields.noSpaces))
+        .mapError(AppError.InternalError(_))
       _ <- ZIO.serviceWithZIO[FactService](_.createFact(CreateFact(
         documentId       = doc.id,
         schemaId         = connectionSchema.id,
         entityInstanceId = connectionInstanceId,
         operationType    = OperationType.Create,
-        fields           = Json.obj(
-          "item_id"          -> Json.fromString(itemId),
-          "institution_id"   -> accountsResp.item.institution_id.fold(Json.Null)(Json.fromString),
-          "institution_name" -> Json.fromString(institutionName),
-          "access_token"     -> Json.fromString(accessToken),
-          "sync_cursor"      -> Json.fromString(""),
-          "last_synced_at"   -> Json.Null,
-        ),
-        embedding = List.empty,
+        fields           = connFields,
+        embedding        = connEmbedding,
       )))
 
       _ <- ZIO.foreachDiscard(accountsResp.accounts) { account =>
-        ZIO.serviceWithZIO[FactService](_.createFact(CreateFact(
-          documentId       = doc.id,
-          schemaId         = bankAccountSchema.id,
-          entityInstanceId = stableId("plaid:account", account.account_id),
-          operationType    = OperationType.Create,
-          fields           = Json.obj(
-            "account_id"        -> Json.fromString(account.account_id),
-            "item_id"           -> Json.fromString(itemId),
-            "name"              -> Json.fromString(account.name),
-            "official_name"     -> account.official_name.fold(Json.Null)(Json.fromString),
-            "type"              -> Json.fromString(account.`type`),
-            "subtype"           -> account.subtype.fold(Json.Null)(Json.fromString),
-            "mask"              -> account.mask.fold(Json.Null)(Json.fromString),
-            "current_balance"   -> account.balances.current.flatMap(Json.fromDouble).getOrElse(Json.Null),
-            "available_balance" -> account.balances.available.flatMap(Json.fromDouble).getOrElse(Json.Null),
-            "iso_currency_code" -> account.balances.iso_currency_code.fold(Json.Null)(Json.fromString),
-            "institution_name"  -> Json.fromString(institutionName),
-          ),
-          embedding = List.empty,
-        )))
+        val acctFields = Json.obj(
+          "account_id"        -> Json.fromString(account.account_id),
+          "item_id"           -> Json.fromString(itemId),
+          "name"              -> Json.fromString(account.name),
+          "official_name"     -> account.official_name.fold(Json.Null)(Json.fromString),
+          "type"              -> Json.fromString(account.`type`),
+          "subtype"           -> account.subtype.fold(Json.Null)(Json.fromString),
+          "mask"              -> account.mask.fold(Json.Null)(Json.fromString),
+          "current_balance"   -> account.balances.current.flatMap(Json.fromDouble).getOrElse(Json.Null),
+          "available_balance" -> account.balances.available.flatMap(Json.fromDouble).getOrElse(Json.Null),
+          "iso_currency_code" -> account.balances.iso_currency_code.fold(Json.Null)(Json.fromString),
+          "institution_name"  -> Json.fromString(institutionName),
+        )
+        for
+          acctEmbedding <- ZIO.serviceWithZIO[EmbedClient](_.embed(acctFields.noSpaces))
+            .mapError(AppError.InternalError(_))
+          _ <- ZIO.serviceWithZIO[FactService](_.createFact(CreateFact(
+            documentId       = doc.id,
+            schemaId         = bankAccountSchema.id,
+            entityInstanceId = stableId("plaid:account", account.account_id),
+            operationType    = OperationType.Create,
+            fields           = acctFields,
+            embedding        = acctEmbedding,
+          )))
+        yield ()
       }
 
     yield ExchangeResponse(itemId = itemId, institutionName = institutionName)

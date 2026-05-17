@@ -1,6 +1,7 @@
 package com.myassistant.api
 
 import com.myassistant.api.middleware.{AuthMiddleware, LoggingMiddleware}
+import com.myassistant.api.embed.EmbedClient
 import com.myassistant.api.plaid.PlaidClient
 import com.myassistant.api.routes.*
 import com.myassistant.config.AuthConfig
@@ -30,6 +31,7 @@ object Router:
       & FileService
       & ScheduledJobService
       & PlaidClient
+      & EmbedClient
       & ZConnectionPool
       & AuthConfig
 
