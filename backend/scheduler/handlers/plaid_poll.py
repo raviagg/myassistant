@@ -220,20 +220,39 @@ class PlaidPollHandler(BaseHandler):
         all_removed: list[dict] = []
         next_cursor = cursor
 
+        print(f"[plaid_poll] {item_id}: starting sync (cursor={'resuming' if cursor else 'fresh'})")
+
         while True:
             body = {"access_token": access_token}
             if next_cursor:
                 body["cursor"] = next_cursor
             sync_resp = _plaid_post("/transactions/sync", body)
-            all_added.extend(sync_resp.get("added", []))
-            all_modified.extend(sync_resp.get("modified", []))
-            all_removed.extend(sync_resp.get("removed", []))
+            batch_added = sync_resp.get("added", [])
+            batch_modified = sync_resp.get("modified", [])
+            batch_removed = sync_resp.get("removed", [])
+            has_more = sync_resp.get("has_more", False)
+            all_added.extend(batch_added)
+            all_modified.extend(batch_modified)
+            all_removed.extend(batch_removed)
             next_cursor = sync_resp.get("next_cursor", "")
-            if not sync_resp.get("has_more", False):
+            print(f"[plaid_poll] {item_id}: batch — {len(batch_added)} added, "
+                  f"{len(batch_modified)} modified, {len(batch_removed)} removed, has_more={has_more}")
+            if not has_more:
                 break
 
         accounts_resp = _plaid_post("/accounts/get", {"access_token": access_token})
         accounts = accounts_resp.get("accounts", [])
+        acct_sample = [
+            f"{a['name']} ({a.get('type', '?')}, bal={a.get('balances', {}).get('current')})"
+            for a in accounts[:5]
+        ]
+        print(f"[plaid_poll] {item_id}: {len(accounts)} account(s): {', '.join(acct_sample)}")
+
+        print(f"[plaid_poll] {item_id}: totals — {len(all_added)} added, "
+              f"{len(all_modified)} modified, {len(all_removed)} removed")
+        for txn in all_added[:5]:
+            print(f"[plaid_poll] {item_id}: txn sample — {txn.get('date')} "
+                  f"{txn.get('merchant_name') or txn.get('name')} ${txn.get('amount')}")
 
         now_str = datetime.now(timezone.utc).isoformat()
         doc_id = self._create_document(
