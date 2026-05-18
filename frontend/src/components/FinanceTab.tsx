@@ -16,12 +16,15 @@ interface Props {
 }
 
 export default function FinanceTab({ session }: Props) {
+  const isOAuthReturn   = window.location.search.includes('oauth_state_id')
+  const oauthReturnUri  = isOAuthReturn ? window.location.href : undefined
+
   const [connections, setConnections]   = useState<PlaidConnection[]>([])
   const [accounts, setAccounts]         = useState<BankAccount[]>([])
   const [linkToken, setLinkToken]       = useState<string | null>(null)
   const [loading, setLoading]           = useState(true)
   const [error, setError]               = useState<string | null>(null)
-  const [connecting, setConnecting]     = useState(false)
+  const [connecting, setConnecting]     = useState(isOAuthReturn)
   const [disconnecting, setDisconnecting] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
@@ -43,6 +46,14 @@ export default function FinanceTab({ session }: Props) {
 
   useEffect(() => { loadData() }, [loadData])
 
+  // On OAuth return: auto-fetch a fresh link token so Plaid Link can complete the flow
+  useEffect(() => {
+    if (!isOAuthReturn) return
+    fetchLinkToken(session.personId)
+      .then(token => setLinkToken(token))
+      .catch(e => { setError(String(e)); setConnecting(false) })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleConnectClick = async () => {
     setConnecting(true)
     setError(null)
@@ -61,6 +72,7 @@ export default function FinanceTab({ session }: Props) {
       await exchangeToken(session.personId, publicToken)
       setLinkToken(null)
       setConnecting(false)
+      window.history.replaceState({}, '', window.location.pathname)
       await loadData()
     } catch (e) {
       setError(String(e))
@@ -149,6 +161,7 @@ export default function FinanceTab({ session }: Props) {
         onExit={onPlaidExit}
         onConnectClick={handleConnectClick}
         connecting={connecting}
+        receivedRedirectUri={oauthReturnUri}
       />
     </div>
   )
@@ -160,15 +173,18 @@ function PlaidLinkButton({
   onExit,
   onConnectClick,
   connecting,
+  receivedRedirectUri,
 }: {
   linkToken: string | null
   onSuccess: (token: string) => void
   onExit: () => void
   onConnectClick: () => void
   connecting: boolean
+  receivedRedirectUri?: string
 }) {
   const { open, ready } = usePlaidLink({
     token: linkToken ?? '',
+    receivedRedirectUri,
     onSuccess: (public_token) => onSuccess(public_token),
     onExit: () => onExit(),
   })

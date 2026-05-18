@@ -8,7 +8,9 @@ type Tab = 'chat' | 'finance'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
-  const [activeTab, setActiveTab] = useState<Tab>('chat')
+  const [activeTab, setActiveTab] = useState<Tab>(
+    window.location.search.includes('oauth_state_id') ? 'finance' : 'chat'
+  )
 
   if (!session) {
     return <LoginScreen onLogin={setSession} />
