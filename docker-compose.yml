@@ -83,6 +83,7 @@ services:
     image: ghcr.io/raviagg/myassistant/scheduler:latest
     restart: unless-stopped
     environment:
+      PYTHONUNBUFFERED: "1"
       HTTP_SERVER_URL: http://http-server:8080
       AUTH_TOKEN: ${AUTH_TOKEN}
       NEWSAPIAI_KEY: ${NEWSAPIAI_KEY}
