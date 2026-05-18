@@ -38,7 +38,7 @@ services:
       PLAID_SECRET: ${PLAID_SECRET:-}
       PLAID_ENV: ${PLAID_ENV:-sandbox}
       PLAID_REDIRECT_URI: ${PLAID_REDIRECT_URI:-}
-      EMBED_SERVICE_URL: http://chatbot:8000
+      EMBED_SERVICE_URL: http://chatbot-server:8000
     volumes:
       - /volume1/docker/myassistant/uploads:/data/files
     depends_on:
