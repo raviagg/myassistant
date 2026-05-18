@@ -105,7 +105,8 @@ object PlaidRoutes:
       now = Instant.now()
       docText = s"Connected $institutionName via Plaid on ${now.toString.take(10)}"
       docEmbedding <- ZIO.serviceWithZIO[EmbedClient](_.embed(docText))
-        .mapError(AppError.InternalError(_))
+        .tapError(e => ZIO.logWarning(s"[plaid] embed failed, storing null embedding: ${e.getMessage}"))
+        .orElse(ZIO.succeed(List.empty[Double]))
       doc <- ZIO.serviceWithZIO[DocumentService](_.createDocument(CreateDocument(
         personId      = Some(personId),
         householdId   = None,
@@ -126,7 +127,8 @@ object PlaidRoutes:
         "last_synced_at"   -> Json.Null,
       )
       connEmbedding <- ZIO.serviceWithZIO[EmbedClient](_.embed(connFields.noSpaces))
-        .mapError(AppError.InternalError(_))
+        .tapError(e => ZIO.logWarning(s"[plaid] embed failed, storing null embedding: ${e.getMessage}"))
+        .orElse(ZIO.succeed(List.empty[Double]))
       _ <- ZIO.serviceWithZIO[FactService](_.createFact(CreateFact(
         documentId       = doc.id,
         schemaId         = connectionSchema.id,
@@ -152,7 +154,8 @@ object PlaidRoutes:
         )
         for
           acctEmbedding <- ZIO.serviceWithZIO[EmbedClient](_.embed(acctFields.noSpaces))
-            .mapError(AppError.InternalError(_))
+            .tapError(e => ZIO.logWarning(s"[plaid] embed failed, storing null embedding: ${e.getMessage}"))
+            .orElse(ZIO.succeed(List.empty[Double]))
           _ <- ZIO.serviceWithZIO[FactService](_.createFact(CreateFact(
             documentId       = doc.id,
             schemaId         = bankAccountSchema.id,
