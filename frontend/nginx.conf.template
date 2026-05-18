@@ -1,0 +1,41 @@
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Use Docker's embedded DNS resolver so upstream is resolved lazily at
+    # request time rather than at startup (allows the container to start even
+    # when upstreams are not yet up or are unavailable during standalone testing).
+    resolver 127.0.0.11 valid=30s ipv6=off;
+
+    # Proxy /api/v1/* to Scala http-server with auth header.
+    # Must be declared before /api/ so nginx picks the more specific match.
+    location /api/v1/ {
+        set $scala_upstream http://http-server:8080;
+        proxy_pass         $scala_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   Authorization "Bearer ${AUTH_TOKEN}";
+    }
+
+    # Proxy all /api/* to chatbot-server.
+    # proxy_buffering off is required for SSE streaming (chat responses).
+    location /api/ {
+        set $chatbot_upstream http://chatbot-server:8000;
+        proxy_pass         $chatbot_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+        proxy_set_header   Connection '';
+        proxy_buffering    off;
+        proxy_cache        off;
+        proxy_read_timeout 300s;
+        chunked_transfer_encoding on;
+    }
+
+    # React SPA — serve index.html for all non-file routes
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
