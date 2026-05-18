@@ -34,6 +34,11 @@ services:
       AUTH_TOKEN: ${AUTH_TOKEN}
       FILE_STORAGE_BASE_PATH: /data/files
       JAVA_OPTS: -Xms64m -Xmx256m
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_SECRET: ${PLAID_SECRET:-}
+      PLAID_ENV: ${PLAID_ENV:-sandbox}
+      PLAID_REDIRECT_URI: ${PLAID_REDIRECT_URI:-}
+      EMBED_SERVICE_URL: http://chatbot:8000
     volumes:
       - /volume1/docker/myassistant/uploads:/data/files
     depends_on:
@@ -95,6 +100,9 @@ services:
       NEWS_MAX_EVENTS: ${NEWS_MAX_EVENTS:-20}
       NEWS_ARTICLES_PER_EVENT: ${NEWS_ARTICLES_PER_EVENT:-3}
       NEWS_LOG_PER_CATEGORY: ${NEWS_LOG_PER_CATEGORY:-15}
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_SECRET: ${PLAID_SECRET:-}
+      PLAID_ENV: ${PLAID_ENV:-sandbox}
     depends_on:
       http-server:
         condition: service_healthy

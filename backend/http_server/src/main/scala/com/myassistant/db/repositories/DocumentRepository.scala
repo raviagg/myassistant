@@ -94,7 +94,8 @@ object DocumentRepository:
     def create(req: CreateDocument): ZIO[ZConnectionPool, AppError, Document] =
       val id            = UUID.randomUUID()
       val filesStr      = req.files.noSpaces
-      val embeddingStr  = req.embedding.mkString("[", ",", "]")
+      val embeddingSql  = if req.embedding.isEmpty then SqlFragment(", NULL")
+                         else SqlFragment(s", '${req.embedding.mkString("[", ",", "]")}'::vector")
       val supersedesLit =
         if req.supersedesIds.isEmpty then SqlFragment("ARRAY[]::uuid[]")
         else SqlFragment(
@@ -104,7 +105,7 @@ object DocumentRepository:
               sql"VALUES (${id.toString}::uuid, ${req.personId.map(_.toString)}::uuid, ${req.householdId.map(_.toString)}::uuid, " ++
               sql"${req.contentText}, ${req.sourceTypeId.toString}::uuid, ${filesStr}::jsonb, " ++
               supersedesLit ++
-              SqlFragment(s", '$embeddingStr'::vector") ++
+              embeddingSql ++
               sql") RETURNING " ++ docCols
       transaction(q.query[DocRow].selectOne)
         .mapError(mapSqlError)

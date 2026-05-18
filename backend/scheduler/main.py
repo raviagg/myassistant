@@ -2,6 +2,7 @@ import time
 import os
 import httpx
 from handlers.news_poll import NewsPollHandler
+from handlers.plaid_poll import PlaidPollHandler
 
 HTTP_SERVER_URL = os.environ["HTTP_SERVER_URL"]
 AUTH_TOKEN = os.environ["AUTH_TOKEN"]
@@ -10,7 +11,8 @@ POLL_INTERVAL = 60  # seconds
 
 def build_handler_map(http: httpx.Client) -> dict:
     return {
-        "news_poll": NewsPollHandler(http),
+        "news_poll":  NewsPollHandler(http),
+        "plaid_poll": PlaidPollHandler(http),
     }
 
 

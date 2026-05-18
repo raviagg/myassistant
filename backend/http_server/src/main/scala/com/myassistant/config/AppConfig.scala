@@ -16,6 +16,8 @@ final case class AppConfig(
     database:    DatabaseConfig,
     auth:        AuthConfig,
     fileStorage: FileStorageConfig,
+    plaid:       PlaidConfig,
+    embed:       EmbedConfig,
 )
 
 object AppConfig:
