@@ -35,10 +35,12 @@ object PlaidRoutes:
               case Right(r) =>
                 ZIO.serviceWithZIO[PlaidClient](_.createLinkToken(r.personId.toString))
                   .foldCauseZIO(
-                    cause => ZIO.logErrorCause("Plaid link-token failed", cause) *>
-                               ZIO.succeed(Response.json(
-                                 s"""{"error":"plaid_error","message":"${cause.prettyPrint.take(300).replace("\"", "'")}"}"""
-                               ).status(Status.BadGateway)),
+                    cause =>
+                      val msg = cause.squash.getMessage
+                      ZIO.logError(s"Plaid link-token failed: $msg") *>
+                        ZIO.succeed(Response.json(
+                          s"""{"error":"plaid_error","message":"${msg.replace("\"", "'")}"}"""
+                        ).status(Status.BadGateway)),
                     tok => ZIO.succeed(Response.json(LinkTokenResponse(tok).asJson.noSpaces)),
                   )
           yield resp
