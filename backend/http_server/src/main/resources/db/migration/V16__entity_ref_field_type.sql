@@ -8,8 +8,13 @@
 -- (MCP server checks the referenced entity exists before write).
 -- ============================================================
 
+-- Drop old basic constraint (named field_definitions_valid in V5) and the
+-- complete one if it already exists (idempotent re-run safety).
 ALTER TABLE entity_type_schema
-    DROP CONSTRAINT field_definitions_complete;
+    DROP CONSTRAINT IF EXISTS field_definitions_valid;
+
+ALTER TABLE entity_type_schema
+    DROP CONSTRAINT IF EXISTS field_definitions_complete;
 
 ALTER TABLE entity_type_schema
     ADD CONSTRAINT field_definitions_complete CHECK (
