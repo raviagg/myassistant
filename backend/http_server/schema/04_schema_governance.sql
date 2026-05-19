@@ -381,7 +381,11 @@ COMMENT ON COLUMN entity_type_schema.field_definitions IS
      }
    ]
    The file type means the field value is a file path reference
-   pointing to a file in the parent document''s files array.';
+   pointing to a file in the parent document''s files array.
+   The entity_ref type means the field value is a UUID referencing
+   another entity''s entity_instance_id. The MCP server validates
+   that the referenced entity exists in current_facts before write;
+   dangling references are rejected with an error.';
 
 COMMENT ON COLUMN entity_type_schema.mandatory_fields IS
   'Auto-generated array of field names where mandatory=true
