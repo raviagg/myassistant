@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import LoginScreen from './components/LoginScreen'
 import ChatScreen from './components/ChatScreen'
-import FinanceTab from './components/FinanceTab'
+import SourceConnectionsTab from './components/SourceConnectionsTab'
+import UnifiedViewBuilderTab from './components/UnifiedViewBuilderTab'
 import type { Session } from './types'
 
-type Tab = 'chat' | 'finance'
+type Tab = 'chat' | 'connections' | 'unified'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [activeTab, setActiveTab] = useState<Tab>(
-    window.location.search.includes('oauth_state_id') ? 'finance' : 'chat'
+    window.location.search.includes('oauth_state_id') ? 'connections' : 'chat'
   )
 
   if (!session) {
@@ -20,20 +21,72 @@ export default function App() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <div style={styles.tabBar}>
         <button
-          style={{ ...styles.tab, ...(activeTab === 'chat' ? styles.tabActive : {}) }}
+          style={{
+            ...styles.tab,
+            ...(activeTab === 'chat' ? styles.tabActive : {}),
+          }}
+          onMouseEnter={e => {
+            if (activeTab !== 'chat') {
+              (e.currentTarget as HTMLButtonElement).style.background = '#334155'
+              ;(e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'
+            }
+          }}
+          onMouseLeave={e => {
+            if (activeTab !== 'chat') {
+              (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+              ;(e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'
+            }
+          }}
           onClick={() => setActiveTab('chat')}
         >
-          Chat
+          💬 Chat
         </button>
         <button
-          style={{ ...styles.tab, ...(activeTab === 'finance' ? styles.tabActive : {}) }}
-          onClick={() => setActiveTab('finance')}
+          style={{
+            ...styles.tab,
+            ...(activeTab === 'connections' ? styles.tabActive : {}),
+          }}
+          onMouseEnter={e => {
+            if (activeTab !== 'connections') {
+              (e.currentTarget as HTMLButtonElement).style.background = '#334155'
+              ;(e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'
+            }
+          }}
+          onMouseLeave={e => {
+            if (activeTab !== 'connections') {
+              (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+              ;(e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'
+            }
+          }}
+          onClick={() => setActiveTab('connections')}
         >
-          Finance
+          🔌 Source Connections
+        </button>
+        <button
+          style={{
+            ...styles.tab,
+            ...(activeTab === 'unified' ? styles.tabActive : {}),
+          }}
+          onMouseEnter={e => {
+            if (activeTab !== 'unified') {
+              (e.currentTarget as HTMLButtonElement).style.background = '#334155'
+              ;(e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'
+            }
+          }}
+          onMouseLeave={e => {
+            if (activeTab !== 'unified') {
+              (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+              ;(e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'
+            }
+          }}
+          onClick={() => setActiveTab('unified')}
+        >
+          ✦ Unified View Builder
         </button>
       </div>
-      {activeTab === 'chat'    && <ChatScreen session={session} onLogout={() => setSession(null)} />}
-      {activeTab === 'finance' && <FinanceTab session={session} />}
+      {activeTab === 'chat'        && <ChatScreen session={session} onLogout={() => setSession(null)} />}
+      {activeTab === 'connections' && <SourceConnectionsTab session={session} />}
+      {activeTab === 'unified'     && <UnifiedViewBuilderTab />}
     </div>
   )
 }
@@ -41,21 +94,26 @@ export default function App() {
 const styles: Record<string, React.CSSProperties> = {
   tabBar: {
     display: 'flex',
-    background: 'var(--bg-surface2)',
-    borderBottom: '1px solid var(--border)',
+    flexDirection: 'row',
+    background: '#0f172a',
+    borderBottom: '1px solid #334155',
     flexShrink: 0,
+    height: '50px',
+    alignItems: 'stretch',
   },
   tab: {
-    padding: '10px 24px',
+    height: '50px',
+    padding: '0 20px',
     border: 'none',
     background: 'transparent',
-    color: 'var(--text-muted)',
+    color: '#94a3b8',
     cursor: 'pointer',
     fontSize: 14,
     fontWeight: 500,
+    transition: 'background 0.15s, color 0.15s',
   },
   tabActive: {
-    color: 'var(--text-primary)',
-    borderBottom: '2px solid var(--accent)',
+    background: 'rgba(99,102,241,0.15)',
+    color: '#a5b4fc',
   },
 }

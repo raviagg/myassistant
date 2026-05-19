@@ -1,4 +1,4 @@
-import type { Session } from './types'
+import type { Session, SourceConnection, SyncRun, LatestRuns } from './types'
 
 export async function login(username: string): Promise<Session> {
   const resp = await fetch('/api/login', {
@@ -131,6 +131,75 @@ export async function disconnectPlaidAccount(
   })
   if (!factResp.ok) throw new Error(`delete fact failed: ${factResp.status}`)
 }
+
+// ── Source Connections API ───────────────────────────────────────────────────
+
+export async function listSourceConnections(personId: string): Promise<SourceConnection[]> {
+  const resp = await fetch(`/api/v1/source-connections?personId=${personId}&limit=100`)
+  if (!resp.ok) throw new Error(`list connections failed: ${resp.status}`)
+  return ((await resp.json()).items ?? []) as SourceConnection[]
+}
+
+export async function createSourceConnection(body: {
+  sourceType: string
+  connectionName: string
+  personId: string
+  syncScheduled: boolean
+  syncAdhoc: boolean
+  syncSchedule?: string
+  config?: Record<string, unknown>
+}): Promise<SourceConnection> {
+  const resp = await fetch('/api/v1/source-connections', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!resp.ok) throw new Error(`create connection failed: ${resp.status}`)
+  return resp.json()
+}
+
+export async function updateSourceConnection(id: string, body: {
+  sourceType: string
+  connectionName: string
+  personId: string | null
+  householdId: string | null
+  syncScheduled: boolean
+  syncAdhoc: boolean
+  syncSchedule: string | null
+  config: Record<string, unknown>
+}): Promise<SourceConnection> {
+  const resp = await fetch(`/api/v1/source-connections/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!resp.ok) throw new Error(`update connection failed: ${resp.status}`)
+  return resp.json()
+}
+
+export async function deleteSourceConnection(id: string): Promise<void> {
+  const resp = await fetch(`/api/v1/source-connections/${id}`, { method: 'DELETE' })
+  if (!resp.ok) throw new Error(`delete connection failed: ${resp.status}`)
+}
+
+export async function triggerAdhocSync(id: string): Promise<void> {
+  const resp = await fetch(`/api/v1/source-connections/${id}/sync`, { method: 'POST' })
+  if (!resp.ok) throw new Error(`sync failed: ${resp.status}`)
+}
+
+export async function fetchLatestRuns(id: string): Promise<LatestRuns> {
+  const resp = await fetch(`/api/v1/source-connections/${id}/runs/latest`)
+  if (!resp.ok) throw new Error(`fetch runs failed: ${resp.status}`)
+  return resp.json()
+}
+
+export async function fetchRunDetail(connId: string, runId: string): Promise<SyncRun> {
+  const resp = await fetch(`/api/v1/source-connections/${connId}/runs/${runId}`)
+  if (!resp.ok) throw new Error(`fetch run failed: ${resp.status}`)
+  return resp.json()
+}
+
+// ── Reference Data ───────────────────────────────────────────────────────────
 
 let _userInputSourceTypeId: string | null = null
 async function getUserInputSourceTypeId(): Promise<string> {
