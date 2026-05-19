@@ -1,5 +1,5 @@
 -- ============================================================
--- 14_entity_ref_field_type.sql
+-- V16__entity_ref_field_type.sql
 -- Add entity_ref to the allowed field types in entity_type_schema
 --
 -- entity_ref fields store a UUID referencing another entity's

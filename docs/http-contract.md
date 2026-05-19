@@ -67,7 +67,9 @@ Each element of `fieldDefinitions` has this shape:
 }
 ```
 
-Valid `type` values: `text`, `number`, `date`, `boolean`, `file`.
+Valid `type` values: `text`, `number`, `date`, `boolean`, `file`, `entity_ref`.
+
+For `entity_ref` fields: the value stored in a fact is a UUID referencing another entity's `entity_instance_id`. The MCP server validates that the referenced entity exists in `current_facts` before the write succeeds — writes with dangling references are rejected with an error.
 
 ---
 

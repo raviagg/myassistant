@@ -22,7 +22,11 @@ def _validate_entity_refs(http: httpx.Client, schema_id: str, fields: dict) -> N
             continue
         ref_id = fields[field_name]
         ref_resp = http.get(f"/api/v1/facts/{ref_id}/current")
-        if ref_resp.status_code == 404 or not ref_resp.json():
+        try:
+            ref_empty = not ref_resp.is_success or not ref_resp.json()
+        except Exception:
+            ref_empty = not ref_resp.is_success
+        if ref_empty:
             raise ValueError(
                 f"entity_ref field '{field_name}' references entity_instance_id "
                 f"'{ref_id}' which does not exist in current_facts"

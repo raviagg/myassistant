@@ -368,7 +368,7 @@ COMMENT ON COLUMN entity_type_schema.field_definitions IS
   'JSONB array defining the fields for this entity type.
    Each element is an object with:
      name        — snake_case field identifier
-     type        — one of: text, number, date, boolean, file
+     type        — one of: text, number, date, boolean, file, entity_ref
      mandatory   — true if required, false if optional
      description — plain English explanation with examples
    Example:
