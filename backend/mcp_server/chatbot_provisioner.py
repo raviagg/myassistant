@@ -7,7 +7,7 @@ If not, creates one. The ID is cached in-memory for the session lifetime.
 
 import httpx
 
-_cache: dict[str, str] = {}  # scope_key (person_id or household_id) -> source_connection_id
+_cache: dict[str, str] = {}  # "person:<uuid>" or "household:<uuid>" -> source_connection_id
 
 
 def get_or_create(
@@ -20,15 +20,19 @@ def get_or_create(
     Returns None if no person_id or household_id is provided, or if the
     provisioning call fails (best-effort -- never blocks the main tool call).
     """
-    scope_key = person_id or household_id
-    if not scope_key:
+    if person_id:
+        scope_key = f"person:{person_id}"
+    elif household_id:
+        scope_key = f"household:{household_id}"
+    else:
         return None
     if scope_key in _cache:
         return _cache[scope_key]
 
     # Look for an existing chatbot source_connection for this person/household.
+    # Use a large limit to avoid missing the chatbot entry on a paginated response.
     try:
-        params: dict = {}
+        params: dict = {"limit": 200}
         if person_id:
             params["personId"] = person_id
         else:
