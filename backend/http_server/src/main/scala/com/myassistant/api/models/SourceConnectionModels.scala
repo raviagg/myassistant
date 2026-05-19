@@ -95,3 +95,24 @@ final case class SyncQueuedResponse(
     message:      String,
     connectionId: UUID,
 ) derives Codec.AsObject
+
+/** Request body for POST /api/v1/source-connections/{id}/advance.
+ *
+ *  Scheduler-internal endpoint that advances `next_run_at` after the
+ *  scheduler has computed the next cron tick.
+ */
+final case class AdvanceNextRunRequest(
+    nextRunAt: Instant,
+) derives Codec.AsObject
+
+/** Request body for POST /api/v1/source-connections/{id}/mark-synced. */
+final case class MarkSyncedRequest(
+    lastSyncedAt: Instant,
+) derives Codec.AsObject
+
+/** Response body for GET /api/v1/source-connections/{id}/secrets — the
+ *  decrypted JSON object, or null when the column is empty.
+ */
+final case class SecretsResponse(
+    secrets: io.circe.Json,
+) derives Codec.AsObject

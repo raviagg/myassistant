@@ -58,6 +58,7 @@ object Main extends ZIOAppDefault:
     val scheduledJobRepoLayer = ScheduledJobRepository.live
     val sourceConnRepoLayer   = SourceConnectionRepository.live
     val syncRunRepoLayer      = SyncRunRepository.live
+    val plaidSyncRepoLayer    = PlaidSyncRepository.live
 
     // ── Services ──────────────────────────────────────────────
     val personSvcLayer       = personRepoLayer       >>> PersonService.live
@@ -90,6 +91,7 @@ object Main extends ZIOAppDefault:
       scheduledJobSvcLayer ++
       sourceConnSvcLayer ++
       plaidClientLayer ++
+      plaidSyncRepoLayer ++
       embedClientLayer ++
       authConfigLayer
 

@@ -72,7 +72,7 @@ COMMENT ON SCHEMA plaid IS
 CREATE TABLE plaid.connections (
     id                    UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     source_connection_id  UUID        NOT NULL REFERENCES source_connections(id) ON DELETE CASCADE,
-    plaid_item_id         TEXT        NOT NULL,
+    plaid_item_id         TEXT        NOT NULL UNIQUE,
     institution_name      TEXT        NOT NULL,
     cursor                TEXT,                          -- incremental sync cursor (transactions/sync API)
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),

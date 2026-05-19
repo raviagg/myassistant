@@ -1,25 +1,23 @@
 package com.myassistant.api.routes
 
-import com.myassistant.api.embed.EmbedClient
 import com.myassistant.api.middleware.ErrorMiddleware
+import com.myassistant.api.models.CreateSourceConnectionRequest
 import com.myassistant.api.plaid.*
-import com.myassistant.domain.{CreateDocument, CreateFact, OperationType}
+import com.myassistant.db.repositories.PlaidSyncRepository
 import com.myassistant.errors.AppError
-import com.myassistant.services.{DocumentService, FactService, ReferenceService, SchemaService}
-import io.circe.Json
+import com.myassistant.services.SourceConnectionService
+import io.circe.{Json, JsonObject}
 import io.circe.parser.decode
 import io.circe.syntax.*
 import zio.*
 import zio.http.*
 import zio.jdbc.*
 
-import java.nio.charset.StandardCharsets
-import java.time.Instant
 import java.util.UUID
 
 object PlaidRoutes:
 
-  val routes: Routes[PlaidClient & EmbedClient & DocumentService & FactService & SchemaService & ReferenceService & ZConnectionPool, Nothing] =
+  val routes: Routes[PlaidClient & SourceConnectionService & PlaidSyncRepository & ZConnectionPool, Nothing] =
     Routes(
 
       // POST /api/v1/plaid/link-token
@@ -30,7 +28,10 @@ object PlaidRoutes:
             resp <- decode[LinkTokenRequest](bodyStr) match
               case Left(err) =>
                 ZIO.succeed(Response.json(
-                  s"""{"error":"bad_request","message":"${err.getMessage.replace("\"", "'")}"}"""
+                  Json.obj(
+                    "error"   -> Json.fromString("bad_request"),
+                    "message" -> Json.fromString(err.getMessage),
+                  ).noSpaces
                 ).status(Status.BadRequest))
               case Right(r) =>
                 ZIO.serviceWithZIO[PlaidClient](_.createLinkToken(r.personId.toString))
@@ -39,7 +40,10 @@ object PlaidRoutes:
                       val msg = cause.squash.getMessage
                       ZIO.logError(s"Plaid link-token failed: $msg") *>
                         ZIO.succeed(Response.json(
-                          s"""{"error":"plaid_error","message":"${msg.replace("\"", "'")}"}"""
+                          Json.obj(
+                            "error"   -> Json.fromString("plaid_error"),
+                            "message" -> Json.fromString(msg),
+                          ).noSpaces
                         ).status(Status.BadGateway)),
                     tok => ZIO.succeed(Response.json(LinkTokenResponse(tok).asJson.noSpaces)),
                   )
@@ -54,7 +58,10 @@ object PlaidRoutes:
             resp <- decode[ExchangeRequest](bodyStr) match
               case Left(err) =>
                 ZIO.succeed(Response.json(
-                  s"""{"error":"bad_request","message":"${err.getMessage.replace("\"", "'")}"}"""
+                  Json.obj(
+                    "error"   -> Json.fromString("bad_request"),
+                    "message" -> Json.fromString(err.getMessage),
+                  ).noSpaces
                 ).status(Status.BadRequest))
               case Right(r) =>
                 handleExchange(r.personId, r.publicToken)
@@ -67,14 +74,20 @@ object PlaidRoutes:
         },
     )
 
-  private def stableId(prefix: String, key: String): UUID =
-    UUID.nameUUIDFromBytes(s"$prefix:$key".getBytes(StandardCharsets.UTF_8))
-
+  /** Exchange a Plaid public token, then persist:
+   *    1. one row in `source_connections` (with encrypted access_token + item_id)
+   *    2. one row in `plaid.connections`
+   *    3. one row per account in `plaid.bank_accounts`
+   *
+   *  The legacy document/fact ingestion path has been removed — Plaid
+   *  data now lives in the native `plaid.*` tables.
+   */
   private def handleExchange(
       personId:    UUID,
       publicToken: String,
-  ): ZIO[PlaidClient & EmbedClient & DocumentService & FactService & SchemaService & ReferenceService & ZConnectionPool, AppError, ExchangeResponse] =
+  ): ZIO[PlaidClient & SourceConnectionService & PlaidSyncRepository & ZConnectionPool, AppError, ExchangeResponse] =
     for
+      // 1. Talk to Plaid: exchange + accounts + institution name
       (accessToken, itemId) <- ZIO.serviceWithZIO[PlaidClient](_.exchangePublicToken(publicToken))
         .mapError(e => AppError.InternalError(e))
 
@@ -89,82 +102,46 @@ object PlaidRoutes:
         case None =>
           ZIO.succeed("Unknown Institution")
 
-      sourceTypes <- ZIO.serviceWithZIO[ReferenceService](_.listSourceTypes)
-        .mapError(e => AppError.InternalError(e))
-      userInputSrcId <- ZIO.fromOption(sourceTypes.find(_.name == "user_input").map(_.id))
-        .orElseFail(AppError.InternalError(RuntimeException("user_input source type not found")))
-
-      domains <- ZIO.serviceWithZIO[ReferenceService](_.listDomains)
-        .mapError(e => AppError.InternalError(e))
-      financeDomainId <- ZIO.fromOption(domains.find(_.name == "finance").map(_.id))
-        .orElseFail(AppError.InternalError(RuntimeException("finance domain not found")))
-
-      connectionSchema <- ZIO.serviceWithZIO[SchemaService](_.getCurrentSchema(financeDomainId, "plaid_connection"))
-      bankAccountSchema <- ZIO.serviceWithZIO[SchemaService](_.getCurrentSchema(financeDomainId, "bank_account"))
-
-      now = Instant.now()
-      docText = s"Connected $institutionName via Plaid on ${now.toString.take(10)}"
-      docEmbedding <- ZIO.serviceWithZIO[EmbedClient](_.embed(docText))
-        .tapError(e => ZIO.logWarning(s"[plaid] embed failed, storing null embedding: ${e.getMessage}"))
-        .orElse(ZIO.succeed(List.empty[Double]))
-      doc <- ZIO.serviceWithZIO[DocumentService](_.createDocument(CreateDocument(
-        personId      = Some(personId),
-        householdId   = None,
-        contentText   = docText,
-        sourceTypeId  = userInputSrcId,
-        embedding     = docEmbedding,
-        files         = Json.arr(),
-        supersedesIds = List.empty,
-      )))
-
-      connectionInstanceId = stableId("plaid:item", itemId)
-      connFields = Json.obj(
-        "item_id"          -> Json.fromString(itemId),
-        "institution_id"   -> accountsResp.item.institution_id.fold(Json.Null)(Json.fromString),
+      // 2. Create the source_connections row (service encrypts secrets).
+      configObj = JsonObject(
         "institution_name" -> Json.fromString(institutionName),
-        "access_token"     -> Json.fromString(accessToken),
-        "sync_cursor"      -> Json.fromString(""),
-        "last_synced_at"   -> Json.Null,
+        "institution_id"   -> accountsResp.item.institution_id.fold(Json.Null)(Json.fromString),
       )
-      connEmbedding <- ZIO.serviceWithZIO[EmbedClient](_.embed(connFields.noSpaces))
-        .tapError(e => ZIO.logWarning(s"[plaid] embed failed, storing null embedding: ${e.getMessage}"))
-        .orElse(ZIO.succeed(List.empty[Double]))
-      _ <- ZIO.serviceWithZIO[FactService](_.createFact(CreateFact(
-        documentId       = doc.id,
-        schemaId         = connectionSchema.id,
-        entityInstanceId = connectionInstanceId,
-        operationType    = OperationType.Create,
-        fields           = connFields,
-        embedding        = connEmbedding,
+      secretsPlain = Json.obj(
+        "access_token" -> Json.fromString(accessToken),
+        "item_id"      -> Json.fromString(itemId),
+      ).noSpaces
+      sourceConn <- ZIO.serviceWithZIO[SourceConnectionService](_.create(CreateSourceConnectionRequest(
+        sourceType     = "plaid_poll",
+        connectionName = institutionName,
+        personId       = Some(personId),
+        householdId    = None,
+        config         = Some(configObj),
+        secrets        = Some(secretsPlain),
+        syncScheduled  = Some(true),
+        syncAdhoc      = Some(true),
+        syncSchedule   = Some("0 2 * * *"),
       )))
 
+      // 3. Upsert plaid.connections.
+      plaidConn <- ZIO.serviceWithZIO[PlaidSyncRepository](_.upsertConnection(
+        sourceConnectionId = sourceConn.id,
+        plaidItemId        = itemId,
+        institutionName    = institutionName,
+        cursor             = None,
+      ))
+
+      // 4. Upsert one plaid.bank_accounts row per account.
       _ <- ZIO.foreachDiscard(accountsResp.accounts) { account =>
-        val acctFields = Json.obj(
-          "account_id"        -> Json.fromString(account.account_id),
-          "item_id"           -> Json.fromString(itemId),
-          "name"              -> Json.fromString(account.name),
-          "official_name"     -> account.official_name.fold(Json.Null)(Json.fromString),
-          "type"              -> Json.fromString(account.`type`),
-          "subtype"           -> account.subtype.fold(Json.Null)(Json.fromString),
-          "mask"              -> account.mask.fold(Json.Null)(Json.fromString),
-          "current_balance"   -> account.balances.current.flatMap(Json.fromDouble).getOrElse(Json.Null),
-          "available_balance" -> account.balances.available.flatMap(Json.fromDouble).getOrElse(Json.Null),
-          "iso_currency_code" -> account.balances.iso_currency_code.fold(Json.Null)(Json.fromString),
-          "institution_name"  -> Json.fromString(institutionName),
-        )
-        for
-          acctEmbedding <- ZIO.serviceWithZIO[EmbedClient](_.embed(acctFields.noSpaces))
-            .tapError(e => ZIO.logWarning(s"[plaid] embed failed, storing null embedding: ${e.getMessage}"))
-            .orElse(ZIO.succeed(List.empty[Double]))
-          _ <- ZIO.serviceWithZIO[FactService](_.createFact(CreateFact(
-            documentId       = doc.id,
-            schemaId         = bankAccountSchema.id,
-            entityInstanceId = stableId("plaid:account", account.account_id),
-            operationType    = OperationType.Create,
-            fields           = acctFields,
-            embedding        = acctEmbedding,
-          )))
-        yield ()
+        val balance: Option[BigDecimal] = account.balances.current.map(BigDecimal.apply)
+        ZIO.serviceWithZIO[PlaidSyncRepository](_.upsertBankAccount(
+          sourceConnectionId = sourceConn.id,
+          connectionId       = plaidConn.id,
+          plaidAccountId     = account.account_id,
+          name               = account.name,
+          accountType        = account.`type`,
+          currentBalance     = balance,
+        ))
       }
 
     yield ExchangeResponse(itemId = itemId, institutionName = institutionName)

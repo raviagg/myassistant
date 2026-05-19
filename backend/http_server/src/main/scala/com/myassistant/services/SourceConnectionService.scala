@@ -3,6 +3,7 @@ package com.myassistant.services
 import com.myassistant.api.models.{
   CreateSourceConnectionRequest,
   LatestSyncRunsResponse,
+  PatchSyncRunRequest,
   SourceConnectionResponse,
   SyncRunResponse,
   UpdateSourceConnectionRequest,
@@ -60,6 +61,37 @@ trait SourceConnectionService:
       connectionId: UUID,
       runId:        UUID,
   ): ZIO[ZConnectionPool, AppError, Option[SyncRunResponse]]
+
+  /** Return connections that are due for cron-driven sync.
+   *  Used by the Python scheduler worker.
+   */
+  def listDue(): ZIO[ZConnectionPool, AppError, List[SourceConnectionResponse]]
+
+  /** Return the decrypted secrets JSON string for the given connection.
+   *  Returns None when the connection does not exist or has no secrets
+   *  stored. Used by the scheduler worker to authenticate against the
+   *  upstream provider.
+   */
+  def getSecrets(id: UUID): ZIO[ZConnectionPool, AppError, Option[String]]
+
+  /** Apply a partial update to a sync_runs row, used by the connector
+   *  worker on completion to record terminal status, completion time,
+   *  stats, and log lines.
+   */
+  def patchRun(
+      connectionId: UUID,
+      runId:        UUID,
+      req:          PatchSyncRunRequest,
+  ): ZIO[ZConnectionPool, AppError, Option[SyncRunResponse]]
+
+  /** Advance `next_run_at` after the scheduler computes the next cron tick. */
+  def advanceNextRun(id: UUID, nextRunAt: Instant): ZIO[ZConnectionPool, AppError, Boolean]
+
+  /** Mark the connection as synced — set `last_synced_at`. */
+  def markSynced(id: UUID, lastSyncedAt: Instant): ZIO[ZConnectionPool, AppError, Boolean]
+
+  /** Create a sync_runs row with `runType='scheduled'`, `status='running'`. */
+  def createScheduledRun(id: UUID): ZIO[ZConnectionPool, AppError, SyncRunResponse]
 
 object SourceConnectionService:
 
@@ -230,6 +262,75 @@ object SourceConnectionService:
         runId:        UUID,
     ): ZIO[ZConnectionPool, AppError, Option[SyncRunResponse]] =
       runRepo.findById(runId).map(_.filter(_.sourceConnectionId == connectionId).map(SyncRunResponse.fromDomain))
+
+    // ── Scheduler-internal helpers ────────────────────────────────────────
+
+    def listDue(): ZIO[ZConnectionPool, AppError, List[SourceConnectionResponse]] =
+      connRepo.findDue().map(_.map(SourceConnectionResponse.fromDomain))
+
+    def getSecrets(id: UUID): ZIO[ZConnectionPool, AppError, Option[String]] =
+      connRepo.findSecretsById(id).flatMap {
+        case None             => ZIO.fail(AppError.NotFound("source_connection", id.toString))
+        case Some(None)       => ZIO.succeed(None)
+        case Some(Some(blob)) =>
+          ZIO.fromEither(SecretsService.decrypt(blob, secretsConfig))
+            .mapBoth(
+              err => {
+                System.err.println(s"[ERROR] SecretsService.decrypt failed: ${err.getMessage}")
+                AppError.InternalError(err)
+              },
+              Some(_),
+            )
+      }
+
+    def patchRun(
+        connectionId: UUID,
+        runId:        UUID,
+        req:          PatchSyncRunRequest,
+    ): ZIO[ZConnectionPool, AppError, Option[SyncRunResponse]] =
+      // Validate status if supplied
+      val validStatuses = Set("running", "success", "warning", "failed")
+      for
+        _ <- ZIO.foreachDiscard(req.status)(s =>
+               ZIO.unless(validStatuses.contains(s))(
+                 ZIO.fail(AppError.ValidationError(
+                   s"status must be one of: ${validStatuses.toList.sorted.mkString(", ")}"))))
+        result <- runRepo.patch(runId, connectionId, req)
+      yield result.map(SyncRunResponse.fromDomain)
+
+    def advanceNextRun(id: UUID, nextRunAt: Instant): ZIO[ZConnectionPool, AppError, Boolean] =
+      connRepo.findById(id).flatMap {
+        case None    => ZIO.succeed(false)
+        case Some(_) => connRepo.updateNextRunAt(id, Some(nextRunAt)).as(true)
+      }
+
+    def markSynced(id: UUID, lastSyncedAt: Instant): ZIO[ZConnectionPool, AppError, Boolean] =
+      connRepo.findById(id).flatMap {
+        case None    => ZIO.succeed(false)
+        case Some(_) => connRepo.updateLastSyncedAt(id, lastSyncedAt).as(true)
+      }
+
+    def createScheduledRun(id: UUID): ZIO[ZConnectionPool, AppError, SyncRunResponse] =
+      connRepo.findById(id).flatMap {
+        case None       => ZIO.fail(AppError.NotFound("source_connection", id.toString))
+        case Some(_) =>
+          val run = SyncRun(
+            id                 = UUID.randomUUID(),
+            sourceConnectionId = id,
+            runType            = "scheduled",
+            status             = "running",
+            startedAt          = Instant.now(),
+            completedAt        = None,
+            stats              = None,
+            logLines           = Json.arr(),
+          )
+          runRepo.create(run).map(SyncRunResponse.fromDomain)
+            .mapError {
+              case AppError.ReferentialIntegrityError(_, _) =>
+                AppError.NotFound("source_connection", id.toString)
+              case other => other
+            }
+      }
 
   val live: ZLayer[SourceConnectionRepository & SyncRunRepository & SecretsConfig, Nothing, SourceConnectionService] =
     ZLayer.fromFunction(new Live(_, _, _))

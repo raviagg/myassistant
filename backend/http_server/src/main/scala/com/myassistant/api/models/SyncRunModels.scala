@@ -1,10 +1,25 @@
 package com.myassistant.api.models
 
 import com.myassistant.domain.{LatestSyncRuns, SyncRun}
-import io.circe.{Codec, JsonObject}
+import io.circe.{Codec, Json, JsonObject}
 
 import java.time.Instant
 import java.util.UUID
+
+/** PATCH body for `/source-connections/{id}/runs/{run_id}`.
+ *
+ *  Every field is optional — only fields that are present in the JSON
+ *  request body are written. Used by the connector worker to record
+ *  terminal status, completion time, stats, and structured log lines
+ *  for a sync_runs row that was previously inserted with
+ *  `status='running'`.
+ */
+final case class PatchSyncRunRequest(
+    status:      Option[String],
+    completedAt: Option[Instant],
+    stats:       Option[JsonObject],
+    logLines:    Option[Json],
+) derives Codec.AsObject
 
 /** HTTP response body for a single sync_runs row.
  *

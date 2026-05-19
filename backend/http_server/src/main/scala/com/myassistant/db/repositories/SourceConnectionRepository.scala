@@ -55,6 +55,17 @@ trait SourceConnectionRepository:
   /** Delete a connection (cascades to sync_runs). Returns true if a row was removed. */
   def delete(id: UUID): ZIO[ZConnectionPool, AppError, Boolean]
 
+  /** Fetch the encrypted secrets blob for a connection.
+   *  Returns:
+   *    - `None` if the connection does not exist
+   *    - `Some(None)` if the row exists but `secrets` is NULL
+   *    - `Some(Some(blob))` if a ciphertext is present
+   *  Reserved for the connector scheduler — not exposed via the API
+   *  routes directly; the service layer decrypts before returning to
+   *  callers.
+   */
+  def findSecretsById(id: UUID): ZIO[ZConnectionPool, AppError, Option[Option[String]]]
+
 object SourceConnectionRepository:
 
   // ── Row type ──────────────────────────────────────────────────────────────
@@ -213,6 +224,11 @@ object SourceConnectionRepository:
         sql"DELETE FROM source_connections WHERE id = ${id.toString}::uuid".delete
       ).mapError(mapSqlError)
         .map(_ > 0)
+
+    def findSecretsById(id: UUID): ZIO[ZConnectionPool, AppError, Option[Option[String]]] =
+      val q = sql"SELECT secrets FROM source_connections WHERE id = ${id.toString}::uuid"
+      transaction(q.query[Option[String]].selectOne)
+        .mapError(mapSqlError)
 
   /** ZLayer providing the live SourceConnectionRepository. */
   val live: ZLayer[Any, Nothing, SourceConnectionRepository] =

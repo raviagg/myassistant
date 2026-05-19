@@ -5,6 +5,7 @@ import com.myassistant.api.embed.EmbedClient
 import com.myassistant.api.plaid.PlaidClient
 import com.myassistant.api.routes.*
 import com.myassistant.config.AuthConfig
+import com.myassistant.db.repositories.PlaidSyncRepository
 import com.myassistant.services.*
 import zio.*
 import zio.http.*
@@ -32,6 +33,7 @@ object Router:
       & ScheduledJobService
       & SourceConnectionService
       & PlaidClient
+      & PlaidSyncRepository
       & EmbedClient
       & ZConnectionPool
       & AuthConfig
@@ -58,7 +60,8 @@ object Router:
           FileRoutes.routes ++
           ScheduledJobRoutes.routes ++
           SourceConnectionRoutes.routes ++
-          PlaidRoutes.routes) @@ AuthMiddleware(authCfg.token)
+          PlaidRoutes.routes ++
+          PlaidSyncRoutes.routes) @@ AuthMiddleware(authCfg.token)
 
       (publicRoutes ++ protectedRoutes) @@ LoggingMiddleware.logRequests
     }
