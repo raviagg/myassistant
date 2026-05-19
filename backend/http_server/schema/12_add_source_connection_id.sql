@@ -13,11 +13,16 @@
 -- ============================================================
 
 
+-- ON DELETE RESTRICT: deleting a source_connections row is blocked while any
+-- document or fact still references it. If a connection must be deleted after
+-- data has already been ingested, first nullify the column on affected rows,
+-- then delete the connection. This preserves the document/fact history.
+-- (sync_runs uses ON DELETE CASCADE instead — run logs are disposable.)
 ALTER TABLE document
-    ADD COLUMN source_connection_id UUID REFERENCES source_connections(id);
+    ADD COLUMN source_connection_id UUID REFERENCES source_connections(id) ON DELETE RESTRICT;
 
 ALTER TABLE fact
-    ADD COLUMN source_connection_id UUID REFERENCES source_connections(id);
+    ADD COLUMN source_connection_id UUID REFERENCES source_connections(id) ON DELETE RESTRICT;
 
 
 -- Partial indexes — NULLs excluded so pre-migration rows do not bloat the index.
@@ -57,9 +62,11 @@ COMMENT ON COLUMN fact.source_connection_id IS
    associated connector) will also be null.
    Populated by the connector worker at sync time alongside
    document.source_connection_id so both layers remain in sync.
-   Use this column to scope structured queries to facts from a
-   specific connection without joining through document, e.g.:
-     SELECT * FROM current_facts cf
-     JOIN fact f ON f.entity_instance_id = cf.entity_instance_id
-     WHERE f.source_connection_id = ''<uuid>'';
+   Use this column to scope structured queries to current state of
+   entities produced by a specific connection, e.g.:
+     SELECT * FROM current_facts
+     WHERE entity_instance_id IN (
+         SELECT DISTINCT entity_instance_id FROM fact
+         WHERE source_connection_id = ''<uuid>''
+     );
    Partial index idx_fact_source_connection makes this fast.';
