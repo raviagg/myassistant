@@ -30,6 +30,7 @@ object Router:
       & AuditService
       & FileService
       & ScheduledJobService
+      & SourceConnectionService
       & PlaidClient
       & EmbedClient
       & ZConnectionPool
@@ -56,6 +57,7 @@ object Router:
           AuditRoutes.routes ++
           FileRoutes.routes ++
           ScheduledJobRoutes.routes ++
+          SourceConnectionRoutes.routes ++
           PlaidRoutes.routes) @@ AuthMiddleware(authCfg.token)
 
       (publicRoutes ++ protectedRoutes) @@ LoggingMiddleware.logRequests

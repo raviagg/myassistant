@@ -40,6 +40,7 @@ object Main extends ZIOAppDefault:
     val fileConfigLayer   = configLayer >>> ZLayer.fromFunction((_: AppConfig).fileStorage)
     val plaidConfigLayer  = configLayer >>> ZLayer.fromFunction((_: AppConfig).plaid)
     val embedConfigLayer  = configLayer >>> ZLayer.fromFunction((_: AppConfig).embed)
+    val secretsConfigLayer = configLayer >>> ZLayer.fromFunction((_: AppConfig).secrets)
 
     // ── Database ──────────────────────────────────────────────
     val poolLayer = dbConfigLayer >>> DatabaseModule.connectionPoolLive
@@ -55,6 +56,8 @@ object Main extends ZIOAppDefault:
     val auditRepoLayer        = AuditRepository.live
     val fileRepoLayer         = FileRepository.live
     val scheduledJobRepoLayer = ScheduledJobRepository.live
+    val sourceConnRepoLayer   = SourceConnectionRepository.live
+    val syncRunRepoLayer      = SyncRunRepository.live
 
     // ── Services ──────────────────────────────────────────────
     val personSvcLayer       = personRepoLayer       >>> PersonService.live
@@ -68,6 +71,8 @@ object Main extends ZIOAppDefault:
     val auditSvcLayer          = auditRepoLayer          >>> AuditService.live
     val fileSvcLayer           = fileConfigLayer         >>> FileService.live
     val scheduledJobSvcLayer   = scheduledJobRepoLayer   >>> ScheduledJobService.live
+    val sourceConnSvcLayer     =
+      (sourceConnRepoLayer ++ syncRunRepoLayer ++ secretsConfigLayer) >>> SourceConnectionService.live
     val plaidClientLayer  = plaidConfigLayer >>> PlaidClient.live
     val embedClientLayer  = embedConfigLayer >>> EmbedClient.live
 
@@ -83,6 +88,7 @@ object Main extends ZIOAppDefault:
       auditSvcLayer ++
       fileSvcLayer ++
       scheduledJobSvcLayer ++
+      sourceConnSvcLayer ++
       plaidClientLayer ++
       embedClientLayer ++
       authConfigLayer
