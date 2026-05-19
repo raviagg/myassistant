@@ -188,24 +188,33 @@ object PlaidSyncRepository:
           AppError.InternalError(new RuntimeException("UPSERT plaid.bank_accounts returned no row"))))
         .map(rowToAcct)
 
-    // Build a PostgreSQL TEXT[] literal from a list of strings.
-    // Each value is wrapped in double quotes and double-quotes are escaped.
-    private def textArrayLiteral(values: List[String]): String =
-      val escaped = values.map(v => "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
-      escaped.mkString("{", ",", "}")
+    // Encode a category list as a standard JSON array string so Postgres can cast
+    // it to text[] via jsonb_array_elements_text. JSON string escaping is
+    // well-defined and avoids manual Postgres array-literal escaping for
+    // externally sourced strings.
+    private def toJsonArray(values: List[String]): String =
+      values
+        .map(v => "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
+        .mkString("[", ",", "]")
 
-    private def upsertOneTxn(
+    // Inner helper: runs on the caller's ZConnection so the whole batch can be
+    // wrapped in a single outer transaction.
+    private def upsertOneTxnOp(
         sourceConnectionId: UUID,
         accountId:          UUID,
         txn:                PlaidTransactionInput,
-    ): ZIO[ZConnectionPool, AppError, Unit] =
-      val categoryLit: Option[String] =
-        if txn.category.isEmpty then None
-        else Some(textArrayLiteral(txn.category))
+    ): ZIO[ZConnection, Throwable, Unit] =
       val dateSqlStr = txn.date.toString  // "YYYY-MM-DD"
+      val categoryFrag =
+        if txn.category.isEmpty then sql"NULL::text[]"
+        else
+          val json = toJsonArray(txn.category)
+          sql"ARRAY(SELECT jsonb_array_elements_text(${json}::jsonb))"
       val q =
         sql"INSERT INTO plaid.transactions(source_connection_id, account_id, plaid_transaction_id, amount, date, merchant_name, category, payment_channel, pending) " ++
-        sql"VALUES (${sourceConnectionId.toString}::uuid, ${accountId.toString}::uuid, ${txn.plaidTransactionId}, ${txn.amount}, ${dateSqlStr}::date, ${txn.merchantName}, ${categoryLit}::text[], ${txn.paymentChannel}, ${txn.pending}) " ++
+        sql"VALUES (${sourceConnectionId.toString}::uuid, ${accountId.toString}::uuid, ${txn.plaidTransactionId}, ${txn.amount}, ${dateSqlStr}::date, ${txn.merchantName}, " ++
+        categoryFrag ++
+        sql", ${txn.paymentChannel}, ${txn.pending}) " ++
         sql"ON CONFLICT (plaid_transaction_id) DO UPDATE SET " ++
         sql"  amount = EXCLUDED.amount, " ++
         sql"  date = EXCLUDED.date, " ++
@@ -213,9 +222,7 @@ object PlaidSyncRepository:
         sql"  category = EXCLUDED.category, " ++
         sql"  payment_channel = EXCLUDED.payment_channel, " ++
         sql"  pending = EXCLUDED.pending"
-      transaction(q.update)
-        .mapError(mapSqlError)
-        .unit
+      q.update.unit
 
     def upsertTransactionsBatch(
         sourceConnectionId: UUID,
@@ -224,21 +231,22 @@ object PlaidSyncRepository:
         modified:           List[PlaidTransactionInput],
         removed:            List[String],
     ): ZIO[ZConnectionPool, AppError, (Int, Int, Int)] =
-      for
-        _ <- ZIO.foreachDiscard(added)(upsertOneTxn(sourceConnectionId, accountId, _))
-        _ <- ZIO.foreachDiscard(modified)(upsertOneTxn(sourceConnectionId, accountId, _))
-        removedCount <-
-          if removed.isEmpty then ZIO.succeed(0L)
-          else
-            // Use a simple per-id DELETE loop to keep it portable; sum the rowcounts.
-            ZIO.foldLeft(removed)(0L) { (acc, txnId) =>
-              val q =
-                sql"DELETE FROM plaid.transactions " ++
-                sql" WHERE plaid_transaction_id = $txnId " ++
-                sql"   AND source_connection_id = ${sourceConnectionId.toString}::uuid"
-              transaction(q.delete).mapError(mapSqlError).map(acc + _)
-            }
-      yield (added.size, modified.size, removedCount.toInt)
+      transaction {
+        for
+          _ <- ZIO.foreachDiscard(added)(upsertOneTxnOp(sourceConnectionId, accountId, _))
+          _ <- ZIO.foreachDiscard(modified)(upsertOneTxnOp(sourceConnectionId, accountId, _))
+          removedCount <-
+            if removed.isEmpty then ZIO.succeed(0L)
+            else
+              ZIO.foldLeft(removed)(0L) { (acc, txnId) =>
+                val q =
+                  sql"DELETE FROM plaid.transactions " ++
+                  sql" WHERE plaid_transaction_id = $txnId " ++
+                  sql"   AND source_connection_id = ${sourceConnectionId.toString}::uuid"
+                q.delete.map(acc + _)
+              }
+        yield (added.size, modified.size, removedCount.toInt)
+      }.mapError(mapSqlError)
 
   /** ZLayer providing the live PlaidSyncRepository. */
   val live: ZLayer[Any, Nothing, PlaidSyncRepository] =

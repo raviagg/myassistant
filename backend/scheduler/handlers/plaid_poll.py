@@ -375,7 +375,11 @@ class PlaidPollHandler(BaseHandler):
                 self._patch_run(connection_id, run_id, terminal_status, stats, log_lines)
             if terminal_status in ("success", "warning"):
                 self._mark_synced(connection_id)
-            self._advance_next_run(connection_id, cron_expression)
+            # Skip advancing when the run was never created (e.g. HTTP server down).
+            # run_id is None only when _create_scheduled_run itself raised, meaning
+            # the scheduler couldn't even register the attempt — retry on next poll.
+            if run_id is not None:
+                self._advance_next_run(connection_id, cron_expression)
             print(
                 f"[plaid_poll] connection {connection_id}: status={terminal_status} stats={stats}"
             )

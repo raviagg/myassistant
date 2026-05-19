@@ -8,6 +8,9 @@ HTTP_SERVER_URL = os.environ["HTTP_SERVER_URL"]
 AUTH_TOKEN = os.environ["AUTH_TOKEN"]
 POLL_INTERVAL = 60  # seconds
 
+# Source types dispatched via source_connections (not legacy scheduled_job).
+_SOURCE_CONN_TYPES = {"plaid_poll"}
+
 
 def build_handler_map(http: httpx.Client) -> dict:
     return {
@@ -23,32 +26,32 @@ def _poll_source_connections(http: httpx.Client, handlers: dict) -> None:
         resp.raise_for_status()
         conns = resp.json().get("items", [])
         for conn in conns:
-            handler = handlers.get(conn["sourceType"])
+            source_type = conn["sourceType"]
+            if source_type not in _SOURCE_CONN_TYPES:
+                continue
+            handler = handlers.get(source_type)
             if handler is None:
                 continue
-            # Only route to handlers that have been migrated to source_connections.
-            if conn["sourceType"] not in {"plaid_poll"}:
-                continue
-            print(f"[scheduler] running source_connection {conn['id']} ({conn['sourceType']})")
+            print(f"[scheduler] running source_connection {conn['id']} ({source_type})")
             handler.run(conn)
     except Exception as e:
         print(f"[scheduler] source-connections poll error: {e}")
 
 
 def _poll_scheduled_jobs(http: httpx.Client, handlers: dict) -> None:
-    """Poll legacy scheduled_job-based handlers (news_poll, not yet migrated)."""
+    """Poll legacy scheduled_job-based handlers (not yet migrated to source_connections)."""
     try:
         resp = http.get("/api/v1/scheduled-jobs/due")
         resp.raise_for_status()
         jobs = resp.json().get("items", [])
         for job in jobs:
-            handler = handlers.get(job["sourceType"])
+            source_type = job["sourceType"]
+            if source_type in _SOURCE_CONN_TYPES:
+                continue
+            handler = handlers.get(source_type)
             if handler is None:
                 continue
-            # Skip handlers migrated to source_connections.
-            if job["sourceType"] in {"plaid_poll"}:
-                continue
-            print(f"[scheduler] running scheduled job {job['id']} ({job['sourceType']})")
+            print(f"[scheduler] running scheduled job {job['id']} ({source_type})")
             handler.run(job)
     except Exception as e:
         print(f"[scheduler] scheduled-jobs poll error: {e}")
