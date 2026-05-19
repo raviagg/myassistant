@@ -154,14 +154,14 @@ COMMENT ON COLUMN source_connections.source_type IS
    connector type requires inserting a row into the
    source_type reference table first (same as any other
    table that references source_type).
-   Known values (seeded in reference data):
-     "plaid"      — Plaid bank/investment feed
-     "news"       — NewsAPI topic polling
-     "gmail"      — Gmail polling
-     "chatbot"    — Chatbot re-extraction pass
-     "bulk_file"  — Batch file ingestion
-     "bulk_image" — Batch image ingestion
-   Example: "plaid"';
+   Known values (seeded in 03_reference.sql and below):
+     "plaid_poll"  — Plaid bank/investment feed
+     "gmail_poll"  — Gmail polling
+     "news_poll"   — NewsAPI topic polling
+     "chatbot"     — Chatbot re-extraction pass
+     "bulk_file"   — Batch file ingestion
+     "bulk_image"  — Batch image ingestion
+   Example: "plaid_poll"';
 
 COMMENT ON COLUMN source_connections.connection_name IS
   'Human-readable label for this connection, shown in the UI.
@@ -284,3 +284,20 @@ COMMENT ON COLUMN source_connections.updated_at IS
    trigger (reuses the shared update_updated_at() function from
    01_spine.sql). Reflects any column change: status transitions,
    config edits, credential rotation, schedule changes, etc.';
+
+
+-- ------------------------------------------------------------
+-- SEED DATA — new source_type values for connector framework
+-- (plaid_poll and gmail_poll are already seeded in 03_reference.sql)
+-- ------------------------------------------------------------
+
+INSERT INTO source_type (name, description) VALUES
+  ('news_poll',
+    'News articles polled from NewsAPI by topic and language preferences'),
+  ('chatbot',
+    'Documents and facts extracted by the chatbot agent from user messages'),
+  ('bulk_file',
+    'Batch ingestion of file uploads — PDF, CSV, text documents'),
+  ('bulk_image',
+    'Batch ingestion of image uploads with visual extraction')
+ON CONFLICT (name) DO NOTHING;
