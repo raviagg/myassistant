@@ -75,7 +75,8 @@ CREATE TABLE plaid.connections (
     plaid_item_id         TEXT        NOT NULL,
     institution_name      TEXT        NOT NULL,
     cursor                TEXT,                          -- incremental sync cursor (transactions/sync API)
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_plaid_connections_source_connection
@@ -126,6 +127,9 @@ COMMENT ON COLUMN plaid.connections.created_at IS
   'Timestamp when this Plaid item was first linked.
    Never updated — reflects original link time.';
 
+COMMENT ON COLUMN plaid.connections.updated_at IS
+  'Last modified timestamp, maintained by plaid_connections_updated_at trigger. Advances when cursor or institution_name changes.';
+
 
 -- ------------------------------------------------------------
 -- TABLE: plaid.bank_accounts
@@ -141,7 +145,8 @@ CREATE TABLE plaid.bank_accounts (
     account_type          TEXT        NOT NULL,
     current_balance       DECIMAL(15,2),
     embedding             VECTOR(1536),
-    created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX idx_plaid_bank_accounts_source_connection
@@ -221,6 +226,9 @@ COMMENT ON COLUMN plaid.bank_accounts.created_at IS
    Not updated on subsequent syncs — balance changes do not
    alter this timestamp.';
 
+COMMENT ON COLUMN plaid.bank_accounts.updated_at IS
+  'Last modified timestamp, maintained by plaid_bank_accounts_updated_at trigger. Advances on every balance refresh.';
+
 
 -- ------------------------------------------------------------
 -- TABLE: plaid.transactions
@@ -250,6 +258,17 @@ CREATE INDEX idx_plaid_transactions_account
 
 CREATE INDEX idx_plaid_transactions_date
     ON plaid.transactions(date DESC);
+
+-- HNSW indexes for semantic search on embeddings.
+-- Partial (WHERE embedding IS NOT NULL) avoids indexing rows
+-- before the embed service has run.
+CREATE INDEX idx_plaid_bank_accounts_embedding
+    ON plaid.bank_accounts USING hnsw(embedding vector_cosine_ops)
+    WHERE embedding IS NOT NULL;
+
+CREATE INDEX idx_plaid_transactions_embedding
+    ON plaid.transactions USING hnsw(embedding vector_cosine_ops)
+    WHERE embedding IS NOT NULL;
 
 COMMENT ON TABLE plaid.transactions IS
   'One row per Plaid transaction fetched via /transactions/sync.
@@ -343,3 +362,19 @@ COMMENT ON COLUMN plaid.transactions.created_at IS
   'Timestamp when this transaction row was first inserted into
    the local database. Not updated on subsequent upserts
    (amount/merchant updates on pending→settled transitions).';
+
+
+-- ------------------------------------------------------------
+-- TRIGGERS
+-- Keep updated_at current on plaid.connections and
+-- plaid.bank_accounts using the shared update_updated_at()
+-- function defined in 01_spine.sql.
+-- ------------------------------------------------------------
+
+CREATE TRIGGER plaid_connections_updated_at
+    BEFORE UPDATE ON plaid.connections
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER plaid_bank_accounts_updated_at
+    BEFORE UPDATE ON plaid.bank_accounts
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
