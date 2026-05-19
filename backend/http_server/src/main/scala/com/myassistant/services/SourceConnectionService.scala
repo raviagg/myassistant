@@ -80,7 +80,13 @@ object SourceConnectionService:
         case None     => ZIO.succeed(None)
         case Some(pt) =>
           ZIO.fromEither(SecretsService.encrypt(pt, secretsConfig))
-            .mapBoth(AppError.InternalError(_), Some(_))
+            .mapError { err =>
+              // Log the underlying cause so operators can diagnose SECRETS_KEY misconfiguration
+              // (using blocking side-effect here since we're in error path and ZIO.logError needs ZIO)
+              System.err.println(s"[ERROR] SecretsService.encrypt failed: ${err.getMessage}")
+              AppError.InternalError(err)
+            }
+            .map(Some(_))
 
     /** Cross-field validation common to create + update. */
     private def validateOwnership(personId: Option[UUID], householdId: Option[UUID]): IO[AppError, Unit] =
@@ -192,7 +198,15 @@ object SourceConnectionService:
               stats              = None,
               logLines           = Json.arr(),
             )
+            // NOTE: There is a TOCTOU race between findById and runRepo.create —
+            // if the connection is deleted between the two calls the FK constraint
+            // will fire.  We convert that misleading 409 into a meaningful 404.
             runRepo.create(run).as(id)
+              .mapError {
+                case AppError.ReferentialIntegrityError(_, _) =>
+                  AppError.NotFound("source_connection", id.toString)
+                case other => other
+              }
       }
 
     def getRunsByConnectionId(

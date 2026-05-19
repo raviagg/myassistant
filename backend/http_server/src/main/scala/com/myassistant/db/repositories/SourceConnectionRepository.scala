@@ -27,6 +27,7 @@ trait SourceConnectionRepository:
   /** List all connections belonging to a specific household. */
   def listByHousehold(householdId: UUID): ZIO[ZConnectionPool, AppError, List[SourceConnection]]
 
+  /** Reserved for the connector scheduler — not exposed via the API routes. */
   /** List enabled, scheduled connections whose next_run_at is due. */
   def findDue(): ZIO[ZConnectionPool, AppError, List[SourceConnection]]
 
@@ -35,12 +36,15 @@ trait SourceConnectionRepository:
    */
   def update(id: UUID, req: UpdateSourceConnection): ZIO[ZConnectionPool, AppError, Option[SourceConnection]]
 
+  /** Reserved for the connector scheduler — not exposed via the API routes. */
   /** Update the next_run_at scheduling timestamp. */
   def updateNextRunAt(id: UUID, nextRunAt: Option[Instant]): ZIO[ZConnectionPool, AppError, Unit]
 
+  /** Reserved for the connector scheduler — not exposed via the API routes. */
   /** Update the last_synced_at timestamp after a run completes. */
   def updateLastSyncedAt(id: UUID, lastSyncedAt: Instant): ZIO[ZConnectionPool, AppError, Unit]
 
+  /** Reserved for the connector scheduler — not exposed via the API routes. */
   /** Update the lifecycle status (active / paused / error). */
   def updateStatus(id: UUID, status: String): ZIO[ZConnectionPool, AppError, Unit]
 

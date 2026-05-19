@@ -7,6 +7,7 @@ import com.myassistant.api.models.{
   UpdateSourceConnectionRequest,
 }
 import com.myassistant.services.SourceConnectionService
+import io.circe.Json
 import io.circe.parser.decode
 import io.circe.syntax.*
 import zio.*
@@ -47,7 +48,10 @@ object SourceConnectionRoutes:
             response <- decode[CreateSourceConnectionRequest](bodyStr) match
               case Left(err) =>
                 ZIO.succeed(Response.json(
-                  s"""{"error":"bad_request","message":"${err.getMessage.replace("\"", "'")}"}"""
+                  Json.obj(
+                    "error"   -> Json.fromString("bad_request"),
+                    "message" -> Json.fromString(err.getMessage),
+                  ).noSpaces
                 ).status(Status.BadRequest))
               case Right(createReq) =>
                 ZIO.serviceWithZIO[SourceConnectionService](_.create(createReq))
@@ -65,9 +69,15 @@ object SourceConnectionRoutes:
           val householdIdResult = req.queryParam("householdId").map(s => Try(UUID.fromString(s)).toEither.left.map(_ => s))
           (personIdResult, householdIdResult) match
             case (Some(Left(bad)), _) =>
-              ZIO.succeed(Response.json(s"""{"error":"bad_request","message":"Invalid UUID: $bad"}""").status(Status.BadRequest))
+              ZIO.succeed(Response.json(Json.obj(
+                "error"   -> Json.fromString("bad_request"),
+                "message" -> Json.fromString(s"Invalid UUID: $bad"),
+              ).noSpaces).status(Status.BadRequest))
             case (_, Some(Left(bad))) =>
-              ZIO.succeed(Response.json(s"""{"error":"bad_request","message":"Invalid UUID: $bad"}""").status(Status.BadRequest))
+              ZIO.succeed(Response.json(Json.obj(
+                "error"   -> Json.fromString("bad_request"),
+                "message" -> Json.fromString(s"Invalid UUID: $bad"),
+              ).noSpaces).status(Status.BadRequest))
             case (Some(Right(personId)), _) =>
               ZIO.serviceWithZIO[SourceConnectionService](_.listByPerson(personId))
                 .foldZIO(
@@ -82,7 +92,10 @@ object SourceConnectionRoutes:
                 )
             case (None, None) =>
               ZIO.succeed(Response.json(
-                """{"error":"bad_request","message":"Query parameter 'personId' or 'householdId' is required"}"""
+                Json.obj(
+                  "error"   -> Json.fromString("bad_request"),
+                  "message" -> Json.fromString("Query parameter 'personId' or 'householdId' is required"),
+                ).noSpaces
               ).status(Status.BadRequest))
         },
 
@@ -92,7 +105,10 @@ object SourceConnectionRoutes:
           Try(UUID.fromString(id)).toEither match
             case Left(_)    =>
               ZIO.succeed(Response.json(
-                s"""{"error":"bad_request","message":"Invalid UUID: $id"}"""
+                Json.obj(
+                  "error"   -> Json.fromString("bad_request"),
+                  "message" -> Json.fromString(s"Invalid UUID: $id"),
+                ).noSpaces
               ).status(Status.BadRequest))
             case Right(uid) =>
               ZIO.serviceWithZIO[SourceConnectionService](_.getById(uid))
@@ -100,7 +116,10 @@ object SourceConnectionRoutes:
                   err => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
                   {
                     case None       => ZIO.succeed(Response.json(
-                        s"""{"error":"not_found","message":"source_connection with id '$uid' not found"}"""
+                        Json.obj(
+                          "error"   -> Json.fromString("not_found"),
+                          "message" -> Json.fromString(s"source_connection with id '$uid' not found"),
+                        ).noSpaces
                       ).status(Status.NotFound))
                     case Some(conn) => ZIO.succeed(Response.json(conn.asJson.noSpaces))
                   },
@@ -113,7 +132,10 @@ object SourceConnectionRoutes:
           Try(UUID.fromString(id)).toEither match
             case Left(_)    =>
               ZIO.succeed(Response.json(
-                s"""{"error":"bad_request","message":"Invalid UUID: $id"}"""
+                Json.obj(
+                  "error"   -> Json.fromString("bad_request"),
+                  "message" -> Json.fromString(s"Invalid UUID: $id"),
+                ).noSpaces
               ).status(Status.BadRequest))
             case Right(uid) =>
               for
@@ -121,7 +143,10 @@ object SourceConnectionRoutes:
                 response <- decode[UpdateSourceConnectionRequest](bodyStr) match
                   case Left(err) =>
                     ZIO.succeed(Response.json(
-                      s"""{"error":"bad_request","message":"${err.getMessage.replace("\"", "'")}"}"""
+                      Json.obj(
+                        "error"   -> Json.fromString("bad_request"),
+                        "message" -> Json.fromString(err.getMessage),
+                      ).noSpaces
                     ).status(Status.BadRequest))
                   case Right(updateReq) =>
                     ZIO.serviceWithZIO[SourceConnectionService](_.update(uid, updateReq))
@@ -129,7 +154,10 @@ object SourceConnectionRoutes:
                         err => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
                         {
                           case None       => ZIO.succeed(Response.json(
-                              s"""{"error":"not_found","message":"source_connection with id '$uid' not found"}"""
+                              Json.obj(
+                                "error"   -> Json.fromString("not_found"),
+                                "message" -> Json.fromString(s"source_connection with id '$uid' not found"),
+                              ).noSpaces
                             ).status(Status.NotFound))
                           case Some(conn) => ZIO.succeed(Response.json(conn.asJson.noSpaces))
                         },
@@ -143,7 +171,10 @@ object SourceConnectionRoutes:
           Try(UUID.fromString(id)).toEither match
             case Left(_)    =>
               ZIO.succeed(Response.json(
-                s"""{"error":"bad_request","message":"Invalid UUID: $id"}"""
+                Json.obj(
+                  "error"   -> Json.fromString("bad_request"),
+                  "message" -> Json.fromString(s"Invalid UUID: $id"),
+                ).noSpaces
               ).status(Status.BadRequest))
             case Right(uid) =>
               ZIO.serviceWithZIO[SourceConnectionService](_.delete(uid))
@@ -152,7 +183,10 @@ object SourceConnectionRoutes:
                   found =>
                     if found then ZIO.succeed(Response.status(Status.NoContent))
                     else ZIO.succeed(Response.json(
-                      s"""{"error":"not_found","message":"source_connection with id '$uid' not found"}"""
+                      Json.obj(
+                        "error"   -> Json.fromString("not_found"),
+                        "message" -> Json.fromString(s"source_connection with id '$uid' not found"),
+                      ).noSpaces
                     ).status(Status.NotFound)),
                 )
         },
@@ -165,7 +199,10 @@ object SourceConnectionRoutes:
           Try(UUID.fromString(id)).toEither match
             case Left(_)    =>
               ZIO.succeed(Response.json(
-                s"""{"error":"bad_request","message":"Invalid UUID: $id"}"""
+                Json.obj(
+                  "error"   -> Json.fromString("bad_request"),
+                  "message" -> Json.fromString(s"Invalid UUID: $id"),
+                ).noSpaces
               ).status(Status.BadRequest))
             case Right(uid) =>
               ZIO.serviceWithZIO[SourceConnectionService](_.triggerSync(uid))
@@ -186,7 +223,10 @@ object SourceConnectionRoutes:
           Try(UUID.fromString(id)).toEither match
             case Left(_)    =>
               ZIO.succeed(Response.json(
-                s"""{"error":"bad_request","message":"Invalid UUID: $id"}"""
+                Json.obj(
+                  "error"   -> Json.fromString("bad_request"),
+                  "message" -> Json.fromString(s"Invalid UUID: $id"),
+                ).noSpaces
               ).status(Status.BadRequest))
             case Right(uid) =>
               ZIO.serviceWithZIO[SourceConnectionService](_.getLatestRuns(uid))
@@ -202,7 +242,10 @@ object SourceConnectionRoutes:
           Try(UUID.fromString(id)).toEither match
             case Left(_)    =>
               ZIO.succeed(Response.json(
-                s"""{"error":"bad_request","message":"Invalid UUID: $id"}"""
+                Json.obj(
+                  "error"   -> Json.fromString("bad_request"),
+                  "message" -> Json.fromString(s"Invalid UUID: $id"),
+                ).noSpaces
               ).status(Status.BadRequest))
             case Right(uid) =>
               val limitOpt: Either[String, Int] = req.queryParam("limit") match
@@ -211,7 +254,10 @@ object SourceConnectionRoutes:
               limitOpt match
                 case Left(bad) =>
                   ZIO.succeed(Response.json(
-                    s"""{"error":"bad_request","message":"Invalid integer for 'limit': $bad"}"""
+                    Json.obj(
+                      "error"   -> Json.fromString("bad_request"),
+                      "message" -> Json.fromString(s"Invalid integer for 'limit': $bad"),
+                    ).noSpaces
                   ).status(Status.BadRequest))
                 case Right(limit) =>
                   ZIO.serviceWithZIO[SourceConnectionService](_.getRunsByConnectionId(uid, limit))
@@ -232,7 +278,10 @@ object SourceConnectionRoutes:
           parsed match
             case Left(bad)         =>
               ZIO.succeed(Response.json(
-                s"""{"error":"bad_request","message":"Invalid UUID: $bad"}"""
+                Json.obj(
+                  "error"   -> Json.fromString("bad_request"),
+                  "message" -> Json.fromString(s"Invalid UUID: $bad"),
+                ).noSpaces
               ).status(Status.BadRequest))
             case Right((cid, rid)) =>
               ZIO.serviceWithZIO[SourceConnectionService](_.getRunById(cid, rid))
@@ -240,7 +289,10 @@ object SourceConnectionRoutes:
                   err => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
                   {
                     case None      => ZIO.succeed(Response.json(
-                        s"""{"error":"not_found","message":"sync_run with id '$rid' not found"}"""
+                        Json.obj(
+                          "error"   -> Json.fromString("not_found"),
+                          "message" -> Json.fromString(s"sync_run with id '$rid' not found"),
+                        ).noSpaces
                       ).status(Status.NotFound))
                     case Some(run) => ZIO.succeed(Response.json(run.asJson.noSpaces))
                   },

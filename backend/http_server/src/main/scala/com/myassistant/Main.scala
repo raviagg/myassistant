@@ -102,6 +102,13 @@ object Main extends ZIOAppDefault:
                AppConfig.live >>> ZLayer.fromFunction((_: AppConfig).database)
              )
       cfg <- ZIO.service[AppConfig].provide(AppConfig.live)
+      // Validate SECRETS_KEY before accepting connections
+      _ <- ZIO.serviceWith[AppConfig](_.secrets.validate())
+             .flatMap {
+               case Left(msg) => ZIO.fail(new RuntimeException(s"Startup failed — invalid SECRETS_KEY: $msg"))
+               case Right(_)  => ZIO.unit
+             }
+             .provide(AppConfig.live)
       app <- Router.app.provide(appLayer)
       _   <- ZIO.logInfo(s"Server listening on port ${cfg.server.port}")
       _   <- Server
