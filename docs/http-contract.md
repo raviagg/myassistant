@@ -560,6 +560,7 @@ Persist a new immutable document. At least one of `personId` or `householdId` mu
   "embedding": [0.123, -0.456, 0.789],
   "personId": "uuid",
   "householdId": null,
+  "sourceConnectionId": null,
   "supersedesIds": [],
   "files": [
     { "filePath": "/data/files/slip-march-2026.pdf", "filename": "slip-march-2026.pdf", "mimeType": "application/pdf" }
@@ -574,6 +575,7 @@ Persist a new immutable document. At least one of `personId` or `householdId` mu
 | `embedding` | float[] | yes |
 | `personId` | UUID | no (one of personId/householdId required) |
 | `householdId` | UUID | no (one of personId/householdId required) |
+| `sourceConnectionId` | UUID | no | FK to `source_connections` |
 | `supersedesIds` | UUID[] | no |
 | `files` | object[] | no |
 
@@ -587,6 +589,7 @@ Each `files` element: `{ filePath: string, filename: string, mimeType?: string }
   "sourceTypeId": "uuid",
   "personId": "uuid",
   "householdId": null,
+  "sourceConnectionId": null,
   "supersedesIds": [],
   "files": [],
   "createdAt": "2026-04-25T10:00:00Z"
@@ -701,7 +704,8 @@ Persist a single fact operation. For a new entity, the caller generates a fresh 
     "status": "pending",
     "dueDate": "2026-05-01"
   },
-  "embedding": [0.123, -0.456, 0.789]
+  "embedding": [0.123, -0.456, 0.789],
+  "sourceConnectionId": null
 }
 ```
 
@@ -713,6 +717,7 @@ Persist a single fact operation. For a new entity, the caller generates a fresh 
 | `operationType` | `"create"` \| `"update"` \| `"delete"` | yes |
 | `fields` | object (JSONB) | yes |
 | `embedding` | float[] | yes |
+| `sourceConnectionId` | UUID | no | FK to `source_connections` |
 
 **Response `201`:**
 ```json
@@ -720,6 +725,7 @@ Persist a single fact operation. For a new entity, the caller generates a fresh 
   "id": "uuid",
   "documentId": "uuid",
   "schemaId": "uuid",
+  "sourceConnectionId": null,
   "entityInstanceId": "uuid",
   "operationType": "create",
   "fields": { "title": "Passport renewal", "status": "pending", "dueDate": "2026-05-01" },

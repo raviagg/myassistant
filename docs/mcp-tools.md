@@ -318,6 +318,7 @@ The server automatically generates an embedding from `content_text`; the caller 
 | `source_type_id` | UUID | yes | FK to `source_type` (e.g. user_input, gmail_poll) |
 | `person_id` | UUID | no | Owner person (at least one of person/household required) |
 | `household_id` | UUID | no | Owner household |
+| `source_connection_id` | UUID | no | FK to `source_connections`; auto-provisioned for chatbot if omitted |
 | `supersedes_ids` | UUID[] | no | Documents this one replaces |
 | `files` | object[] | no | Attached file references |
 
@@ -392,6 +393,7 @@ The server automatically generates an embedding from the `fields` content, repre
 | `entity_instance_id` | UUID | yes | Groups all operations on the same logical entity |
 | `operation_type` | enum: `create` \| `update` \| `delete` | yes | |
 | `fields` | object | yes | JSONB — only the fields being set/changed in this operation; the server auto-generates an embedding from these |
+| `source_connection_id` | UUID | no | FK to `source_connections`; auto-provisioned for chatbot if omitted |
 
 **Returns:** Raw fact row including generated `id`.
 

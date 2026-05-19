@@ -38,18 +38,18 @@ trait DocumentRepository:
 
 object DocumentRepository:
 
-  // id, person_id, household_id, content_text, source_type_id (text), files (text), supersedes_ids (text), created_at
+  // id, person_id, household_id, source_connection_id, content_text, source_type_id (text), files (text), supersedes_ids (text), created_at
   private type DocRow =
-    (String, Option[String], Option[String], String, String,
+    (String, Option[String], Option[String], Option[String], String, String,
      String, String, java.sql.Timestamp)
 
   private val docCols = SqlFragment(
-    """id::text, person_id::text, household_id::text, content_text, source_type_id::text,
+    """id::text, person_id::text, household_id::text, source_connection_id::text, content_text, source_type_id::text,
        files::text, array_to_json(supersedes_ids)::text, created_at"""
   )
 
   private def rowToDocument(row: DocRow): Document =
-    val (id, personId, householdId, contentText, sourceTypeId, filesJson, supersedesJson, createdAt) = row
+    val (id, personId, householdId, sourceConnectionId, contentText, sourceTypeId, filesJson, supersedesJson, createdAt) = row
     val files         = circeParser.parse(filesJson).getOrElse(Json.arr())
     val supersedesIds = circeParser.parse(supersedesJson)
       .toOption
@@ -57,14 +57,15 @@ object DocumentRepository:
       .map(_.toList.flatMap(_.asString).map(UUID.fromString))
       .getOrElse(Nil)
     Document(
-      id            = UUID.fromString(id),
-      personId      = personId.map(UUID.fromString),
-      householdId   = householdId.map(UUID.fromString),
-      contentText   = contentText,
-      sourceTypeId  = UUID.fromString(sourceTypeId),
-      files         = files,
-      supersedesIds = supersedesIds,
-      createdAt     = createdAt.toInstant,
+      id                 = UUID.fromString(id),
+      personId           = personId.map(UUID.fromString),
+      householdId        = householdId.map(UUID.fromString),
+      sourceConnectionId = sourceConnectionId.map(UUID.fromString),
+      contentText        = contentText,
+      sourceTypeId       = UUID.fromString(sourceTypeId),
+      files              = files,
+      supersedesIds      = supersedesIds,
+      createdAt          = createdAt.toInstant,
     )
 
   private def mapSqlError(e: Throwable): AppError = e match
@@ -101,8 +102,9 @@ object DocumentRepository:
         else SqlFragment(
           s"ARRAY[${req.supersedesIds.map(u => s"'$u'::uuid").mkString(",")}]"
         )
-      val q = sql"INSERT INTO document(id, person_id, household_id, content_text, source_type_id, files, supersedes_ids, embedding) " ++
+      val q = sql"INSERT INTO document(id, person_id, household_id, source_connection_id, content_text, source_type_id, files, supersedes_ids, embedding) " ++
               sql"VALUES (${id.toString}::uuid, ${req.personId.map(_.toString)}::uuid, ${req.householdId.map(_.toString)}::uuid, " ++
+              sql"${req.sourceConnectionId.map(_.toString)}::uuid, " ++
               sql"${req.contentText}, ${req.sourceTypeId.toString}::uuid, ${filesStr}::jsonb, " ++
               supersedesLit ++
               embeddingSql ++
@@ -177,9 +179,9 @@ object DocumentRepository:
           val joined = cs.reduce(_ ++ SqlFragment(" AND ") ++ _)
           SqlFragment(" AND ") ++ joined
       // DocRow + similarity score (Double stored as String)
-      type DocSimRow = (String, Option[String], Option[String], String, String, String, String, java.sql.Timestamp, String)
+      type DocSimRow = (String, Option[String], Option[String], Option[String], String, String, String, String, java.sql.Timestamp, String)
       val q = SqlFragment(
-        s"""SELECT id::text, person_id::text, household_id::text, content_text, source_type_id::text,
+        s"""SELECT id::text, person_id::text, household_id::text, source_connection_id::text, content_text, source_type_id::text,
                    files::text, array_to_json(supersedes_ids)::text, created_at,
                    (1 - (embedding <=> '$embStr'::vector))::text AS similarity_score
             FROM document
@@ -189,8 +191,8 @@ object DocumentRepository:
       transaction(q.query[DocSimRow].selectAll)
         .mapError(mapSqlError)
         .map(_.toList.map { row =>
-          val (id, pid, hid, ct, stId, fj, sj, ca, sim) = row
-          val doc = rowToDocument((id, pid, hid, ct, stId, fj, sj, ca))
+          val (id, pid, hid, scId, ct, stId, fj, sj, ca, sim) = row
+          val doc = rowToDocument((id, pid, hid, scId, ct, stId, fj, sj, ca))
           (doc, sim.toDoubleOption.getOrElse(0.0))
         })
 

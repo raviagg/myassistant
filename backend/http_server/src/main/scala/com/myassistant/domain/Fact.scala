@@ -7,22 +7,24 @@ enum OperationType:
   case Create, Update, Delete
 
 final case class Fact(
-    id:               UUID,
-    documentId:       UUID,
-    schemaId:         UUID,
-    entityInstanceId: UUID,
-    operationType:    OperationType,
-    fields:           io.circe.Json,
-    createdAt:        Instant,
+    id:                 UUID,
+    documentId:         UUID,
+    schemaId:           UUID,
+    sourceConnectionId: Option[UUID],
+    entityInstanceId:   UUID,
+    operationType:      OperationType,
+    fields:             io.circe.Json,
+    createdAt:          Instant,
 )
 
 final case class CreateFact(
-    documentId:       UUID,
-    schemaId:         UUID,
-    entityInstanceId: UUID,
-    operationType:    OperationType,
-    fields:           io.circe.Json,
-    embedding:        List[Double],
+    documentId:         UUID,
+    schemaId:           UUID,
+    sourceConnectionId: Option[UUID],
+    entityInstanceId:   UUID,
+    operationType:      OperationType,
+    fields:             io.circe.Json,
+    embedding:          List[Double],
 )
 
 final case class CurrentFact(

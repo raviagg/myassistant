@@ -1,5 +1,6 @@
 import json
 import httpx
+import chatbot_provisioner
 from client import _check
 from tools.embeddings import embed
 
@@ -40,7 +41,16 @@ def create_fact(
     entity_instance_id: str,
     operation_type: str,
     fields: dict,
+    source_connection_id: str | None = None,
+    person_id: str | None = None,
+    household_id: str | None = None,
 ) -> dict:
+    """Persist a single fact operation. Embedding is generated automatically from fields.
+    For 'update'/'delete': resolve entity_instance_id first via search_current_facts.
+    sourceConnectionId is auto-provisioned for chatbot-originated calls.
+    """
+    if source_connection_id is None:
+        source_connection_id = chatbot_provisioner.get_or_create(http, person_id, household_id)
     _validate_entity_refs(http, schema_id, fields)
     body: dict = {
         "documentId": document_id,
@@ -50,6 +60,8 @@ def create_fact(
         "fields": fields,
         "embedding": embed(json.dumps(fields, sort_keys=True)),
     }
+    if source_connection_id is not None:
+        body["sourceConnectionId"] = source_connection_id
     resp = http.post("/api/v1/facts", json=body)
     _check(resp)
     return resp.json()
@@ -126,9 +138,12 @@ def register(mcp, http: httpx.Client) -> None:
         entity_instance_id: str,
         operation_type: str,
         fields: dict,
+        source_connection_id: str | None = None,
+        person_id: str | None = None,
+        household_id: str | None = None,
     ) -> dict:
-        """Persist a single fact operation. Embedding is generated automatically from fields. For 'update'/'delete': resolve entity_instance_id first via search_current_facts."""
-        return create_fact(http, document_id, schema_id, entity_instance_id, operation_type, fields)
+        """Persist a single fact operation. Embedding is generated automatically from fields. For 'update'/'delete': resolve entity_instance_id first via search_current_facts. sourceConnectionId is auto-provisioned for chatbot-originated calls."""
+        return create_fact(http, document_id, schema_id, entity_instance_id, operation_type, fields, source_connection_id, person_id, household_id)
 
     @mcp.tool(name="get_fact_history")
     def _history_tool(entity_instance_id: str) -> dict:
