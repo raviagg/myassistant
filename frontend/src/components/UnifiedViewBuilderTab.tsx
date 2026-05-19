@@ -182,7 +182,8 @@ interface CurrentViewProps {
 }
 
 function CurrentUnifiedView({ onReviewChanges }: CurrentViewProps) {
-  const hasUnreviewed = true
+  const pendingCount = MOCK_DIFF_INITIAL.filter(r => r.decision === null).length
+  const hasUnreviewed = pendingCount > 0
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
@@ -200,7 +201,7 @@ function CurrentUnifiedView({ onReviewChanges }: CurrentViewProps) {
               ⚠ Unreviewed schema updates
             </span>
             <span style={{ color: T.textMuted, fontSize: 12 }}>
-              3 field changes pending review
+              {pendingCount} field changes pending review
             </span>
           </div>
           <button
@@ -424,7 +425,7 @@ function UpdateUnifiedView() {
                 color: isActive ? T.accentLight : isDone ? T.successText : T.textSecondary,
                 cursor: 'pointer',
                 fontSize: 12,
-                fontWeight: isActive ? 600 : 400,
+                fontWeight: isActive ? 600 : 500,
                 textAlign: 'left' as const,
                 width: '100%',
               }}
@@ -432,7 +433,7 @@ function UpdateUnifiedView() {
               <span style={{
                 width: 18, height: 18, borderRadius: '50%',
                 background: isActive ? T.accent : isDone ? T.successBorder : T.border,
-                color: isActive ? '#fff' : isDone ? T.successText : T.textMuted,
+                color: isActive ? T.white : isDone ? T.successText : T.textMuted,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 9, fontWeight: 700, flexShrink: 0,
               }}>
@@ -560,7 +561,7 @@ function UpdateUnifiedView() {
                 onClick={() => setStep(2)}
                 style={{
                   padding: '8px 20px', background: T.accent, border: 'none',
-                  borderRadius: 7, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  borderRadius: 7, color: T.white, cursor: 'pointer', fontSize: 13, fontWeight: 600,
                 }}
               >
                 Next: Accept / Reject →
@@ -646,7 +647,7 @@ function UpdateUnifiedView() {
                 onClick={() => setStep(3)}
                 style={{
                   padding: '8px 20px', background: T.accent, border: 'none',
-                  borderRadius: 7, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  borderRadius: 7, color: T.white, cursor: 'pointer', fontSize: 13, fontWeight: 600,
                 }}
               >
                 Next: Preview →
@@ -729,7 +730,7 @@ function UpdateUnifiedView() {
                 onClick={() => setStep(4)}
                 style={{
                   padding: '8px 20px', background: T.accent, border: 'none',
-                  borderRadius: 7, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+                  borderRadius: 7, color: T.white, cursor: 'pointer', fontSize: 13, fontWeight: 600,
                 }}
               >
                 Next: Approve & Materialize →
@@ -813,7 +814,7 @@ function UpdateUnifiedView() {
                       background: materializing ? T.accentTint : T.accent,
                       border: `1px solid ${materializing ? T.accentBorder : T.accent}`,
                       borderRadius: 7,
-                      color: materializing ? T.accentLight : '#fff',
+                      color: materializing ? T.accentLight : T.white,
                       cursor: materializing ? 'not-allowed' : 'pointer',
                       fontSize: 14,
                       fontWeight: 700,

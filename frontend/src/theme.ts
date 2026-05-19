@@ -25,6 +25,9 @@ export const T = {
   accentTintHov:'rgba(99,102,241,0.20)',
   accentBorder:'rgba(99,102,241,0.25)',
 
+  // Neutral
+  white:         '#ffffff',
+
   // Status colors
   successText:   '#4ade80',
   successBg:     '#052e16',
