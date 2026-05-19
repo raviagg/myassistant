@@ -140,6 +140,12 @@ export async function listSourceConnections(personId: string): Promise<SourceCon
   return ((await resp.json()).items ?? []) as SourceConnection[]
 }
 
+export async function getSourceConnection(id: string): Promise<SourceConnection> {
+  const resp = await fetch(`/api/v1/source-connections/${id}`)
+  if (!resp.ok) throw new Error(`get connection failed: ${resp.status}`)
+  return resp.json()
+}
+
 export async function createSourceConnection(body: {
   sourceType: string
   connectionName: string

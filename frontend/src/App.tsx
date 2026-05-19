@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { T } from './theme'
 import LoginScreen from './components/LoginScreen'
 import ChatScreen from './components/ChatScreen'
 import SourceConnectionsTab from './components/SourceConnectionsTab'
@@ -27,14 +28,14 @@ export default function App() {
           }}
           onMouseEnter={e => {
             if (activeTab !== 'chat') {
-              (e.currentTarget as HTMLButtonElement).style.background = '#334155'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'
+              (e.currentTarget as HTMLButtonElement).style.background = T.border
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textPrimary
             }
           }}
           onMouseLeave={e => {
             if (activeTab !== 'chat') {
               (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textSecondary
             }
           }}
           onClick={() => setActiveTab('chat')}
@@ -48,14 +49,14 @@ export default function App() {
           }}
           onMouseEnter={e => {
             if (activeTab !== 'connections') {
-              (e.currentTarget as HTMLButtonElement).style.background = '#334155'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'
+              (e.currentTarget as HTMLButtonElement).style.background = T.border
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textPrimary
             }
           }}
           onMouseLeave={e => {
             if (activeTab !== 'connections') {
               (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textSecondary
             }
           }}
           onClick={() => setActiveTab('connections')}
@@ -69,14 +70,14 @@ export default function App() {
           }}
           onMouseEnter={e => {
             if (activeTab !== 'unified') {
-              (e.currentTarget as HTMLButtonElement).style.background = '#334155'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'
+              (e.currentTarget as HTMLButtonElement).style.background = T.border
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textPrimary
             }
           }}
           onMouseLeave={e => {
             if (activeTab !== 'unified') {
               (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textSecondary
             }
           }}
           onClick={() => setActiveTab('unified')}
@@ -95,8 +96,8 @@ const styles: Record<string, React.CSSProperties> = {
   tabBar: {
     display: 'flex',
     flexDirection: 'row',
-    background: '#0f172a',
-    borderBottom: '1px solid #334155',
+    background: T.bgPage,
+    borderBottom: `1px solid ${T.border}`,
     flexShrink: 0,
     height: '50px',
     alignItems: 'stretch',
@@ -106,14 +107,14 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0 20px',
     border: 'none',
     background: 'transparent',
-    color: '#94a3b8',
+    color: T.textSecondary,
     cursor: 'pointer',
     fontSize: 14,
     fontWeight: 500,
     transition: 'background 0.15s, color 0.15s',
   },
   tabActive: {
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
+    background: T.accentTint,
+    color: T.accentLight,
   },
 }

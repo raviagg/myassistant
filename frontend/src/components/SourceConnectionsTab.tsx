@@ -36,7 +36,7 @@ export default function SourceConnectionsTab({ session }: Props) {
   }, [loadConnections])
 
   const handleEdit = (id: string) => {
-    setEditingId(id || null)
+    setEditingId(id)
     setSubTab('add')
   }
 
@@ -62,14 +62,14 @@ export default function SourceConnectionsTab({ session }: Props) {
           }}
           onMouseEnter={e => {
             if (subTab !== 'list') {
-              (e.currentTarget as HTMLButtonElement).style.background = '#334155'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'
+              (e.currentTarget as HTMLButtonElement).style.background = T.border
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textPrimary
             }
           }}
           onMouseLeave={e => {
             if (subTab !== 'list') {
               (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textSecondary
             }
           }}
           onClick={() => { setSubTab('list'); setEditingId(null) }}
@@ -83,14 +83,14 @@ export default function SourceConnectionsTab({ session }: Props) {
           }}
           onMouseEnter={e => {
             if (subTab !== 'add') {
-              (e.currentTarget as HTMLButtonElement).style.background = '#334155'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#e2e8f0'
+              (e.currentTarget as HTMLButtonElement).style.background = T.border
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textPrimary
             }
           }}
           onMouseLeave={e => {
             if (subTab !== 'add') {
               (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#94a3b8'
+              ;(e.currentTarget as HTMLButtonElement).style.color = T.textSecondary
             }
           }}
           onClick={() => { setSubTab('add'); setEditingId(null) }}
@@ -108,7 +108,6 @@ export default function SourceConnectionsTab({ session }: Props) {
             error={error}
             onEdit={handleEdit}
             onRefresh={loadConnections}
-            session={session}
           />
         )}
         {subTab === 'add' && (
@@ -128,8 +127,8 @@ const styles: Record<string, React.CSSProperties> = {
   subTabBar: {
     display: 'flex',
     flexDirection: 'row',
-    background: '#1e293b',
-    borderBottom: '1px solid #334155',
+    background: T.bgCard,
+    borderBottom: `1px solid ${T.border}`,
     height: '40px',
     alignItems: 'stretch',
     flexShrink: 0,
@@ -139,14 +138,14 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0 16px',
     border: 'none',
     background: 'transparent',
-    color: '#94a3b8',
+    color: T.textSecondary,
     cursor: 'pointer',
     fontSize: 12,
     fontWeight: 500,
     transition: 'background 0.15s, color 0.15s',
   },
   subTabActive: {
-    background: 'rgba(99,102,241,0.15)',
-    color: '#a5b4fc',
+    background: T.accentTint,
+    color: T.accentLight,
   },
 }

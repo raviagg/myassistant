@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { T } from '../theme'
-import { fetchLinkToken, exchangeToken, createSourceConnection, updateSourceConnection } from '../api'
+import { fetchLinkToken, exchangeToken, createSourceConnection, updateSourceConnection, getSourceConnection } from '../api'
 import type { Session, SourceConnection } from '../types'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -9,7 +9,7 @@ import type { Session, SourceConnection } from '../types'
 function parseCronHint(cron: string): string {
   const parts = cron.trim().split(/\s+/)
   if (parts.length !== 5) return cron
-  const [min, hour, , , ] = parts
+  const [min, hour] = parts
   if (min.startsWith('*/') && hour === '*') {
     const n = min.slice(2)
     return `Every ${n} minutes`
@@ -170,9 +170,7 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
 
     const load = async () => {
       try {
-        const resp = await fetch(`/api/v1/source-connections/${editingId}`)
-        if (!resp.ok) throw new Error(`fetch failed: ${resp.status}`)
-        const conn = (await resp.json()) as SourceConnection
+        const conn = await getSourceConnection(editingId)
         setExistingConn(conn)
         setSourceType(conn.sourceType)
         setConnectionName(conn.connectionName)

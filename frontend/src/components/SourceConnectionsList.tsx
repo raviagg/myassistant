@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { T } from '../theme'
 import { triggerAdhocSync, deleteSourceConnection, fetchLatestRuns, fetchRunDetail } from '../api'
-import type { Session, SourceConnection, SyncRun, LatestRuns } from '../types'
+import type { SourceConnection, SyncRun, LatestRuns } from '../types'
 
 // ── Relative time helpers ────────────────────────────────────────────────────
 
@@ -388,11 +388,11 @@ function ConnectionCard({ conn, latestRuns, loadingRuns, onEdit, onRefresh, onVi
     setSyncing(true)
     try {
       await triggerAdhocSync(conn.id)
+      setSyncing(false)
       onRefresh()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Sync failed')
-    } finally {
       setSyncing(false)
+      alert(e instanceof Error ? e.message : 'Sync failed')
     }
   }
 
@@ -480,6 +480,7 @@ function ConnectionCard({ conn, latestRuns, loadingRuns, onEdit, onRefresh, onVi
             )}
             <button
               onClick={() => onEdit(conn.id)}
+              disabled={deleting}
               style={{
                 background: 'transparent',
                 border: `1px solid ${T.border}`,
@@ -487,7 +488,8 @@ function ConnectionCard({ conn, latestRuns, loadingRuns, onEdit, onRefresh, onVi
                 borderRadius: 6,
                 padding: '3px 10px',
                 fontSize: 11,
-                cursor: 'pointer',
+                cursor: deleting ? 'not-allowed' : 'pointer',
+                opacity: deleting ? 0.6 : 1,
               }}
             >
               Edit
@@ -531,13 +533,15 @@ interface Props {
   error: string | null
   onEdit: (id: string) => void
   onRefresh: () => void
-  session: Session
 }
 
 export default function SourceConnectionsList({ connections, loading, error, onEdit, onRefresh }: Props) {
   const [runsMap, setRunsMap] = useState<Record<string, LatestRuns>>({})
   const [loadingRuns, setLoadingRuns] = useState(false)
   const [logModal, setLogModal] = useState<{ connId: string; runId: string } | null>(null)
+
+  // Stable dep: re-fetch runs only when the set of connection IDs changes.
+  const connIds = connections.map(c => c.id).join(',')
 
   useEffect(() => {
     if (connections.length === 0) return
@@ -551,15 +555,18 @@ export default function SourceConnectionsList({ connections, loading, error, onE
           return [c.id, { lastScheduled: null, lastAdhoc: null }] as [string, LatestRuns]
         }
       })
-    ).then(results => {
-      const map: Record<string, LatestRuns> = {}
-      for (const [id, runs] of results) {
-        map[id] = runs
-      }
-      setRunsMap(map)
-      setLoadingRuns(false)
-    })
-  }, [connections])
+    )
+      .then(results => {
+        const map: Record<string, LatestRuns> = {}
+        for (const [id, runs] of results) {
+          map[id] = runs
+        }
+        setRunsMap(map)
+      })
+      .catch(() => {/* individual errors already handled above */})
+      .finally(() => setLoadingRuns(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connIds])
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
