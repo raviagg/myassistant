@@ -27,8 +27,9 @@ trait SourceConnectionRepository:
   /** List all connections belonging to a specific household. */
   def listByHousehold(householdId: UUID): ZIO[ZConnectionPool, AppError, List[SourceConnection]]
 
-  /** Reserved for the connector scheduler — not exposed via the API routes. */
-  /** List enabled, scheduled connections whose next_run_at is due. */
+  /** List enabled, scheduled connections whose next_run_at is due.
+   *  Reserved for the connector scheduler — not exposed via the API routes.
+   */
   def findDue(): ZIO[ZConnectionPool, AppError, List[SourceConnection]]
 
   /** Full update of a connection. When `secretsCiphertext` is None,
@@ -36,16 +37,19 @@ trait SourceConnectionRepository:
    */
   def update(id: UUID, req: UpdateSourceConnection): ZIO[ZConnectionPool, AppError, Option[SourceConnection]]
 
-  /** Reserved for the connector scheduler — not exposed via the API routes. */
-  /** Update the next_run_at scheduling timestamp. */
+  /** Update the next_run_at scheduling timestamp.
+   *  Reserved for the connector scheduler — not exposed via the API routes.
+   */
   def updateNextRunAt(id: UUID, nextRunAt: Option[Instant]): ZIO[ZConnectionPool, AppError, Unit]
 
-  /** Reserved for the connector scheduler — not exposed via the API routes. */
-  /** Update the last_synced_at timestamp after a run completes. */
+  /** Update the last_synced_at timestamp after a run completes.
+   *  Reserved for the connector scheduler — not exposed via the API routes.
+   */
   def updateLastSyncedAt(id: UUID, lastSyncedAt: Instant): ZIO[ZConnectionPool, AppError, Unit]
 
-  /** Reserved for the connector scheduler — not exposed via the API routes. */
-  /** Update the lifecycle status (active / paused / error). */
+  /** Update the lifecycle status (active / paused / error).
+   *  Reserved for the connector scheduler — not exposed via the API routes.
+   */
   def updateStatus(id: UUID, status: String): ZIO[ZConnectionPool, AppError, Unit]
 
   /** Delete a connection (cascades to sync_runs). Returns true if a row was removed. */
