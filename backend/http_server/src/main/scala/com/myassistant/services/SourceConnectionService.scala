@@ -115,7 +115,7 @@ object SourceConnectionService:
             .mapError { err =>
               // Log the underlying cause so operators can diagnose SECRETS_KEY misconfiguration
               // (using blocking side-effect here since we're in error path and ZIO.logError needs ZIO)
-              System.err.println(s"[ERROR] SecretsService.encrypt failed: ${err.getMessage}")
+              java.lang.System.err.println(s"[ERROR] SecretsService.encrypt failed: ${err.getMessage}")
               AppError.InternalError(err)
             }
             .map(Some(_))
@@ -276,7 +276,7 @@ object SourceConnectionService:
           ZIO.fromEither(SecretsService.decrypt(blob, secretsConfig))
             .mapBoth(
               err => {
-                System.err.println(s"[ERROR] SecretsService.decrypt failed: ${err.getMessage}")
+                java.lang.System.err.println(s"[ERROR] SecretsService.decrypt failed: ${err.getMessage}")
                 AppError.InternalError(err)
               },
               Some(_),
