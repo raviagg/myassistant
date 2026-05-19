@@ -517,6 +517,15 @@ Text-based search is intentionally omitted — the table is small enough that `l
 | `field_definitions` | object[] | yes | Array of field objects: `name`, `type`, `mandatory`, `description` |
 | `description` | string | no | Human-readable description of this entity type |
 
+**Valid `type` values for `field_definitions`:** `text`, `number`, `date`, `boolean`, `file`, `entity_ref`
+
+- `text` — free text string
+- `number` — numeric value
+- `date` — ISO date string (YYYY-MM-DD)
+- `boolean` — true/false
+- `file` — reference to a file in the parent document's files array
+- `entity_ref` — UUID referencing another entity's `entity_instance_id`. The MCP server validates that the referenced entity exists in `current_facts` before the write succeeds — writes are rejected with an error if the reference is dangling.
+
 **Returns:** Schema row with `is_active = true` and `schema_version = 1`.
 
 ### `update_entity_type_schema`
@@ -533,6 +542,10 @@ Facts extracted against older schema versions are not automatically re-extracted
 | `entity_type` | string | yes | Identifies the existing schema to evolve |
 | `field_definitions` | object[] | yes | Full field list for the new version — not a diff, provide all fields |
 | `description` | string | no | Updated description if needed |
+
+**Valid `type` values for `field_definitions`:** `text`, `number`, `date`, `boolean`, `file`, `entity_ref`
+
+- `entity_ref` — UUID referencing another entity's `entity_instance_id`. The MCP server validates that the referenced entity exists in `current_facts` before the write succeeds — writes are rejected with an error if the reference is dangling.
 
 **Returns:** New schema row with incremented `schema_version` and `is_active = true`.
 

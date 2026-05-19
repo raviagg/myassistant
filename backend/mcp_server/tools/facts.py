@@ -4,6 +4,31 @@ from client import _check
 from tools.embeddings import embed
 
 
+def _validate_entity_refs(http: httpx.Client, schema_id: str, fields: dict) -> None:
+    """Validate entity_ref fields reference existing entities. Silently skips if schema fetch fails."""
+    try:
+        resp = http.get(f"/api/v1/schemas/{schema_id}")
+        if not resp.is_success:
+            return
+        schema = resp.json()
+    except Exception:
+        return
+
+    for field_def in schema.get("fieldDefinitions", []):
+        if field_def.get("type") != "entity_ref":
+            continue
+        field_name = field_def["name"]
+        if field_name not in fields:
+            continue
+        ref_id = fields[field_name]
+        ref_resp = http.get(f"/api/v1/facts/{ref_id}/current")
+        if ref_resp.status_code == 404 or not ref_resp.json():
+            raise ValueError(
+                f"entity_ref field '{field_name}' references entity_instance_id "
+                f"'{ref_id}' which does not exist in current_facts"
+            )
+
+
 def create_fact(
     http: httpx.Client,
     document_id: str,
@@ -12,6 +37,7 @@ def create_fact(
     operation_type: str,
     fields: dict,
 ) -> dict:
+    _validate_entity_refs(http, schema_id, fields)
     body: dict = {
         "documentId": document_id,
         "schemaId": schema_id,
