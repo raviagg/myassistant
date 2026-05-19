@@ -66,8 +66,10 @@ CREATE TABLE sync_runs (
 
 -- Covers the most common query: list all runs for a given connection,
 -- newest first (used by the connection detail page in the UI).
+-- Composite key (source_connection_id, started_at DESC) enables an
+-- index-only range scan — no heap fetch needed for paginated listing.
 CREATE INDEX idx_sync_runs_connection
-    ON sync_runs(source_connection_id);
+    ON sync_runs(source_connection_id, started_at DESC);
 
 -- Covers time-range queries and admin dashboards that need recent
 -- runs across all connections.

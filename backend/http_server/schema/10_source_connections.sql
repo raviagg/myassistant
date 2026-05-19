@@ -36,7 +36,7 @@ CREATE TABLE source_connections (
     id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
 
     -- connector identity
-    source_type       TEXT        NOT NULL,
+    source_type       TEXT        NOT NULL REFERENCES source_type(name),
     connection_name   TEXT        NOT NULL,
 
     -- ownership: exactly one of person_id or household_id required
@@ -59,6 +59,7 @@ CREATE TABLE source_connections (
     -- lifecycle
     status            TEXT        NOT NULL DEFAULT 'active',
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     -- a connection must belong to exactly one owner
     CONSTRAINT sc_exactly_one_owner CHECK (
@@ -69,9 +70,10 @@ CREATE TABLE source_connections (
     -- status must be one of the defined lifecycle states
     CONSTRAINT sc_status_valid CHECK (status IN ('active', 'paused', 'error')),
 
-    -- a cron expression may only be set when scheduled sync is enabled
+    -- sync_scheduled and sync_schedule must agree: both set or both absent
     CONSTRAINT sc_schedule_requires_flag CHECK (
-        sync_schedule IS NULL OR sync_scheduled = true
+        (sync_scheduled = false AND sync_schedule IS NULL) OR
+        (sync_scheduled = true  AND sync_schedule IS NOT NULL)
     )
 );
 
@@ -88,6 +90,18 @@ CREATE INDEX idx_source_connections_household
 CREATE INDEX idx_source_connections_due
     ON source_connections(next_run_at)
     WHERE sync_scheduled = true AND status = 'active';
+
+
+-- ------------------------------------------------------------
+-- TRIGGERS
+-- ------------------------------------------------------------
+
+-- Reuse the shared update_updated_at() function defined in 01_spine.sql.
+-- Any UPDATE on source_connections automatically refreshes updated_at.
+CREATE TRIGGER source_connections_updated_at
+    BEFORE UPDATE ON source_connections
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
 
 
 -- ------------------------------------------------------------
@@ -136,8 +150,11 @@ COMMENT ON COLUMN source_connections.source_type IS
   'The type of connector this connection uses.
    Determines which worker handles sync runs and which
    fields are expected inside config / secrets.
-   Known values (not enforced by FK to allow extension
-   without migrations):
+   Enforced by FK to source_type(name) — adding a new
+   connector type requires inserting a row into the
+   source_type reference table first (same as any other
+   table that references source_type).
+   Known values (seeded in reference data):
      "plaid"      — Plaid bank/investment feed
      "news"       — NewsAPI topic polling
      "gmail"      — Gmail polling
@@ -212,9 +229,13 @@ COMMENT ON COLUMN source_connections.sync_adhoc IS
 
 COMMENT ON COLUMN source_connections.sync_schedule IS
   'Cron expression describing how often the scheduler should
-   trigger this connection. Null when sync_scheduled=false
-   (sc_schedule_requires_flag constraint prevents a cron
-   expression from being set without enabling scheduled sync).
+   trigger this connection. The sc_schedule_requires_flag
+   constraint enforces a bidirectional agreement with
+   sync_scheduled: when sync_scheduled=true, sync_schedule
+   MUST be set; when sync_scheduled=false, sync_schedule
+   MUST be null. This prevents the scheduler from silently
+   skipping a connection that has scheduling enabled but no
+   cron expression configured.
    Standard 5-field UNIX cron syntax.
    Examples:
      "0 6 * * *"    — every day at 06:00 UTC
@@ -256,3 +277,10 @@ COMMENT ON COLUMN source_connections.status IS
 COMMENT ON COLUMN source_connections.created_at IS
   'Timestamp when this connection was first registered.
    Never updated — use last_synced_at to track activity.';
+
+COMMENT ON COLUMN source_connections.updated_at IS
+  'Timestamp when this connection row was last modified.
+   Maintained automatically by the source_connections_updated_at
+   trigger (reuses the shared update_updated_at() function from
+   01_spine.sql). Reflects any column change: status transitions,
+   config edits, credential rotation, schedule changes, etc.';
