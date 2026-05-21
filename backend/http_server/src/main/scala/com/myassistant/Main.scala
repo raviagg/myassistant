@@ -93,6 +93,7 @@ object Main extends ZIOAppDefault:
       plaidClientLayer ++
       plaidSyncRepoLayer ++
       embedClientLayer ++
+      secretsConfigLayer ++
       authConfigLayer
 
   /** Application entry point — start the HTTP server. */
