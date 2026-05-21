@@ -256,7 +256,7 @@ class PlaidPollHandler(BaseHandler):
         accounts_resp = _plaid_post("/accounts/get", {"access_token": access_token}, client_id, secret)
         accounts      = accounts_resp.get("accounts", [])
 
-        if next_cursor and next_cursor != cursor:
+        if (next_cursor or "") != (cursor or ""):
             updated = self._upsert_plaid_connection(
                 source_connection_id=source_connection_id,
                 plaid_item_id=plaid_item_id,
@@ -295,9 +295,7 @@ class PlaidPollHandler(BaseHandler):
             if acct_plaid_id and acct_plaid_id in plaid_acct_to_row_id:
                 removed_by_acct.setdefault(acct_plaid_id, []).append(txn_plaid_id)
             else:
-                fallback = next(iter(plaid_acct_to_row_id.keys()), None)
-                if fallback:
-                    removed_by_acct.setdefault(fallback, []).append(txn_plaid_id)
+                log_lines.append(_log_entry("warn", f"Removed txn {txn_plaid_id}: unknown account_id {acct_plaid_id!r}, skipping"))
 
         for acct_plaid_id in set(added_by_acct) | set(modified_by_acct) | set(removed_by_acct):
             row_id = plaid_acct_to_row_id.get(acct_plaid_id)
@@ -344,7 +342,11 @@ class PlaidPollHandler(BaseHandler):
             log_lines.append(_log_entry("info", f"Found {len(items)} linked bank(s)"))
 
             for item in items:
-                self._sync_item(connection_id, item, client_id, secret, stats, log_lines)
+                try:
+                    self._sync_item(connection_id, item, client_id, secret, stats, log_lines)
+                except Exception as e:
+                    log_lines.append(_log_entry("error", f"Item {item.get('plaidItemId')} failed: {e}"))
+                    stats["errors"] += 1
 
             log_lines.append(_log_entry(
                 "info",
