@@ -1,7 +1,16 @@
 import { useState, useEffect } from 'react'
 import { usePlaidLink } from 'react-plaid-link'
 import { T } from '../theme'
-import { fetchLinkToken, exchangeToken, createSourceConnection, updateSourceConnection, getSourceConnection } from '../api'
+import {
+  fetchLinkTokenForConnection,
+  exchangeTokenForConnection,
+  listPlaidItems,
+  disconnectPlaidItem,
+  createSourceConnection,
+  updateSourceConnection,
+  getSourceConnection,
+  type PlaidItem,
+} from '../api'
 import type { Session, SourceConnection } from '../types'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -40,27 +49,15 @@ const sectionLabel: React.CSSProperties = {
 
 interface PlaidLinkButtonProps {
   token: string
-  personId: string
-  onSuccess: () => void
+  onSuccess: (publicToken: string) => void
   onExit: () => void
 }
 
-function PlaidLinkButton({ token, personId, onSuccess, onExit }: PlaidLinkButtonProps) {
-  const [exchanging, setExchanging] = useState(false)
-  const [exchangeError, setExchangeError] = useState<string | null>(null)
-
+function PlaidLinkButton({ token, onSuccess, onExit }: PlaidLinkButtonProps) {
   const { open, ready } = usePlaidLink({
     token,
     onSuccess: async (publicToken) => {
-      setExchanging(true)
-      setExchangeError(null)
-      try {
-        await exchangeToken(personId, publicToken)
-        onSuccess()
-      } catch (e) {
-        setExchangeError(e instanceof Error ? e.message : 'Exchange failed')
-        setExchanging(false)
-      }
+      onSuccess(publicToken)
     },
     onExit: () => {
       onExit()
@@ -71,7 +68,7 @@ function PlaidLinkButton({ token, personId, onSuccess, onExit }: PlaidLinkButton
     <div>
       <button
         onClick={() => open()}
-        disabled={!ready || exchanging}
+        disabled={!ready}
         style={{
           background: T.accent,
           border: 'none',
@@ -80,15 +77,12 @@ function PlaidLinkButton({ token, personId, onSuccess, onExit }: PlaidLinkButton
           padding: '10px 20px',
           fontSize: 14,
           fontWeight: 600,
-          cursor: !ready || exchanging ? 'not-allowed' : 'pointer',
-          opacity: !ready || exchanging ? 0.6 : 1,
+          cursor: !ready ? 'not-allowed' : 'pointer',
+          opacity: !ready ? 0.6 : 1,
         }}
       >
-        {exchanging ? 'Connecting...' : ready ? 'Connect via Plaid' : 'Preparing...'}
+        {ready ? 'Connect via Plaid' : 'Preparing...'}
       </button>
-      {exchangeError && (
-        <div style={{ color: T.errorText, fontSize: 12, marginTop: 8 }}>{exchangeError}</div>
-      )}
     </div>
   )
 }
@@ -153,11 +147,19 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
   const [syncSchedule, setSyncSchedule] = useState('0 2 * * *')
   const [existingConn, setExistingConn] = useState<SourceConnection | null>(null)
 
-  // Plaid Link token state
+  // Plaid credentials — only used during create
+  const [plaidClientId, setPlaidClientId] = useState('')
+  const [plaidSecret, setPlaidSecret] = useState('')
+
+  // Plaid linked banks — loaded during edit
+  const [plaidItems, setPlaidItems] = useState<PlaidItem[]>([])
+  const [loadingItems, setLoadingItems] = useState(false)
+  const [disconnecting, setDisconnecting] = useState<string | null>(null)
+
+  // Plaid Link state — used during edit to add a new bank
   const [linkToken, setLinkToken] = useState<string | null>(null)
-  const [fetchingToken, setFetchingToken] = useState(false)
-  const [tokenError, setTokenError] = useState<string | null>(null)
-  const [plaidInitiated, setPlaidInitiated] = useState(false)
+  const [addingBank, setAddingBank] = useState(false)
+  const [addBankError, setAddBankError] = useState<string | null>(null)
 
   // General form state
   const [saving, setSaving] = useState(false)
@@ -177,6 +179,13 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
         setSyncScheduled(conn.syncScheduled)
         setSyncAdhoc(conn.syncAdhoc)
         setSyncSchedule(conn.syncSchedule ?? '0 2 * * *')
+        if (conn.sourceType === 'plaid_poll') {
+          setLoadingItems(true)
+          listPlaidItems(editingId)
+            .then(setPlaidItems)
+            .catch(e => setLoadError(e instanceof Error ? e.message : 'Failed to load linked banks'))
+            .finally(() => setLoadingItems(false))
+        }
       } catch (e) {
         setLoadError(e instanceof Error ? e.message : 'Failed to load connection')
       }
@@ -184,34 +193,49 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
     load()
   }, [editingId, isEditing])
 
-  // For new Plaid connections: fetch link token when user clicks "Connect via Plaid"
-  const handleInitiatePlaid = async () => {
-    if (!connectionName.trim()) {
-      setTokenError('Please enter a connection name first.')
-      return
-    }
-    setFetchingToken(true)
-    setTokenError(null)
+  const handleAddBank = async () => {
+    if (!editingId) return
+    setAddingBank(true)
+    setAddBankError(null)
     try {
-      const token = await fetchLinkToken(session.personId)
+      const token = await fetchLinkTokenForConnection(editingId)
       setLinkToken(token)
-      setPlaidInitiated(true)
     } catch (e) {
-      setTokenError(e instanceof Error ? e.message : 'Failed to get link token')
-    } finally {
-      setFetchingToken(false)
+      setAddBankError(e instanceof Error ? e.message : 'Failed to get link token')
+      setAddingBank(false)
     }
   }
 
-  const handlePlaidSuccess = () => {
-    // Server has already created the source_connections row in exchange handler.
-    // Call onSaved to refresh the list.
-    onSaved()
+  const handleAddBankSuccess = async (publicToken: string) => {
+    if (!editingId) return
+    try {
+      await exchangeTokenForConnection(editingId, publicToken)
+      setLinkToken(null)
+      setAddingBank(false)
+      const items = await listPlaidItems(editingId)
+      setPlaidItems(items)
+    } catch (e) {
+      setAddBankError(e instanceof Error ? e.message : 'Exchange failed')
+      setAddingBank(false)
+    }
   }
 
-  const handlePlaidExit = () => {
-    setPlaidInitiated(false)
+  const handleAddBankExit = () => {
     setLinkToken(null)
+    setAddingBank(false)
+  }
+
+  const handleDisconnect = async (item: PlaidItem) => {
+    if (!editingId) return
+    setDisconnecting(item.id)
+    try {
+      await disconnectPlaidItem(editingId, item.id)
+      setPlaidItems(prev => prev.filter(i => i.id !== item.id))
+    } catch (e) {
+      setAddBankError(e instanceof Error ? e.message : 'Disconnect failed')
+    } finally {
+      setDisconnecting(null)
+    }
   }
 
   // Save for non-Plaid add or edit of any type
@@ -234,8 +258,22 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
           syncSchedule: syncScheduled ? syncSchedule : null,
           config: existingConn.config,
         })
+      } else if (sourceType === 'plaid_poll') {
+        if (!plaidClientId.trim() || !plaidSecret.trim()) {
+          setSaveError('Plaid Client ID and Secret are required.')
+          setSaving(false)
+          return
+        }
+        await createSourceConnection({
+          sourceType,
+          connectionName: connectionName.trim(),
+          personId: session.personId,
+          syncScheduled,
+          syncAdhoc,
+          syncSchedule: syncScheduled ? syncSchedule : undefined,
+          secrets: JSON.stringify({ client_id: plaidClientId.trim(), secret: plaidSecret.trim() }),
+        })
       } else {
-        // Non-Plaid add (shouldn't normally reach here for plaid)
         await createSourceConnection({
           sourceType,
           connectionName: connectionName.trim(),
@@ -254,7 +292,6 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
   }
 
   const showSyncOptions = sourceType !== 'chatbot'
-  const isNewPlaid = !isEditing && sourceType === 'plaid_poll'
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 560 }}>
@@ -336,55 +373,127 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
       {/* Section 3: Plaid-specific */}
       {sourceType === 'plaid_poll' && (
         <div style={{ marginBottom: 24 }}>
-          <span style={sectionLabel}>Bank Connection</span>
-          {isEditing ? (
-            <div style={{
-              background: T.bgRunStrip,
-              border: `1px solid ${T.borderRun}`,
-              borderRadius: 8,
-              padding: '10px 14px',
-              color: T.textSecondary,
-              fontSize: 13,
-            }}>
-              Secrets: ••••••• (stored encrypted)
-            </div>
+          {!isEditing ? (
+            <>
+              <span style={sectionLabel}>Plaid API Credentials</span>
+              <div style={{ marginBottom: 10 }}>
+                <input
+                  type="text"
+                  value={plaidClientId}
+                  onChange={e => setPlaidClientId(e.target.value)}
+                  placeholder="client_id"
+                  style={{
+                    width: '100%',
+                    background: T.bgInput,
+                    border: `1px solid ${T.border}`,
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                    color: T.textPrimary,
+                    fontSize: 14,
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                    marginBottom: 8,
+                  }}
+                />
+                <input
+                  type="password"
+                  value={plaidSecret}
+                  onChange={e => setPlaidSecret(e.target.value)}
+                  placeholder="secret"
+                  style={{
+                    width: '100%',
+                    background: T.bgInput,
+                    border: `1px solid ${T.border}`,
+                    borderRadius: 8,
+                    padding: '10px 12px',
+                    color: T.textPrimary,
+                    fontSize: 14,
+                    outline: 'none',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+              <div style={{ color: T.textMuted, fontSize: 12 }}>
+                Credentials are encrypted and stored securely. You can link bank accounts after saving.
+              </div>
+            </>
           ) : (
-            <div>
-              {!plaidInitiated ? (
-                <div>
-                  <button
-                    onClick={handleInitiatePlaid}
-                    disabled={fetchingToken}
-                    style={{
-                      background: T.accent,
-                      border: 'none',
-                      color: '#fff',
-                      borderRadius: 8,
-                      padding: '10px 20px',
-                      fontSize: 14,
-                      fontWeight: 600,
-                      cursor: fetchingToken ? 'not-allowed' : 'pointer',
-                      opacity: fetchingToken ? 0.6 : 1,
-                    }}
-                  >
-                    {fetchingToken ? 'Preparing...' : 'Connect via Plaid'}
-                  </button>
-                  {tokenError && (
-                    <div style={{ color: T.errorText, fontSize: 12, marginTop: 8 }}>{tokenError}</div>
-                  )}
-                  <div style={{ color: T.textMuted, fontSize: 12, marginTop: 8 }}>
-                    You'll be redirected to Plaid to securely link your bank account.
-                  </div>
+            <>
+              <span style={sectionLabel}>Linked Banks</span>
+              {loadingItems ? (
+                <div style={{ color: T.textMuted, fontSize: 13 }}>Loading...</div>
+              ) : plaidItems.length === 0 ? (
+                <div style={{ color: T.textMuted, fontSize: 13, marginBottom: 10 }}>
+                  No banks linked yet.
                 </div>
-              ) : linkToken ? (
+              ) : (
+                <div style={{ marginBottom: 12 }}>
+                  {plaidItems.map(item => (
+                    <div key={item.id} style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '8px 12px',
+                      background: T.bgRunStrip,
+                      border: `1px solid ${T.borderRun}`,
+                      borderRadius: 6,
+                      marginBottom: 6,
+                    }}>
+                      <span style={{ fontSize: 13, color: T.textPrimary }}>{item.institutionName}</span>
+                      <button
+                        onClick={() => handleDisconnect(item)}
+                        disabled={disconnecting === item.id}
+                        style={{
+                          background: 'transparent',
+                          border: `1px solid ${T.border}`,
+                          color: T.textMuted,
+                          borderRadius: 4,
+                          padding: '3px 10px',
+                          fontSize: 12,
+                          cursor: disconnecting === item.id ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {disconnecting === item.id ? 'Removing...' : 'Disconnect'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {addBankError && (
+                <div style={{ color: T.errorText, fontSize: 12, marginBottom: 8 }}>{addBankError}</div>
+              )}
+
+              {linkToken ? (
                 <PlaidLinkButton
                   token={linkToken}
-                  personId={session.personId}
-                  onSuccess={handlePlaidSuccess}
-                  onExit={handlePlaidExit}
+                  onSuccess={handleAddBankSuccess}
+                  onExit={handleAddBankExit}
                 />
-              ) : null}
-            </div>
+              ) : (
+                <button
+                  onClick={handleAddBank}
+                  disabled={addingBank}
+                  style={{
+                    background: T.accent,
+                    border: 'none',
+                    color: '#fff',
+                    borderRadius: 8,
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: addingBank ? 'not-allowed' : 'pointer',
+                    opacity: addingBank ? 0.6 : 1,
+                  }}
+                >
+                  {addingBank ? 'Preparing...' : '+ Add Bank'}
+                </button>
+              )}
+
+              <div style={{ background: T.bgRunStrip, border: `1px solid ${T.borderRun}`, borderRadius: 8, padding: '10px 14px', color: T.textSecondary, fontSize: 13, marginTop: 12 }}>
+                API Credentials: ••••••• (stored encrypted)
+              </div>
+            </>
           )}
         </div>
       )}
@@ -484,27 +593,23 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
 
       {/* Section 5: Action buttons */}
       <div style={{ display: 'flex', gap: 10 }}>
-        {/* For new Plaid: no Save button (onSaved is called from PlaidLinkButton) */}
-        {/* For edit or non-Plaid add: show Save button */}
-        {(isEditing || !isNewPlaid) && (
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              background: T.accent,
-              border: 'none',
-              color: '#fff',
-              borderRadius: 8,
-              padding: '10px 20px',
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: saving ? 'not-allowed' : 'pointer',
-              opacity: saving ? 0.6 : 1,
-            }}
-          >
-            {saving ? 'Saving...' : 'Save Connection'}
-          </button>
-        )}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          style={{
+            background: T.accent,
+            border: 'none',
+            color: '#fff',
+            borderRadius: 8,
+            padding: '10px 20px',
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: saving ? 'not-allowed' : 'pointer',
+            opacity: saving ? 0.6 : 1,
+          }}
+        >
+          {saving ? 'Saving...' : 'Save Connection'}
+        </button>
         <button
           onClick={onCancel}
           style={{

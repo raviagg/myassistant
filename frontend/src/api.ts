@@ -100,6 +100,7 @@ export async function createSourceConnection(body: {
   syncAdhoc: boolean
   syncSchedule?: string
   config?: Record<string, unknown>
+  secrets?: string
 }): Promise<SourceConnection> {
   const resp = await fetch('/api/v1/source-connections', {
     method: 'POST',
