@@ -43,7 +43,7 @@ object PlaidSyncRoutes:
                 ).status(Status.BadRequest))
               case Right(r) =>
                 ZIO.serviceWithZIO[PlaidSyncRepository](_.upsertConnection(
-                  r.sourceConnectionId, r.plaidItemId, r.institutionName, r.cursor,
+                  r.sourceConnectionId, r.plaidItemId, r.institutionName, r.cursor, r.accessToken,
                 ))
                   .foldZIO(
                     err => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
