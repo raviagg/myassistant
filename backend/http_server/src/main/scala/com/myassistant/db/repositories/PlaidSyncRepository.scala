@@ -8,18 +8,17 @@ import java.sql.SQLException
 import java.time.{Instant, LocalDate}
 import java.util.UUID
 
-/** Domain record returned for a `plaid.connections` upsert. */
 final case class PlaidConnectionRow(
     id:                 UUID,
     sourceConnectionId: UUID,
     plaidItemId:        String,
     institutionName:    String,
     cursor:             Option[String],
+    accessToken:        Option[String],
     createdAt:          Instant,
     updatedAt:          Instant,
 )
 
-/** Domain record returned for a `plaid.bank_accounts` upsert. */
 final case class PlaidBankAccountRow(
     id:                 UUID,
     sourceConnectionId: UUID,
@@ -32,7 +31,6 @@ final case class PlaidBankAccountRow(
     updatedAt:          Instant,
 )
 
-/** Input record for one transaction inside a batch upsert. */
 final case class PlaidTransactionInput(
     plaidTransactionId: String,
     amount:             BigDecimal,
@@ -43,18 +41,25 @@ final case class PlaidTransactionInput(
     pending:            Boolean,
 )
 
-/** Data-access interface for the `plaid.*` schema tables. */
 trait PlaidSyncRepository:
 
-  /** Insert or update a `plaid.connections` row keyed on `plaid_item_id`. */
   def upsertConnection(
       sourceConnectionId: UUID,
       plaidItemId:        String,
       institutionName:    String,
       cursor:             Option[String],
+      accessToken:        Option[String],
   ): ZIO[ZConnectionPool, AppError, PlaidConnectionRow]
 
-  /** Insert or update a `plaid.bank_accounts` row keyed on `plaid_account_id`. */
+  def listBySourceConnectionId(
+      sourceConnectionId: UUID,
+  ): ZIO[ZConnectionPool, AppError, List[PlaidConnectionRow]]
+
+  def deleteConnection(
+      sourceConnectionId: UUID,
+      itemId:             UUID,
+  ): ZIO[ZConnectionPool, AppError, Boolean]
+
   def upsertBankAccount(
       sourceConnectionId: UUID,
       connectionId:       UUID,
@@ -64,11 +69,6 @@ trait PlaidSyncRepository:
       currentBalance:     Option[BigDecimal],
   ): ZIO[ZConnectionPool, AppError, PlaidBankAccountRow]
 
-  /** Batch upsert + delete transactions for a given account.
-   *  Returns the counts of (added, modified, removed) that were
-   *  effectively applied — added/modified counts mirror the input list
-   *  lengths, removed reflects DELETE rowcount.
-   */
   def upsertTransactionsBatch(
       sourceConnectionId: UUID,
       accountId:          UUID,
@@ -79,33 +79,30 @@ trait PlaidSyncRepository:
 
 object PlaidSyncRepository:
 
-  // ── plaid.connections row ─────────────────────────────────────────────────
-  // id, source_connection_id, plaid_item_id, institution_name, cursor,
-  // created_at, updated_at
+  // id, source_connection_id, plaid_item_id, institution_name,
+  // cursor, access_token, created_at, updated_at
   private type ConnRow =
-    (String, String, String, String, Option[String],
+    (String, String, String, String, Option[String], Option[String],
      java.sql.Timestamp, java.sql.Timestamp)
 
   private val connCols = SqlFragment(
     """id::text, source_connection_id::text, plaid_item_id, institution_name,
-       cursor, created_at, updated_at"""
+       cursor, access_token, created_at, updated_at"""
   )
 
   private def rowToConn(row: ConnRow): PlaidConnectionRow =
-    val (id, scid, itemId, instName, cursor, createdAt, updatedAt) = row
+    val (id, scid, itemId, instName, cursor, accessToken, createdAt, updatedAt) = row
     PlaidConnectionRow(
       id                 = UUID.fromString(id),
       sourceConnectionId = UUID.fromString(scid),
       plaidItemId        = itemId,
       institutionName    = instName,
       cursor             = cursor,
+      accessToken        = accessToken,
       createdAt          = createdAt.toInstant,
       updatedAt          = updatedAt.toInstant,
     )
 
-  // ── plaid.bank_accounts row ──────────────────────────────────────────────
-  // id, source_connection_id, connection_id, plaid_account_id, name,
-  // account_type, current_balance, created_at, updated_at
   private type AcctRow =
     (String, String, String, String, String, String,
      Option[BigDecimal], java.sql.Timestamp, java.sql.Timestamp)
@@ -117,8 +114,7 @@ object PlaidSyncRepository:
   )
 
   private def rowToAcct(row: AcctRow): PlaidBankAccountRow =
-    val (id, scid, cid, plaidAcctId, name, accountType, balance,
-         createdAt, updatedAt) = row
+    val (id, scid, cid, plaidAcctId, name, accountType, balance, createdAt, updatedAt) = row
     PlaidBankAccountRow(
       id                 = UUID.fromString(id),
       sourceConnectionId = UUID.fromString(scid),
@@ -131,14 +127,12 @@ object PlaidSyncRepository:
       updatedAt          = updatedAt.toInstant,
     )
 
-  // ── SQL error mapper ──────────────────────────────────────────────────────
   private def mapSqlError(e: Throwable): AppError = e match
     case s: SQLException if s.getSQLState == "23505" => AppError.Conflict(s.getMessage)
     case s: SQLException if s.getSQLState == "23503" =>
       AppError.ReferentialIntegrityError(s.getMessage, Map.empty)
     case other => AppError.DatabaseError(other)
 
-  /** Live implementation against PostgreSQL via zio-jdbc. */
   final class Live extends PlaidSyncRepository:
 
     def upsertConnection(
@@ -146,24 +140,46 @@ object PlaidSyncRepository:
         plaidItemId:        String,
         institutionName:    String,
         cursor:             Option[String],
+        accessToken:        Option[String],
     ): ZIO[ZConnectionPool, AppError, PlaidConnectionRow] =
-      // ON CONFLICT cursor handling: when the caller passes a non-null cursor we
-      // overwrite (this is the normal post-sync advance). When the caller passes
-      // NULL we preserve the existing cursor via COALESCE so that the initial link
-      // upsert and balance-only re-runs do not clobber a valid sync bookmark.
       val q =
-        sql"INSERT INTO plaid.connections(source_connection_id, plaid_item_id, institution_name, cursor) " ++
-        sql"VALUES (${sourceConnectionId.toString}::uuid, $plaidItemId, $institutionName, $cursor) " ++
+        sql"INSERT INTO plaid.connections(source_connection_id, plaid_item_id, institution_name, cursor, access_token) " ++
+        sql"VALUES (${sourceConnectionId.toString}::uuid, $plaidItemId, $institutionName, $cursor, $accessToken) " ++
         sql"ON CONFLICT (plaid_item_id) DO UPDATE SET " ++
         sql"  institution_name = EXCLUDED.institution_name, " ++
-        sql"  cursor = COALESCE(EXCLUDED.cursor, plaid.connections.cursor), " ++
-        sql"  updated_at = now() " ++
+        sql"  cursor           = COALESCE(EXCLUDED.cursor, plaid.connections.cursor), " ++
+        sql"  access_token     = COALESCE(EXCLUDED.access_token, plaid.connections.access_token), " ++
+        sql"  updated_at       = now() " ++
         sql"RETURNING " ++ connCols
       transaction(q.query[ConnRow].selectOne)
         .mapError(mapSqlError)
         .flatMap(ZIO.fromOption(_).mapError(_ =>
           AppError.InternalError(new RuntimeException("UPSERT plaid.connections returned no row"))))
         .map(rowToConn)
+
+    def listBySourceConnectionId(
+        sourceConnectionId: UUID,
+    ): ZIO[ZConnectionPool, AppError, List[PlaidConnectionRow]] =
+      val q =
+        sql"SELECT " ++ connCols ++
+        sql" FROM plaid.connections" ++
+        sql" WHERE source_connection_id = ${sourceConnectionId.toString}::uuid" ++
+        sql" ORDER BY created_at ASC"
+      transaction(q.query[ConnRow].selectAll)
+        .mapError(mapSqlError)
+        .map(_.toList.map(rowToConn))
+
+    def deleteConnection(
+        sourceConnectionId: UUID,
+        itemId:             UUID,
+    ): ZIO[ZConnectionPool, AppError, Boolean] =
+      val q =
+        sql"DELETE FROM plaid.connections" ++
+        sql" WHERE id = ${itemId.toString}::uuid" ++
+        sql"   AND source_connection_id = ${sourceConnectionId.toString}::uuid"
+      transaction(q.delete)
+        .mapError(mapSqlError)
+        .map(_ > 0L)
 
     def upsertBankAccount(
         sourceConnectionId: UUID,
@@ -177,10 +193,10 @@ object PlaidSyncRepository:
         sql"INSERT INTO plaid.bank_accounts(source_connection_id, connection_id, plaid_account_id, name, account_type, current_balance) " ++
         sql"VALUES (${sourceConnectionId.toString}::uuid, ${connectionId.toString}::uuid, $plaidAccountId, $name, $accountType, $currentBalance) " ++
         sql"ON CONFLICT (plaid_account_id) DO UPDATE SET " ++
-        sql"  name = EXCLUDED.name, " ++
-        sql"  account_type = EXCLUDED.account_type, " ++
+        sql"  name            = EXCLUDED.name, " ++
+        sql"  account_type    = EXCLUDED.account_type, " ++
         sql"  current_balance = EXCLUDED.current_balance, " ++
-        sql"  updated_at = now() " ++
+        sql"  updated_at      = now() " ++
         sql"RETURNING " ++ acctCols
       transaction(q.query[AcctRow].selectOne)
         .mapError(mapSqlError)
@@ -188,23 +204,17 @@ object PlaidSyncRepository:
           AppError.InternalError(new RuntimeException("UPSERT plaid.bank_accounts returned no row"))))
         .map(rowToAcct)
 
-    // Encode a category list as a standard JSON array string so Postgres can cast
-    // it to text[] via jsonb_array_elements_text. JSON string escaping is
-    // well-defined and avoids manual Postgres array-literal escaping for
-    // externally sourced strings.
     private def toJsonArray(values: List[String]): String =
       values
         .map(v => "\"" + v.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
         .mkString("[", ",", "]")
 
-    // Inner helper: runs on the caller's ZConnection so the whole batch can be
-    // wrapped in a single outer transaction.
     private def upsertOneTxnOp(
         sourceConnectionId: UUID,
         accountId:          UUID,
         txn:                PlaidTransactionInput,
     ): ZIO[ZConnection, Throwable, Unit] =
-      val dateSqlStr = txn.date.toString  // "YYYY-MM-DD"
+      val dateSqlStr = txn.date.toString
       val categoryFrag =
         if txn.category.isEmpty then sql"NULL::text[]"
         else
@@ -248,6 +258,5 @@ object PlaidSyncRepository:
         yield (added.size, modified.size, removedCount.toInt)
       }.mapError(mapSqlError)
 
-  /** ZLayer providing the live PlaidSyncRepository. */
   val live: ZLayer[Any, Nothing, PlaidSyncRepository] =
     ZLayer.succeed(new Live)

@@ -14,6 +14,7 @@ final case class UpsertPlaidConnectionRequest(
     plaidItemId:        String,
     institutionName:    String,
     cursor:             Option[String],
+    accessToken:        Option[String],
 ) derives Codec.AsObject
 
 /** Response body returned from the connection upsert endpoint. */
@@ -35,6 +36,33 @@ object PlaidConnectionResponse:
       plaidItemId        = c.plaidItemId,
       institutionName    = c.institutionName,
       cursor             = c.cursor,
+      createdAt          = c.createdAt,
+      updatedAt          = c.updatedAt,
+    )
+
+/** Response for GET /api/v1/source-connections/{id}/plaid/items.
+ *  Includes decrypted accessToken for the Python scheduler worker.
+ */
+final case class PlaidItemResponse(
+    id:                 UUID,
+    sourceConnectionId: UUID,
+    plaidItemId:        String,
+    institutionName:    String,
+    cursor:             Option[String],
+    accessToken:        Option[String],
+    createdAt:          Instant,
+    updatedAt:          Instant,
+) derives Codec.AsObject
+
+object PlaidItemResponse:
+  def fromDomain(c: PlaidConnectionRow, decryptedToken: Option[String]): PlaidItemResponse =
+    PlaidItemResponse(
+      id                 = c.id,
+      sourceConnectionId = c.sourceConnectionId,
+      plaidItemId        = c.plaidItemId,
+      institutionName    = c.institutionName,
+      cursor             = c.cursor,
+      accessToken        = decryptedToken,
       createdAt          = c.createdAt,
       updatedAt          = c.updatedAt,
     )
