@@ -56,7 +56,7 @@ interface PlaidLinkButtonProps {
 function PlaidLinkButton({ token, onSuccess, onExit }: PlaidLinkButtonProps) {
   const { open, ready } = usePlaidLink({
     token,
-    onSuccess: async (publicToken) => {
+    onSuccess: (publicToken) => {
       onSuccess(publicToken)
     },
     onExit: () => {
@@ -169,10 +169,12 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
   // Load existing connection for edit
   useEffect(() => {
     if (!isEditing || !editingId) return
+    let mounted = true
 
     const load = async () => {
       try {
         const conn = await getSourceConnection(editingId)
+        if (!mounted) return
         setExistingConn(conn)
         setSourceType(conn.sourceType)
         setConnectionName(conn.connectionName)
@@ -182,15 +184,16 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
         if (conn.sourceType === 'plaid_poll') {
           setLoadingItems(true)
           listPlaidItems(editingId)
-            .then(setPlaidItems)
-            .catch(e => setLoadError(e instanceof Error ? e.message : 'Failed to load linked banks'))
-            .finally(() => setLoadingItems(false))
+            .then(items => { if (mounted) setPlaidItems(items) })
+            .catch(e => { if (mounted) setLoadError(e instanceof Error ? e.message : 'Failed to load linked banks') })
+            .finally(() => { if (mounted) setLoadingItems(false) })
         }
       } catch (e) {
-        setLoadError(e instanceof Error ? e.message : 'Failed to load connection')
+        if (mounted) setLoadError(e instanceof Error ? e.message : 'Failed to load connection')
       }
     }
     load()
+    return () => { mounted = false }
   }, [editingId, isEditing])
 
   const handleAddBank = async () => {
@@ -211,9 +214,9 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
     try {
       await exchangeTokenForConnection(editingId, publicToken)
       setLinkToken(null)
-      setAddingBank(false)
       const items = await listPlaidItems(editingId)
       setPlaidItems(items)
+      setAddingBank(false)
     } catch (e) {
       setAddBankError(e instanceof Error ? e.message : 'Exchange failed')
       setAddingBank(false)
