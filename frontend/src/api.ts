@@ -146,6 +146,13 @@ export async function fetchLatestRuns(id: string): Promise<LatestRuns> {
   return resp.json()
 }
 
+export async function fetchRuns(connId: string, limit = 20): Promise<SyncRun[]> {
+  const resp = await fetch(`/api/v1/source-connections/${connId}/runs?limit=${limit}`)
+  if (!resp.ok) throw new Error(`fetch runs failed: ${resp.status}`)
+  const data = await resp.json()
+  return data.items ?? []
+}
+
 export async function fetchRunDetail(connId: string, runId: string): Promise<SyncRun> {
   const resp = await fetch(`/api/v1/source-connections/${connId}/runs/${runId}`)
   if (!resp.ok) throw new Error(`fetch run failed: ${resp.status}`)

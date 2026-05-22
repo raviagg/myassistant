@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { T } from '../theme'
-import { triggerAdhocSync, deleteSourceConnection, fetchLatestRuns, fetchRunDetail } from '../api'
-import type { SourceConnection, SyncRun, LatestRuns } from '../types'
+import { triggerAdhocSync, deleteSourceConnection, fetchRuns, fetchRunDetail } from '../api'
+import type { SourceConnection, SyncRun } from '../types'
 
 // ── Relative time helpers ────────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ function StatusBadge({ status }: { status: SourceConnection['status'] }) {
 
 // ── Run status mini badge ────────────────────────────────────────────────────
 
-function RunStatusBadge({ status }: { status: SyncRun['status'] }) {
+function RunStatusBadge({ status }: { status: SyncRun['status'] | 'queued' | 'upcoming' }) {
   let bg: string = T.successBg
   let border: string = T.successBorder
   let color: string = T.successText
@@ -88,6 +88,10 @@ function RunStatusBadge({ status }: { status: SyncRun['status'] }) {
     bg = T.errorBg; border = T.errorBorder; color = T.errorText; label = 'failed'
   } else if (status === 'running') {
     bg = T.infoBg; border = T.infoBorder; color = T.infoText; label = 'running'
+  } else if (status === 'queued') {
+    bg = 'rgba(56,189,248,0.15)'; border = 'rgba(56,189,248,0.3)'; color = '#38bdf8'; label = 'queued'
+  } else if (status === 'upcoming') {
+    bg = T.accentTint; border = T.accentBorder; color = T.accentLight; label = 'upcoming'
   }
 
   return (
@@ -102,6 +106,249 @@ function RunStatusBadge({ status }: { status: SyncRun['status'] }) {
     }}>
       {label}
     </span>
+  )
+}
+
+// ── Stats string helper ──────────────────────────────────────────────────────
+
+function statsStr(stats: Record<string, number>): string {
+  const parts: string[] = []
+  if (stats.added !== undefined) parts.push(`+${stats.added} added`)
+  if (stats.modified !== undefined) parts.push(`~${stats.modified} modified`)
+  if (stats.removed !== undefined) parts.push(`-${stats.removed} removed`)
+  if (stats.errors !== undefined && stats.errors > 0) parts.push(`${stats.errors} errors`)
+  return parts.join('  ')
+}
+
+// ── Section label ────────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      padding: '4px 18px 2px 70px',
+      background: T.bgRunStrip,
+      borderTop: `1px solid ${T.borderRun}`,
+    }}>
+      <span style={{
+        color: T.textVeryMuted,
+        fontSize: 9,
+        textTransform: 'uppercase' as const,
+        letterSpacing: '0.5px',
+        fontWeight: 600,
+      }}>
+        {children}
+      </span>
+    </div>
+  )
+}
+
+// ── History row ──────────────────────────────────────────────────────────────
+
+interface HistoryRowProps {
+  runType: string
+  status: SyncRun['status'] | 'queued' | 'upcoming'
+  time: string
+  stats?: Record<string, number> | null
+  note?: string
+  onViewLogs?: () => void
+}
+
+function HistoryRow({ runType, status, time, stats, note, onViewLogs }: HistoryRowProps) {
+  return (
+    <div style={{
+      padding: '5px 18px 5px 70px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      borderTop: `1px solid ${T.borderRun}`,
+      background: T.bgRunStrip,
+    }}>
+      <span style={{
+        color: T.textVeryMuted,
+        fontSize: 9,
+        width: 56,
+        flexShrink: 0,
+      }}>
+        {runType === 're_extract' ? 're-extract' : runType}
+      </span>
+      <RunStatusBadge status={status} />
+      <span style={{ color: T.textMuted, fontSize: 11 }}>
+        {formatRelative(time)}
+      </span>
+      {stats && (
+        <span style={{ color: T.textSecondary, fontSize: 11 }}>
+          {statsStr(stats)}
+        </span>
+      )}
+      {note && (
+        <span style={{ color: T.textVeryMuted, fontSize: 10, fontStyle: 'italic' }}>
+          {note}
+        </span>
+      )}
+      <div style={{ flex: 1 }} />
+      {onViewLogs && (
+        <button
+          onClick={onViewLogs}
+          style={{
+            background: 'rgba(99,102,241,0.1)',
+            border: `1px solid rgba(99,102,241,0.25)`,
+            color: T.accentLight,
+            borderRadius: 6,
+            padding: '3px 10px',
+            fontSize: 10,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          Logs →
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ── Run History Strip ────────────────────────────────────────────────────────
+
+interface RunHistoryStripProps {
+  conn: SourceConnection
+  onViewLogs: (runId: string) => void
+}
+
+function RunHistoryStrip({ conn, onViewLogs }: RunHistoryStripProps) {
+  const [expanded, setExpanded] = useState(false)
+  const [runs, setRuns] = useState<SyncRun[] | null>(null)
+  const [loadingRuns, setLoadingRuns] = useState(true)
+
+  useEffect(() => {
+    fetchRuns(conn.id)
+      .then(setRuns)
+      .catch(() => setRuns([]))
+      .finally(() => setLoadingRuns(false))
+  }, [conn.id])
+
+  const queuedRuns  = runs?.filter(r => r.status === 'running' && !r.completedAt) ?? []
+  const historyRuns = runs?.filter(r => r.status !== 'running') ?? []
+  const stripRun    = queuedRuns[0] ?? runs?.find(r => r.status === 'running') ?? historyRuns[0] ?? null
+
+  const stripStatus: SyncRun['status'] | 'queued' =
+    stripRun && queuedRuns.includes(stripRun) ? 'queued' : (stripRun?.status ?? 'success')
+
+  return (
+    <div style={{ borderRadius: '0 0 12px 12px', overflow: 'hidden' }}>
+      {/* ── Collapsed strip ─────────────────────────────────── */}
+      <div style={{
+        background: T.bgRunStrip,
+        borderTop: `1px solid ${T.borderRun}`,
+        padding: '9px 18px 9px 70px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        minHeight: 36,
+      }}>
+        {loadingRuns && (
+          <span style={{ color: T.textVeryMuted, fontSize: 11 }}>Loading runs...</span>
+        )}
+        {!loadingRuns && !stripRun && (
+          <span style={{ color: T.textVeryMuted, fontSize: 11 }}>No sync runs yet</span>
+        )}
+        {!loadingRuns && stripRun && (
+          <>
+            <span style={{
+              background: T.border,
+              color: T.textSecondary,
+              borderRadius: 99,
+              padding: '2px 6px',
+              fontSize: 10,
+              fontWeight: 500,
+            }}>
+              {stripRun.runType === 're_extract' ? 're-extract' : stripRun.runType}
+            </span>
+            <RunStatusBadge status={stripStatus} />
+            <span style={{ color: T.textMuted, fontSize: 11 }}>
+              {formatRelative(stripRun.startedAt)}
+            </span>
+            {stripRun.stats && stripStatus !== 'queued' && (
+              <span style={{ color: T.textSecondary, fontSize: 11 }}>
+                {statsStr(stripRun.stats)}
+              </span>
+            )}
+          </>
+        )}
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={() => setExpanded(e => !e)}
+          style={{
+            background: 'rgba(99,102,241,0.1)',
+            border: `1px solid rgba(99,102,241,0.25)`,
+            color: T.accentLight,
+            borderRadius: 6,
+            padding: '3px 10px',
+            fontSize: 10,
+            fontWeight: 700,
+            cursor: 'pointer',
+          }}
+        >
+          History {expanded ? '▴' : '▾'}
+        </button>
+      </div>
+
+      {/* ── Expanded panel ──────────────────────────────────── */}
+      {expanded && (
+        <>
+          {/* Upcoming */}
+          {conn.syncScheduled && conn.nextRunAt && (
+            <>
+              <SectionLabel>Upcoming</SectionLabel>
+              <HistoryRow
+                runType="scheduled"
+                status="upcoming"
+                time={conn.nextRunAt}
+              />
+            </>
+          )}
+
+          {/* Queued */}
+          {queuedRuns.length > 0 && (
+            <>
+              <SectionLabel>Queued</SectionLabel>
+              {queuedRuns.map(r => (
+                <HistoryRow
+                  key={r.id}
+                  runType={r.runType}
+                  status="queued"
+                  time={r.startedAt}
+                  note="pending scheduler pickup"
+                />
+              ))}
+            </>
+          )}
+
+          {/* History */}
+          <SectionLabel>History</SectionLabel>
+          {historyRuns.length === 0 && (
+            <div style={{
+              padding: '8px 18px 8px 70px',
+              background: T.bgRunStrip,
+              borderTop: `1px solid ${T.borderRun}`,
+              color: T.textVeryMuted,
+              fontSize: 11,
+            }}>
+              No runs yet.
+            </div>
+          )}
+          {historyRuns.map(r => (
+            <HistoryRow
+              key={r.id}
+              runType={r.runType}
+              status={r.status}
+              time={r.startedAt}
+              stats={r.stats}
+              onViewLogs={() => onViewLogs(r.id)}
+            />
+          ))}
+        </>
+      )}
+    </div>
   )
 }
 
@@ -257,129 +504,16 @@ function LogModal({ connId, runId, onClose }: LogModalProps) {
   )
 }
 
-// ── Run Strip ────────────────────────────────────────────────────────────────
-
-interface RunStripProps {
-  connId: string
-  latestRuns: LatestRuns | undefined
-  loadingRuns: boolean
-  onViewLogs: (runId: string) => void
-}
-
-function RunStrip({ connId: _connId, latestRuns, loadingRuns, onViewLogs }: RunStripProps) {
-  // Pick most recent run
-  let mostRecent: SyncRun | null = null
-  if (latestRuns) {
-    const s = latestRuns.lastScheduled
-    const a = latestRuns.lastAdhoc
-    if (s && a) {
-      mostRecent = new Date(s.startedAt) > new Date(a.startedAt) ? s : a
-    } else {
-      mostRecent = s ?? a
-    }
-  }
-
-  const statsStr = (stats: Record<string, number> | null) => {
-    if (!stats) return null
-    const parts: string[] = []
-    if (stats.added !== undefined) parts.push(`+${stats.added} added`)
-    if (stats.modified !== undefined) parts.push(`~${stats.modified} modified`)
-    if (stats.removed !== undefined) parts.push(`-${stats.removed} removed`)
-    return parts.join('  ')
-  }
-
-  return (
-    <div style={{
-      background: T.bgRunStrip,
-      borderTop: `1px solid ${T.borderRun}`,
-      padding: '9px 18px 9px 70px',
-      display: 'flex',
-      alignItems: 'center',
-      gap: 12,
-      borderRadius: '0 0 12px 12px',
-      minHeight: 36,
-    }}>
-      {loadingRuns && (
-        <span style={{ color: T.textVeryMuted, fontSize: 11 }}>Loading runs...</span>
-      )}
-      {!loadingRuns && !mostRecent && (
-        <span style={{ color: T.textVeryMuted, fontSize: 11 }}>No sync runs yet</span>
-      )}
-      {!loadingRuns && mostRecent && (
-        <>
-          <span style={{
-            background: T.border,
-            color: T.textSecondary,
-            borderRadius: 99,
-            padding: '2px 6px',
-            fontSize: 10,
-            fontWeight: 500,
-          }}>
-            {mostRecent.runType === 're_extract' ? 're-extract' : mostRecent.runType}
-          </span>
-          <RunStatusBadge status={mostRecent.status} />
-          <span style={{ color: T.textMuted, fontSize: 11 }}>
-            {formatRelative(mostRecent.startedAt)}
-          </span>
-          {mostRecent.stats && (
-            <span style={{ color: T.textSecondary, fontSize: 11 }}>
-              {statsStr(mostRecent.stats)}
-            </span>
-          )}
-          <div style={{ flex: 1 }} />
-          <button
-            onClick={() => onViewLogs(mostRecent!.id)}
-            style={{
-              background: 'rgba(99,102,241,0.1)',
-              border: `1px solid rgba(99,102,241,0.25)`,
-              color: T.accent,
-              borderRadius: 6,
-              padding: '3px 10px',
-              fontSize: 10,
-              fontWeight: 700,
-              cursor: 'pointer',
-            }}
-          >
-            View Logs →
-          </button>
-        </>
-      )}
-      {!loadingRuns && !mostRecent && (
-        <div style={{ flex: 1 }} />
-      )}
-      {!loadingRuns && !mostRecent && (
-        <button
-          disabled
-          style={{
-            background: 'transparent',
-            border: `1px solid ${T.border}`,
-            color: T.border,
-            borderRadius: 6,
-            padding: '3px 10px',
-            fontSize: 10,
-            fontWeight: 700,
-            cursor: 'not-allowed',
-          }}
-        >
-          View Logs →
-        </button>
-      )}
-    </div>
-  )
-}
-
 // ── Connection Card ──────────────────────────────────────────────────────────
 
 interface CardProps {
   conn: SourceConnection
-  latestRuns: LatestRuns | undefined
-  loadingRuns: boolean
   onEdit: (id: string) => void
   onRefresh: () => void
   onViewLogs: (connId: string, runId: string) => void
 }
 
-function ConnectionCard({ conn, latestRuns, loadingRuns, onEdit, onRefresh, onViewLogs }: CardProps) {
+function ConnectionCard({ conn, onEdit, onRefresh, onViewLogs }: CardProps) {
   const [syncing, setSyncing] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const src = getSourceStyle(conn.sourceType)
@@ -406,10 +540,6 @@ function ConnectionCard({ conn, latestRuns, loadingRuns, onEdit, onRefresh, onVi
       alert(e instanceof Error ? e.message : 'Delete failed')
       setDeleting(false)
     }
-  }
-
-  const handleViewLogs = (runId: string) => {
-    onViewLogs(conn.id, runId)
   }
 
   return (
@@ -514,12 +644,10 @@ function ConnectionCard({ conn, latestRuns, loadingRuns, onEdit, onRefresh, onVi
         </div>
       </div>
 
-      {/* Run strip */}
-      <RunStrip
-        connId={conn.id}
-        latestRuns={latestRuns}
-        loadingRuns={loadingRuns}
-        onViewLogs={handleViewLogs}
+      {/* Run history strip */}
+      <RunHistoryStrip
+        conn={conn}
+        onViewLogs={(runId) => onViewLogs(conn.id, runId)}
       />
     </div>
   )
@@ -536,37 +664,7 @@ interface Props {
 }
 
 export default function SourceConnectionsList({ connections, loading, error, onEdit, onRefresh }: Props) {
-  const [runsMap, setRunsMap] = useState<Record<string, LatestRuns>>({})
-  const [loadingRuns, setLoadingRuns] = useState(false)
   const [logModal, setLogModal] = useState<{ connId: string; runId: string } | null>(null)
-
-  // Stable dep: re-fetch runs only when the set of connection IDs changes.
-  const connIds = connections.map(c => c.id).join(',')
-
-  useEffect(() => {
-    if (connections.length === 0) return
-    setLoadingRuns(true)
-    Promise.all(
-      connections.map(async c => {
-        try {
-          const runs = await fetchLatestRuns(c.id)
-          return [c.id, runs] as [string, LatestRuns]
-        } catch {
-          return [c.id, { lastScheduled: null, lastAdhoc: null }] as [string, LatestRuns]
-        }
-      })
-    )
-      .then(results => {
-        const map: Record<string, LatestRuns> = {}
-        for (const [id, runs] of results) {
-          map[id] = runs
-        }
-        setRunsMap(map)
-      })
-      .catch(() => {/* individual errors already handled above */})
-      .finally(() => setLoadingRuns(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connIds])
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
@@ -610,8 +708,6 @@ export default function SourceConnectionsList({ connections, loading, error, onE
         <ConnectionCard
           key={conn.id}
           conn={conn}
-          latestRuns={runsMap[conn.id]}
-          loadingRuns={loadingRuns}
           onEdit={onEdit}
           onRefresh={onRefresh}
           onViewLogs={(connId, runId) => setLogModal({ connId, runId })}
