@@ -136,6 +136,7 @@ def _fetch_all_pages(er, kwargs: dict, ReturnInfo, RequestEventsInfo, EventInfoF
 
 
 def fetch_ranked_events(
+    api_key: str,
     categories: list[str],
     sources: list[str],
     date_start: datetime,
@@ -146,7 +147,6 @@ def fetch_ranked_events(
         EventInfoFlags, QueryEvent, RequestEventArticles, QueryItems,
     )
 
-    api_key = os.environ["NEWSAPIAI_KEY"]
     er = EventRegistry(apiKey=api_key, allowUseOfArchive=False)
 
     date_start_str = date_start.strftime("%Y-%m-%d")
