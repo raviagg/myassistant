@@ -156,6 +156,16 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
   const [newsCategories, setNewsCategories] = useState('')
   const [newsSources, setNewsSources] = useState('')
 
+  // Reset connector-specific state when the connector type changes (create mode only)
+  useEffect(() => {
+    if (isEditing) return
+    setPlaidClientId('')
+    setPlaidSecret('')
+    setNewsApiKey('')
+    setNewsCategories('')
+    setNewsSources('')
+  }, [sourceType]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Plaid linked banks — loaded during edit
   const [plaidItems, setPlaidItems] = useState<PlaidItem[]>([])
   const [loadingItems, setLoadingItems] = useState(false)
@@ -194,9 +204,9 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
             .finally(() => { if (mounted) setLoadingItems(false) })
         }
         if (conn.sourceType === 'news_poll') {
-          const cfg = conn.config as Record<string, string>
-          if (cfg.categories) setNewsCategories(cfg.categories)
-          if (cfg.sources) setNewsSources(cfg.sources)
+          const cfg = (conn.config ?? {}) as Record<string, unknown>
+          if (typeof cfg.categories === 'string') setNewsCategories(cfg.categories)
+          if (typeof cfg.sources === 'string') setNewsSources(cfg.sources)
         }
       } catch (e) {
         if (mounted) setLoadError(e instanceof Error ? e.message : 'Failed to load connection')
@@ -257,6 +267,22 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
       setSaveError('Connection name is required.')
       return
     }
+    if (!isEditing) {
+      if (sourceType === 'plaid_poll' && (!plaidClientId.trim() || !plaidSecret.trim())) {
+        setSaveError('Plaid Client ID and Secret are required.')
+        return
+      }
+      if (sourceType === 'news_poll') {
+        if (!newsApiKey.trim()) {
+          setSaveError('NewsAPI key is required.')
+          return
+        }
+        if (!newsCategories.trim()) {
+          setSaveError('At least one category is required.')
+          return
+        }
+      }
+    }
     setSaving(true)
     setSaveError(null)
     try {
@@ -274,11 +300,6 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
             : existingConn.config,
         })
       } else if (sourceType === 'plaid_poll') {
-        if (!plaidClientId.trim() || !plaidSecret.trim()) {
-          setSaveError('Plaid Client ID and Secret are required.')
-          setSaving(false)
-          return
-        }
         await createSourceConnection({
           sourceType,
           connectionName: connectionName.trim(),
@@ -289,16 +310,6 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
           secrets: JSON.stringify({ client_id: plaidClientId.trim(), secret: plaidSecret.trim() }),
         })
       } else if (sourceType === 'news_poll') {
-        if (!newsApiKey.trim()) {
-          setSaveError('NewsAPI key is required.')
-          setSaving(false)
-          return
-        }
-        if (!newsCategories.trim()) {
-          setSaveError('At least one category is required.')
-          setSaving(false)
-          return
-        }
         await createSourceConnection({
           sourceType,
           connectionName: connectionName.trim(),
