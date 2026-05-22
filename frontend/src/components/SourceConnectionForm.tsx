@@ -120,7 +120,7 @@ function ConnectorChip({ icon, label, value, selected, disabled, onSelect }: Con
     >
       <span>{icon}</span>
       <span>{label}</span>
-      {disabled && value !== 'plaid_poll' && (
+      {disabled && value !== 'plaid_poll' && value !== 'news_poll' && (
         <span style={{ color: T.textVeryMuted, fontSize: 11 }}>(coming soon)</span>
       )}
     </button>
@@ -150,6 +150,11 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
   // Plaid credentials — only used during create
   const [plaidClientId, setPlaidClientId] = useState('')
   const [plaidSecret, setPlaidSecret] = useState('')
+
+  // News credentials and config
+  const [newsApiKey, setNewsApiKey] = useState('')
+  const [newsCategories, setNewsCategories] = useState('')
+  const [newsSources, setNewsSources] = useState('')
 
   // Plaid linked banks — loaded during edit
   const [plaidItems, setPlaidItems] = useState<PlaidItem[]>([])
@@ -187,6 +192,11 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
             .then(items => { if (mounted) setPlaidItems(items) })
             .catch(e => { if (mounted) setLoadError(e instanceof Error ? e.message : 'Failed to load linked banks') })
             .finally(() => { if (mounted) setLoadingItems(false) })
+        }
+        if (conn.sourceType === 'news_poll') {
+          const cfg = conn.config as Record<string, string>
+          if (cfg.categories) setNewsCategories(cfg.categories)
+          if (cfg.sources) setNewsSources(cfg.sources)
         }
       } catch (e) {
         if (mounted) setLoadError(e instanceof Error ? e.message : 'Failed to load connection')
@@ -259,7 +269,9 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
           syncScheduled,
           syncAdhoc,
           syncSchedule: syncScheduled ? syncSchedule : null,
-          config: existingConn.config,
+          config: existingConn.sourceType === 'news_poll'
+            ? { categories: newsCategories.trim(), sources: newsSources.trim() }
+            : existingConn.config,
         })
       } else if (sourceType === 'plaid_poll') {
         if (!plaidClientId.trim() || !plaidSecret.trim()) {
@@ -275,6 +287,27 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
           syncAdhoc,
           syncSchedule: syncScheduled ? syncSchedule : undefined,
           secrets: JSON.stringify({ client_id: plaidClientId.trim(), secret: plaidSecret.trim() }),
+        })
+      } else if (sourceType === 'news_poll') {
+        if (!newsApiKey.trim()) {
+          setSaveError('NewsAPI key is required.')
+          setSaving(false)
+          return
+        }
+        if (!newsCategories.trim()) {
+          setSaveError('At least one category is required.')
+          setSaving(false)
+          return
+        }
+        await createSourceConnection({
+          sourceType,
+          connectionName: connectionName.trim(),
+          personId: session.personId,
+          syncScheduled,
+          syncAdhoc,
+          syncSchedule: syncScheduled ? syncSchedule : undefined,
+          secrets: JSON.stringify({ apiKey: newsApiKey.trim() }),
+          config: { categories: newsCategories.trim(), sources: newsSources.trim() },
         })
       } else {
         await createSourceConnection({
@@ -337,7 +370,7 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
             label="News"
             value="news_poll"
             selected={sourceType === 'news_poll'}
-            disabled={true}
+            disabled={isEditing}
             onSelect={setSourceType}
           />
           <ConnectorChip
@@ -498,6 +531,82 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* Section 3b: News-specific */}
+      {sourceType === 'news_poll' && (
+        <div style={{ marginBottom: 24 }}>
+          {!isEditing && (
+            <>
+              <span style={sectionLabel}>NewsAPI Key</span>
+              <input
+                type="password"
+                value={newsApiKey}
+                onChange={e => setNewsApiKey(e.target.value)}
+                placeholder="NewsAPI.ai API key"
+                style={{
+                  width: '100%',
+                  background: T.bgInput,
+                  border: `1px solid ${T.border}`,
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  color: T.textPrimary,
+                  fontSize: 14,
+                  outline: 'none',
+                  boxSizing: 'border-box',
+                  marginBottom: 8,
+                }}
+              />
+              <div style={{ color: T.textMuted, fontSize: 12, marginBottom: 16 }}>
+                Key is encrypted and stored securely.
+              </div>
+            </>
+          )}
+          {isEditing && (
+            <div style={{ background: T.bgRunStrip, border: `1px solid ${T.borderRun}`, borderRadius: 8, padding: '10px 14px', color: T.textSecondary, fontSize: 13, marginBottom: 16 }}>
+              API Key: ••••••• (stored encrypted)
+            </div>
+          )}
+          <span style={sectionLabel}>Categories (JSON array of NewsAPI category URIs)</span>
+          <input
+            type="text"
+            value={newsCategories}
+            onChange={e => setNewsCategories(e.target.value)}
+            placeholder='["dmoz/Business/Finance","dmoz/Computers/Internet"]'
+            style={{
+              width: '100%',
+              background: T.bgInput,
+              border: `1px solid ${T.border}`,
+              borderRadius: 8,
+              padding: '10px 12px',
+              color: T.textPrimary,
+              fontSize: 13,
+              fontFamily: "'SF Mono', 'Fira Code', monospace",
+              outline: 'none',
+              boxSizing: 'border-box',
+              marginBottom: 16,
+            }}
+          />
+          <span style={sectionLabel}>Sources (optional — JSON array of NewsAPI source URIs)</span>
+          <input
+            type="text"
+            value={newsSources}
+            onChange={e => setNewsSources(e.target.value)}
+            placeholder='["nytimes.com","bbc.co.uk"]'
+            style={{
+              width: '100%',
+              background: T.bgInput,
+              border: `1px solid ${T.border}`,
+              borderRadius: 8,
+              padding: '10px 12px',
+              color: T.textPrimary,
+              fontSize: 13,
+              fontFamily: "'SF Mono', 'Fira Code', monospace",
+              outline: 'none',
+              boxSizing: 'border-box',
+            }}
+          />
         </div>
       )}
 
