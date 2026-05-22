@@ -55,7 +55,7 @@ object NativeSchemaRegistry:
     ),
   )
 
-  /** Tables defined by the Plaid connector (schema 20). */
+  /** Tables defined by the Plaid connector (13_plaid_schema.sql / V20__plaid_schema.sql). */
   val plaidTables: List[SourceTableResponse] = List(
     SourceTableResponse(
       tableName   = "plaid.connections",
