@@ -588,7 +588,7 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
               marginBottom: 16,
             }}
           />
-          <span style={sectionLabel}>Sources (optional — JSON array of NewsAPI source URIs)</span>
+          <span style={sectionLabel}>Sources (JSON array of NewsAPI source URIs, optional)</span>
           <input
             type="text"
             value={newsSources}
