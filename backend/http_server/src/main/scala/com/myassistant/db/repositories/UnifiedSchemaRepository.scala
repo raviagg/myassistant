@@ -115,7 +115,7 @@ object UnifiedSchemaRepository:
 
     def delete(id: UUID): ZIO[ZConnectionPool, AppError, Boolean] =
       transaction(
-        sql"DELETE FROM unified_schema WHERE id = ${id.toString}::uuid".update
+        sql"DELETE FROM unified_schema WHERE id = ${id.toString}::uuid".delete
       ).mapError(mapSqlError).map(_ > 0)
 
     def sourceSchemas(
@@ -204,12 +204,20 @@ object UnifiedSchemaRepository:
           val householdIdStr = schema.householdId.map(_.toString)
 
           val fieldDefs = schema.fieldDefinitions.asArray.getOrElse(Vector.empty).toList
-          val approvedFields = fieldDefs.filter: fd =>
+          // Gate: only query if at least one field is approved — full column projection handled client-side
+          val hasApprovedFields = fieldDefs.exists: fd =>
             fd.hcursor.get[String]("status").toOption.exists(_ == "approved")
 
-          if approvedFields.isEmpty then
+          if !hasApprovedFields then
             ZIO.succeed(UnifiedDataResponse(items = Nil, total = 0, limit = limit, offset = offset))
           else
+            val countQ = sql"""
+              SELECT COUNT(*)::text
+              FROM plaid.transactions t
+              JOIN source_connections sc ON t.source_connection_id = sc.id
+              WHERE (${personIdStr}::uuid IS NULL OR sc.person_id = ${personIdStr}::uuid)
+                AND (${householdIdStr}::uuid IS NULL OR sc.household_id = ${householdIdStr}::uuid)"""
+
             val plaidQ = sql"""
               SELECT
                 t.source_connection_id::text AS source_connection_id,
@@ -231,26 +239,29 @@ object UnifiedSchemaRepository:
             type DataRow = (String, String, String, Option[String], Option[String],
                             Option[String], Option[String], Option[String], Option[String])
 
-            transaction(plaidQ.query[DataRow].selectAll)
-              .mapError(mapSqlError)
-              .map: rows =>
-                val items = rows.toList.map: row =>
-                  val (scId, srcType, rowId, amount, date, merchant, category, channel, pending) = row
-                  val fields = Map(
-                    "id"              -> Json.fromString(rowId),
-                    "amount"          -> amount.map(Json.fromString).getOrElse(Json.Null),
-                    "date"            -> date.map(Json.fromString).getOrElse(Json.Null),
-                    "merchant_name"   -> merchant.map(Json.fromString).getOrElse(Json.Null),
-                    "category"        -> category.map(Json.fromString).getOrElse(Json.Null),
-                    "payment_channel" -> channel.map(Json.fromString).getOrElse(Json.Null),
-                    "pending"         -> pending.map(Json.fromString).getOrElse(Json.Null),
-                  )
-                  UnifiedDataRow(
-                    sourceConnectionId = Some(UUID.fromString(scId)),
-                    sourceType         = srcType,
-                    fields             = fields,
-                  )
-                UnifiedDataResponse(items = items, total = items.size, limit = limit, offset = offset)
+            for
+              countStr <- transaction(countQ.query[String].selectOne)
+                            .mapError(mapSqlError)
+                            .map(_.flatMap(_.toLongOption).getOrElse(0L).toInt)
+              rows     <- transaction(plaidQ.query[DataRow].selectAll)
+                            .mapError(mapSqlError)
+              items     = rows.toList.map: row =>
+                            val (scId, srcType, rowId, amount, date, merchant, category, channel, pending) = row
+                            val fields = Map(
+                              "id"              -> Json.fromString(rowId),
+                              "amount"          -> amount.map(Json.fromString).getOrElse(Json.Null),
+                              "date"            -> date.map(Json.fromString).getOrElse(Json.Null),
+                              "merchant_name"   -> merchant.map(Json.fromString).getOrElse(Json.Null),
+                              "category"        -> category.map(Json.fromString).getOrElse(Json.Null),
+                              "payment_channel" -> channel.map(Json.fromString).getOrElse(Json.Null),
+                              "pending"         -> pending.map(Json.fromString).getOrElse(Json.Null),
+                            )
+                            UnifiedDataRow(
+                              sourceConnectionId = Some(UUID.fromString(scId)),
+                              sourceType         = srcType,
+                              fields             = fields,
+                            )
+            yield UnifiedDataResponse(items = items, total = countStr, limit = limit, offset = offset)
 
   val live: ZLayer[Any, Nothing, UnifiedSchemaRepository] =
     ZLayer.succeed(new Live)
