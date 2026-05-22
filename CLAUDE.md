@@ -129,11 +129,12 @@ finance    / payslip         v1 — employer, pay_period, gross, tax, net
 
 ### Field types in field_definitions
 ```
-text      — free text string
-number    — numeric value (stored as JSONB number)
-date      — ISO date string YYYY-MM-DD
-boolean   — true/false
-file      — reference to a file in the parent document's files array
+text        — free text string
+number      — numeric value (stored as JSONB number)
+date        — ISO date string YYYY-MM-DD
+boolean     — true/false
+file        — reference to a file in the parent document's files array
+entity_ref  — UUID referencing another entity's entity_instance_id (MCP validates existence before write)
 ```
 
 ---

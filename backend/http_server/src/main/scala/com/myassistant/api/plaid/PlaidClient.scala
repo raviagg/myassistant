@@ -58,7 +58,7 @@ object PlaidClient:
         "country_codes" -> Json.arr(Json.fromString("US")),
         "language"      -> Json.fromString("en"),
       )
-      val body = if cfg.redirectUri.nonEmpty then
+      val body = if cfg.redirectUri.startsWith("https://") then
         Json.fromJsonObject(
           base.asObject.getOrElse(io.circe.JsonObject.empty)
             .add("redirect_uri", Json.fromString(cfg.redirectUri))

@@ -67,6 +67,11 @@ trait SourceConnectionService:
    */
   def listDue(): ZIO[ZConnectionPool, AppError, List[SourceConnectionResponse]]
 
+  /** Return active connections that have a pending adhoc sync_run, paired
+   *  with the run ID to update.  Used by the Python scheduler worker.
+   */
+  def listPendingAdhoc(): ZIO[ZConnectionPool, AppError, List[(SourceConnectionResponse, java.util.UUID)]]
+
   /** Return the decrypted secrets JSON string for the given connection.
    *  Returns None when the connection does not exist or has no secrets
    *  stored. Used by the scheduler worker to authenticate against the
@@ -267,6 +272,11 @@ object SourceConnectionService:
 
     def listDue(): ZIO[ZConnectionPool, AppError, List[SourceConnectionResponse]] =
       connRepo.findDue().map(_.map(SourceConnectionResponse.fromDomain))
+
+    def listPendingAdhoc(): ZIO[ZConnectionPool, AppError, List[(SourceConnectionResponse, java.util.UUID)]] =
+      connRepo.findWithPendingAdhocRun().map(_.map { case (conn, runId) =>
+        (SourceConnectionResponse.fromDomain(conn), runId)
+      })
 
     def getSecrets(id: UUID): ZIO[ZConnectionPool, AppError, Option[String]] =
       connRepo.findSecretsById(id).flatMap {

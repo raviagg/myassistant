@@ -66,6 +66,13 @@ trait SourceConnectionRepository:
    */
   def findSecretsById(id: UUID): ZIO[ZConnectionPool, AppError, Option[Option[String]]]
 
+  /** Find active source connections that have at least one pending adhoc
+   *  sync_run (run_type='adhoc', status='running').
+   *  Returns each connection paired with the ID of its oldest pending run.
+   *  Reserved for the connector scheduler.
+   */
+  def findWithPendingAdhocRun(): ZIO[ZConnectionPool, AppError, List[(SourceConnection, UUID)]]
+
 object SourceConnectionRepository:
 
   // ── Row type ──────────────────────────────────────────────────────────────
@@ -229,6 +236,57 @@ object SourceConnectionRepository:
       val q = sql"SELECT secrets FROM source_connections WHERE id = ${id.toString}::uuid"
       transaction(q.query[Option[String]].selectOne)
         .mapError(mapSqlError)
+
+    def findWithPendingAdhocRun(): ZIO[ZConnectionPool, AppError, List[(SourceConnection, UUID)]] =
+      // Row: all conn cols + pending run id
+      type Row = (String, String, String, Option[String], Option[String], String,
+                  Boolean, Boolean, Boolean, Option[String],
+                  Option[java.sql.Timestamp], Option[java.sql.Timestamp],
+                  String, java.sql.Timestamp, java.sql.Timestamp,
+                  String)
+      val q =
+        sql"""SELECT DISTINCT ON (sc.id)
+               sc.id::text, sc.source_type, sc.connection_name,
+               sc.person_id::text, sc.household_id::text,
+               sc.config::text,
+               (sc.secrets IS NOT NULL) AS has_secrets,
+               sc.sync_scheduled, sc.sync_adhoc, sc.sync_schedule,
+               sc.next_run_at, sc.last_synced_at,
+               sc.status, sc.created_at, sc.updated_at,
+               sr.id::text AS pending_run_id
+             FROM source_connections sc
+             JOIN sync_runs sr ON sr.source_connection_id = sc.id
+             WHERE sr.run_type = 'adhoc'
+               AND sr.status = 'running'
+               AND sc.status = 'active'
+             ORDER BY sc.id, sr.started_at ASC"""
+      transaction(q.query[Row].selectAll)
+        .mapError(mapSqlError)
+        .map(_.toList.map { row =>
+          val (id, sourceType, connectionName, personId, householdId, configStr,
+               hasSecrets, syncScheduled, syncAdhoc, syncSchedule,
+               nextRunAt, lastSyncedAt, status, createdAt, updatedAt,
+               pendingRunId) = row
+          val config = circeParser.parse(configStr).toOption.flatMap(_.asObject).getOrElse(JsonObject.empty)
+          val conn = SourceConnection(
+            id             = UUID.fromString(id),
+            sourceType     = sourceType,
+            connectionName = connectionName,
+            personId       = personId.map(UUID.fromString),
+            householdId    = householdId.map(UUID.fromString),
+            config         = config,
+            hasSecrets     = hasSecrets,
+            syncScheduled  = syncScheduled,
+            syncAdhoc      = syncAdhoc,
+            syncSchedule   = syncSchedule,
+            nextRunAt      = nextRunAt.map(_.toInstant),
+            lastSyncedAt   = lastSyncedAt.map(_.toInstant),
+            status         = status,
+            createdAt      = createdAt.toInstant,
+            updatedAt      = updatedAt.toInstant,
+          )
+          (conn, UUID.fromString(pendingRunId))
+        })
 
   /** ZLayer providing the live SourceConnectionRepository. */
   val live: ZLayer[Any, Nothing, SourceConnectionRepository] =

@@ -96,6 +96,14 @@ final case class SyncQueuedResponse(
     connectionId: UUID,
 ) derives Codec.AsObject
 
+/** One item in the GET /api/v1/source-connections/adhoc-pending response.
+ *  Used by the scheduler to pick up and execute adhoc sync runs.
+ */
+final case class PendingAdhocItem(
+    connection:   SourceConnectionResponse,
+    pendingRunId: UUID,
+) derives Codec.AsObject
+
 /** Request body for POST /api/v1/source-connections/{id}/advance.
  *
  *  Scheduler-internal endpoint that advances `next_run_at` after the

@@ -41,7 +41,8 @@ object PlaidItemsRoutes:
                        .mapError(AppError.InternalError(_))
           yield Response.json(Json.obj("linkToken" -> Json.fromString(token)).noSpaces))
             .foldZIO(
-              err => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
+              err => ZIO.logError(s"link-token failed for $connId: ${err.getMessage}") *>
+                     ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
               ZIO.succeed(_),
             )
         },

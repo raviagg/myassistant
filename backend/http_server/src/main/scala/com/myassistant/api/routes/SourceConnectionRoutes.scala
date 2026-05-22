@@ -6,6 +6,7 @@ import com.myassistant.api.models.{
   CreateSourceConnectionRequest,
   MarkSyncedRequest,
   PatchSyncRunRequest,
+  PendingAdhocItem,
   SyncQueuedResponse,
   UpdateSourceConnectionRequest,
 }
@@ -119,6 +120,22 @@ object SourceConnectionRoutes:
               err   => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
               conns => ZIO.succeed(Response.json(
                 Json.obj("items" -> Json.arr(conns.map(_.asJson)*)).noSpaces
+              )),
+            )
+        },
+
+      // ── GET /api/v1/source-connections/adhoc-pending ─────────
+      // Scheduler-internal — returns connections with pending adhoc runs.
+      // MUST come before /{id} so the literal wins.
+      Method.GET / "api" / "v1" / "source-connections" / "adhoc-pending" ->
+        handler { (_: Request) =>
+          ZIO.serviceWithZIO[SourceConnectionService](_.listPendingAdhoc())
+            .foldZIO(
+              err   => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
+              items => ZIO.succeed(Response.json(
+                Json.obj("items" -> Json.arr(
+                  items.map { case (conn, runId) => PendingAdhocItem(conn, runId).asJson }*
+                )).noSpaces
               )),
             )
         },

@@ -316,20 +316,31 @@ class PlaidPollHandler(BaseHandler):
 
     # ── Main entry point ──────────────────────────────────────────────────
 
-    def run(self, source_connection: dict) -> None:
-        """Execute one scheduled Plaid sync for the given integration source_connection."""
+    def run(self, source_connection: dict, existing_run_id: str | None = None) -> None:
+        """Execute a Plaid sync for the given integration source_connection.
+
+        When `existing_run_id` is supplied the scheduler is servicing an adhoc
+        run already created by the API; the run row is updated in-place and
+        next_run_at is NOT advanced.  Otherwise a new scheduled run row is
+        created and the cron schedule is advanced on completion.
+        """
         connection_id   = source_connection["id"]
         cron_expression = source_connection.get("syncSchedule")
+        is_adhoc        = existing_run_id is not None
 
         log_lines: list[dict] = []
         stats = {"added": 0, "modified": 0, "removed": 0, "accounts_checked": 0, "errors": 0}
         terminal_status = "running"
-        run_id: str | None = None
+        run_id: str | None = existing_run_id
 
         try:
-            run_id = self._create_scheduled_run(connection_id)
-            log_lines.append(_log_entry("info", "Starting Plaid integration sync"))
-            print(f"[plaid_poll] connection {connection_id}: started run {run_id}")
+            if is_adhoc:
+                log_lines.append(_log_entry("info", "Starting Plaid integration sync (adhoc)"))
+                print(f"[plaid_poll] connection {connection_id}: executing adhoc run {run_id}")
+            else:
+                run_id = self._create_scheduled_run(connection_id)
+                log_lines.append(_log_entry("info", "Starting Plaid integration sync"))
+                print(f"[plaid_poll] connection {connection_id}: started scheduled run {run_id}")
 
             client_id, secret = self._fetch_plaid_creds(connection_id)
 
@@ -367,6 +378,6 @@ class PlaidPollHandler(BaseHandler):
                 self._patch_run(connection_id, run_id, terminal_status, stats, log_lines)
             if terminal_status in ("success", "warning"):
                 self._mark_synced(connection_id)
-            if run_id is not None:
+            if not is_adhoc and run_id is not None:
                 self._advance_next_run(connection_id, cron_expression)
             print(f"[plaid_poll] connection {connection_id}: status={terminal_status} stats={stats}")
