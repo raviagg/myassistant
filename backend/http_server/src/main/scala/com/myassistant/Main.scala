@@ -6,9 +6,11 @@ import com.myassistant.api.plaid.PlaidClient
 import com.myassistant.config.*
 import com.myassistant.db.*
 import com.myassistant.db.repositories.*
+import com.myassistant.db.repositories.UnifiedSchemaRepository
 import com.myassistant.logging.AppLogger
 import com.myassistant.monitoring.Metrics
 import com.myassistant.services.*
+import com.myassistant.services.UnifiedSchemaService
 import zio.*
 import zio.http.*
 import zio.jdbc.*
@@ -59,6 +61,7 @@ object Main extends ZIOAppDefault:
     val sourceConnRepoLayer   = SourceConnectionRepository.live
     val syncRunRepoLayer      = SyncRunRepository.live
     val plaidSyncRepoLayer    = PlaidSyncRepository.live
+    val unifiedSchemaRepoLayer = UnifiedSchemaRepository.live
 
     // ── Services ──────────────────────────────────────────────
     val personSvcLayer       = personRepoLayer       >>> PersonService.live
@@ -74,6 +77,7 @@ object Main extends ZIOAppDefault:
     val scheduledJobSvcLayer   = scheduledJobRepoLayer   >>> ScheduledJobService.live
     val sourceConnSvcLayer     =
       (sourceConnRepoLayer ++ syncRunRepoLayer ++ secretsConfigLayer) >>> SourceConnectionService.live
+    val unifiedSchemaSvcLayer = unifiedSchemaRepoLayer >>> UnifiedSchemaService.live
     val plaidClientLayer  = plaidConfigLayer >>> PlaidClient.live
     val embedClientLayer  = embedConfigLayer >>> EmbedClient.live
 
@@ -90,6 +94,7 @@ object Main extends ZIOAppDefault:
       fileSvcLayer ++
       scheduledJobSvcLayer ++
       sourceConnSvcLayer ++
+      unifiedSchemaSvcLayer ++
       plaidClientLayer ++
       plaidSyncRepoLayer ++
       embedClientLayer ++

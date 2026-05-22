@@ -7,6 +7,7 @@ import com.myassistant.api.routes.*
 import com.myassistant.config.{AuthConfig, SecretsConfig}
 import com.myassistant.db.repositories.PlaidSyncRepository
 import com.myassistant.services.*
+import com.myassistant.services.UnifiedSchemaService
 import zio.*
 import zio.http.*
 import zio.jdbc.*
@@ -32,6 +33,7 @@ object Router:
       & FileService
       & ScheduledJobService
       & SourceConnectionService
+      & UnifiedSchemaService
       & PlaidClient
       & PlaidSyncRepository
       & SecretsConfig
@@ -62,7 +64,8 @@ object Router:
           ScheduledJobRoutes.routes ++
           SourceConnectionRoutes.routes ++
           PlaidItemsRoutes.routes ++
-          PlaidSyncRoutes.routes) @@ AuthMiddleware(authCfg.token)
+          PlaidSyncRoutes.routes ++
+             UnifiedSchemaRoutes.routes) @@ AuthMiddleware(authCfg.token)
 
       (publicRoutes ++ protectedRoutes) @@ LoggingMiddleware.logRequests
     }
