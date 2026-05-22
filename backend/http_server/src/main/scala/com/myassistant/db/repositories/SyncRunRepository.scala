@@ -154,13 +154,27 @@ object SyncRunRepository:
         findById(runId).map(_.filter(_.sourceConnectionId == sourceConnectionId))
       else
         val setFrag = assignments.reduce(_ ++ SqlFragment(", ") ++ _)
-        val q = sql"UPDATE sync_runs SET " ++ setFrag ++
-                sql" WHERE id = ${runId.toString}::uuid " ++
-                sql"   AND source_connection_id = ${sourceConnectionId.toString}::uuid " ++
-                sql" RETURNING " ++ runCols
-        transaction(q.query[RunRow].selectOne)
-          .mapError(mapSqlError)
-          .map(_.map(rowToRun))
+        val updateQ = sql"UPDATE sync_runs SET " ++ setFrag ++
+                      sql" WHERE id = ${runId.toString}::uuid " ++
+                      sql"   AND source_connection_id = ${sourceConnectionId.toString}::uuid " ++
+                      sql" RETURNING " ++ runCols
+        val isTerminal = req.status.exists(s => Set("success", "warning", "failed").contains(s))
+        val retentionQ =
+          sql"""DELETE FROM sync_runs
+                WHERE source_connection_id = ${sourceConnectionId.toString}::uuid
+                  AND id NOT IN (
+                    SELECT id FROM sync_runs
+                    WHERE source_connection_id = ${sourceConnectionId.toString}::uuid
+                    ORDER BY started_at DESC
+                    LIMIT 20
+                  )"""
+        transaction {
+          for
+            row <- updateQ.query[RunRow].selectOne
+            _   <- ZIO.when(isTerminal)(retentionQ.update)
+          yield row
+        }.mapError(mapSqlError)
+         .map(_.map(rowToRun))
 
   /** ZLayer providing the live SyncRunRepository. */
   val live: ZLayer[Any, Nothing, SyncRunRepository] =
