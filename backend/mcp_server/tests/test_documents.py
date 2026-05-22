@@ -83,7 +83,7 @@ def test_search_documents(http):
         body = json.loads(respx.calls[0].request.content)
         assert len(body["embedding"]) == 768
         assert body["limit"] == 10
-        assert body["similarityThreshold"] == 0.7
+        assert body["similarityThreshold"] == 0.5
         assert result["items"] == []
 
 

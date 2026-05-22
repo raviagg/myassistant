@@ -29,8 +29,8 @@ object ErrorMiddleware:
         (Status.InternalServerError, "filesystem_error", cause.getMessage, None)
       case AuthError =>
         (Status.Unauthorized, "unauthorized", "Authentication required", None)
-      case InternalError(_) =>
-        (Status.InternalServerError, "internal_error", "An unexpected error occurred", None)
+      case InternalError(cause) =>
+        (Status.InternalServerError, "internal_error", cause.getMessage, None)
 
     val body = details match
       case Some(d) =>

@@ -7,23 +7,25 @@ import java.time.Instant
 import java.util.UUID
 
 final case class CreateFactRequest(
-    documentId:       UUID,
-    schemaId:         UUID,
-    entityInstanceId: UUID,
-    operationType:    String,
-    fields:           Json,
-    embedding:        List[Double],
+    documentId:         UUID,
+    schemaId:           UUID,
+    sourceConnectionId: Option[UUID] = None,
+    entityInstanceId:   UUID,
+    operationType:      String,
+    fields:             Json,
+    embedding:          List[Double],
 ) derives Codec.AsObject:
 
   def toDomain: Either[String, CreateFact] =
     parseOperationType(operationType).map(op =>
       CreateFact(
-        documentId       = documentId,
-        schemaId         = schemaId,
-        entityInstanceId = entityInstanceId,
-        operationType    = op,
-        fields           = fields,
-        embedding        = embedding,
+        documentId         = documentId,
+        schemaId           = schemaId,
+        sourceConnectionId = sourceConnectionId,
+        entityInstanceId   = entityInstanceId,
+        operationType      = op,
+        fields             = fields,
+        embedding          = embedding,
       )
     )
 
@@ -38,25 +40,27 @@ final case class SearchCurrentFactsRequest(
 ) derives Codec.AsObject
 
 final case class FactResponse(
-    id:               UUID,
-    documentId:       UUID,
-    schemaId:         UUID,
-    entityInstanceId: UUID,
-    operationType:    String,
-    fields:           Json,
-    createdAt:        Instant,
+    id:                 UUID,
+    documentId:         UUID,
+    schemaId:           UUID,
+    sourceConnectionId: Option[UUID],
+    entityInstanceId:   UUID,
+    operationType:      String,
+    fields:             Json,
+    createdAt:          Instant,
 ) derives Codec.AsObject
 
 object FactResponse:
   def fromDomain(f: Fact): FactResponse =
     FactResponse(
-      id               = f.id,
-      documentId       = f.documentId,
-      schemaId         = f.schemaId,
-      entityInstanceId = f.entityInstanceId,
-      operationType    = f.operationType.toString.toLowerCase,
-      fields           = f.fields,
-      createdAt        = f.createdAt,
+      id                 = f.id,
+      documentId         = f.documentId,
+      schemaId           = f.schemaId,
+      sourceConnectionId = f.sourceConnectionId,
+      entityInstanceId   = f.entityInstanceId,
+      operationType      = f.operationType.toString.toLowerCase,
+      fields             = f.fields,
+      createdAt          = f.createdAt,
     )
 
 final case class CurrentFactResponse(

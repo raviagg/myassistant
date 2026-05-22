@@ -43,19 +43,20 @@ trait FactRepository:
 object FactRepository:
 
   private type FactRow =
-    (String, String, String, String, String, String, java.sql.Timestamp)
+    (String, String, String, Option[String], String, String, String, java.sql.Timestamp)
 
   private type CurrentFactRow =
     (String, String, Option[String], Option[String], String, java.sql.Timestamp)
 
   private def rowToFact(row: FactRow): Fact =
-    val (id, documentId, schemaId, entityInstanceId, opType, fieldsJson, createdAt) = row
+    val (id, documentId, schemaId, sourceConnectionId, entityInstanceId, opType, fieldsJson, createdAt) = row
     Fact(
-      id               = UUID.fromString(id),
-      documentId       = UUID.fromString(documentId),
-      schemaId         = UUID.fromString(schemaId),
-      entityInstanceId = UUID.fromString(entityInstanceId),
-      operationType    = opType.toLowerCase match
+      id                 = UUID.fromString(id),
+      documentId         = UUID.fromString(documentId),
+      schemaId           = UUID.fromString(schemaId),
+      sourceConnectionId = sourceConnectionId.map(UUID.fromString),
+      entityInstanceId   = UUID.fromString(entityInstanceId),
+      operationType      = opType.toLowerCase match
         case "create" => OperationType.Create
         case "update" => OperationType.Update
         case "delete" => OperationType.Delete
@@ -138,11 +139,12 @@ object FactRepository:
                          else SqlFragment(s"'${req.embedding.mkString("[", ",", "]")}'::vector")
       transaction {
         (sql"""
-          INSERT INTO fact(id, document_id, schema_id, entity_instance_id, operation_type, fields, embedding)
+          INSERT INTO fact(id, document_id, schema_id, source_connection_id, entity_instance_id, operation_type, fields, embedding)
           VALUES (
             ${id.toString}::uuid,
             ${req.documentId.toString}::uuid,
             ${req.schemaId.toString}::uuid,
+            ${req.sourceConnectionId.map(_.toString)}::uuid,
             ${req.entityInstanceId.toString}::uuid,
             ${opStr}::operation_type,
             ${fieldsStr}::jsonb,
@@ -152,6 +154,7 @@ object FactRepository:
             id::text,
             document_id::text,
             schema_id::text,
+            source_connection_id::text,
             entity_instance_id::text,
             operation_type::text,
             fields::text,
@@ -166,8 +169,8 @@ object FactRepository:
       transaction {
         sql"""
           SELECT
-            id::text, document_id::text, schema_id::text, entity_instance_id::text,
-            operation_type::text, fields::text, created_at
+            id::text, document_id::text, schema_id::text, source_connection_id::text,
+            entity_instance_id::text, operation_type::text, fields::text, created_at
           FROM fact
           WHERE id = ${id.toString}::uuid
         """.query[FactRow].selectOne
@@ -178,8 +181,8 @@ object FactRepository:
       transaction {
         sql"""
           SELECT
-            id::text, document_id::text, schema_id::text, entity_instance_id::text,
-            operation_type::text, fields::text, created_at
+            id::text, document_id::text, schema_id::text, source_connection_id::text,
+            entity_instance_id::text, operation_type::text, fields::text, created_at
           FROM fact
           WHERE entity_instance_id = ${entityInstanceId.toString}::uuid
           ORDER BY created_at ASC
@@ -191,8 +194,8 @@ object FactRepository:
       transaction {
         sql"""
           SELECT
-            id::text, document_id::text, schema_id::text, entity_instance_id::text,
-            operation_type::text, fields::text, created_at
+            id::text, document_id::text, schema_id::text, source_connection_id::text,
+            entity_instance_id::text, operation_type::text, fields::text, created_at
           FROM fact
           WHERE document_id = ${documentId.toString}::uuid
           ORDER BY created_at ASC

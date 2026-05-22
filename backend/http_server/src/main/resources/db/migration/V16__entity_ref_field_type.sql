@@ -1,0 +1,45 @@
+-- ============================================================
+-- V16__entity_ref_field_type.sql
+-- Add entity_ref to the allowed field types in entity_type_schema
+--
+-- entity_ref fields store a UUID referencing another entity's
+-- entity_instance_id — enabling FK-like relationships in the
+-- fact store. Validation is enforced at the application layer
+-- (MCP server checks the referenced entity exists before write).
+-- ============================================================
+
+-- PostgreSQL does not allow subqueries in CHECK constraints, so validation
+-- is implemented as an IMMUTABLE function that the constraint calls.
+CREATE OR REPLACE FUNCTION validate_field_definitions(defs jsonb)
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+AS $$
+BEGIN
+    IF jsonb_typeof(defs) IS DISTINCT FROM 'array' OR jsonb_array_length(defs) = 0 THEN
+        RETURN false;
+    END IF;
+    RETURN (
+        SELECT bool_and(
+            (f->>'name')        IS NOT NULL AND
+            (f->>'type')        IS NOT NULL AND
+            (f->>'mandatory')   IS NOT NULL AND
+            (f->>'description') IS NOT NULL AND
+            (f->>'type') IN ('text', 'number', 'date', 'boolean', 'file', 'entity_ref')
+        )
+        FROM jsonb_array_elements(defs) f
+    );
+END;
+$$;
+
+-- Drop old basic constraint (named field_definitions_valid in V5) and the
+-- complete one if it already exists (idempotent re-run safety).
+ALTER TABLE entity_type_schema
+    DROP CONSTRAINT IF EXISTS field_definitions_valid;
+
+ALTER TABLE entity_type_schema
+    DROP CONSTRAINT IF EXISTS field_definitions_complete;
+
+ALTER TABLE entity_type_schema
+    ADD CONSTRAINT field_definitions_complete
+    CHECK (validate_field_definitions(field_definitions));

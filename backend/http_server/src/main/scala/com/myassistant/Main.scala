@@ -40,6 +40,7 @@ object Main extends ZIOAppDefault:
     val fileConfigLayer   = configLayer >>> ZLayer.fromFunction((_: AppConfig).fileStorage)
     val plaidConfigLayer  = configLayer >>> ZLayer.fromFunction((_: AppConfig).plaid)
     val embedConfigLayer  = configLayer >>> ZLayer.fromFunction((_: AppConfig).embed)
+    val secretsConfigLayer = configLayer >>> ZLayer.fromFunction((_: AppConfig).secrets)
 
     // ── Database ──────────────────────────────────────────────
     val poolLayer = dbConfigLayer >>> DatabaseModule.connectionPoolLive
@@ -55,6 +56,9 @@ object Main extends ZIOAppDefault:
     val auditRepoLayer        = AuditRepository.live
     val fileRepoLayer         = FileRepository.live
     val scheduledJobRepoLayer = ScheduledJobRepository.live
+    val sourceConnRepoLayer   = SourceConnectionRepository.live
+    val syncRunRepoLayer      = SyncRunRepository.live
+    val plaidSyncRepoLayer    = PlaidSyncRepository.live
 
     // ── Services ──────────────────────────────────────────────
     val personSvcLayer       = personRepoLayer       >>> PersonService.live
@@ -68,6 +72,8 @@ object Main extends ZIOAppDefault:
     val auditSvcLayer          = auditRepoLayer          >>> AuditService.live
     val fileSvcLayer           = fileConfigLayer         >>> FileService.live
     val scheduledJobSvcLayer   = scheduledJobRepoLayer   >>> ScheduledJobService.live
+    val sourceConnSvcLayer     =
+      (sourceConnRepoLayer ++ syncRunRepoLayer ++ secretsConfigLayer) >>> SourceConnectionService.live
     val plaidClientLayer  = plaidConfigLayer >>> PlaidClient.live
     val embedClientLayer  = embedConfigLayer >>> EmbedClient.live
 
@@ -83,8 +89,11 @@ object Main extends ZIOAppDefault:
       auditSvcLayer ++
       fileSvcLayer ++
       scheduledJobSvcLayer ++
+      sourceConnSvcLayer ++
       plaidClientLayer ++
+      plaidSyncRepoLayer ++
       embedClientLayer ++
+      secretsConfigLayer ++
       authConfigLayer
 
   /** Application entry point — start the HTTP server. */
@@ -96,6 +105,13 @@ object Main extends ZIOAppDefault:
                AppConfig.live >>> ZLayer.fromFunction((_: AppConfig).database)
              )
       cfg <- ZIO.service[AppConfig].provide(AppConfig.live)
+      // Validate SECRETS_KEY before accepting connections
+      _ <- ZIO.serviceWith[AppConfig](_.secrets.validate())
+             .flatMap {
+               case Left(msg) => ZIO.fail(new RuntimeException(s"Startup failed — invalid SECRETS_KEY: $msg"))
+               case Right(_)  => ZIO.unit
+             }
+             .provide(AppConfig.live)
       app <- Router.app.provide(appLayer)
       _   <- ZIO.logInfo(s"Server listening on port ${cfg.server.port}")
       _   <- Server

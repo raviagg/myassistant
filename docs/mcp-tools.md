@@ -318,6 +318,7 @@ The server automatically generates an embedding from `content_text`; the caller 
 | `source_type_id` | UUID | yes | FK to `source_type` (e.g. user_input, gmail_poll) |
 | `person_id` | UUID | no | Owner person (at least one of person/household required) |
 | `household_id` | UUID | no | Owner household |
+| `source_connection_id` | UUID | no | FK to `source_connections`; auto-provisioned for chatbot if omitted |
 | `supersedes_ids` | UUID[] | no | Documents this one replaces |
 | `files` | object[] | no | Attached file references |
 
@@ -392,6 +393,7 @@ The server automatically generates an embedding from the `fields` content, repre
 | `entity_instance_id` | UUID | yes | Groups all operations on the same logical entity |
 | `operation_type` | enum: `create` \| `update` \| `delete` | yes | |
 | `fields` | object | yes | JSONB — only the fields being set/changed in this operation; the server auto-generates an embedding from these |
+| `source_connection_id` | UUID | no | FK to `source_connections`; auto-provisioned for chatbot if omitted |
 
 **Returns:** Raw fact row including generated `id`.
 
@@ -517,6 +519,15 @@ Text-based search is intentionally omitted — the table is small enough that `l
 | `field_definitions` | object[] | yes | Array of field objects: `name`, `type`, `mandatory`, `description` |
 | `description` | string | no | Human-readable description of this entity type |
 
+**Valid `type` values for `field_definitions`:** `text`, `number`, `date`, `boolean`, `file`, `entity_ref`
+
+- `text` — free text string
+- `number` — numeric value
+- `date` — ISO date string (YYYY-MM-DD)
+- `boolean` — true/false
+- `file` — reference to a file in the parent document's files array
+- `entity_ref` — UUID referencing another entity's `entity_instance_id`. The MCP server validates that the referenced entity exists in `current_facts` before the write succeeds — writes are rejected with an error if the reference is dangling.
+
 **Returns:** Schema row with `is_active = true` and `schema_version = 1`.
 
 ### `update_entity_type_schema`
@@ -533,6 +544,10 @@ Facts extracted against older schema versions are not automatically re-extracted
 | `entity_type` | string | yes | Identifies the existing schema to evolve |
 | `field_definitions` | object[] | yes | Full field list for the new version — not a diff, provide all fields |
 | `description` | string | no | Updated description if needed |
+
+**Valid `type` values for `field_definitions`:** `text`, `number`, `date`, `boolean`, `file`, `entity_ref`
+
+- `entity_ref` — UUID referencing another entity's `entity_instance_id`. The MCP server validates that the referenced entity exists in `current_facts` before the write succeeds — writes are rejected with an error if the reference is dangling.
 
 **Returns:** New schema row with incremented `schema_version` and `is_active = true`.
 

@@ -368,7 +368,7 @@ COMMENT ON COLUMN entity_type_schema.field_definitions IS
   'JSONB array defining the fields for this entity type.
    Each element is an object with:
      name        — snake_case field identifier
-     type        — one of: text, number, date, boolean, file
+     type        — one of: text, number, date, boolean, file, entity_ref
      mandatory   — true if required, false if optional
      description — plain English explanation with examples
    Example:
@@ -381,7 +381,11 @@ COMMENT ON COLUMN entity_type_schema.field_definitions IS
      }
    ]
    The file type means the field value is a file path reference
-   pointing to a file in the parent document''s files array.';
+   pointing to a file in the parent document''s files array.
+   The entity_ref type means the field value is a UUID referencing
+   another entity''s entity_instance_id. The MCP server validates
+   that the referenced entity exists in current_facts before write;
+   dangling references are rejected with an error.';
 
 COMMENT ON COLUMN entity_type_schema.mandatory_fields IS
   'Auto-generated array of field names where mandatory=true

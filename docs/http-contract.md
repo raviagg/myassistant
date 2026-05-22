@@ -22,7 +22,9 @@
 | [5 — Audit](#group-5--audit) | 1 |
 | [6 — File Handling](#group-6--file-handling) | 4 |
 | [7 — Scheduled Jobs](#group-7--scheduled-jobs) | 8 |
-| **Total** | **51** |
+| [8 — Source Connections](#group-8--source-connections) | 15 |
+| [9 — Plaid Native Tables](#group-9--plaid-native-tables) | 3 |
+| **Total** | **69** |
 
 ---
 
@@ -67,7 +69,9 @@ Each element of `fieldDefinitions` has this shape:
 }
 ```
 
-Valid `type` values: `text`, `number`, `date`, `boolean`, `file`.
+Valid `type` values: `text`, `number`, `date`, `boolean`, `file`, `entity_ref`.
+
+For `entity_ref` fields: the value stored in a fact is a UUID referencing another entity's `entity_instance_id`. The MCP server validates that the referenced entity exists in `current_facts` before the write succeeds — writes with dangling references are rejected with an error.
 
 ---
 
@@ -556,6 +560,7 @@ Persist a new immutable document. At least one of `personId` or `householdId` mu
   "embedding": [0.123, -0.456, 0.789],
   "personId": "uuid",
   "householdId": null,
+  "sourceConnectionId": null,
   "supersedesIds": [],
   "files": [
     { "filePath": "/data/files/slip-march-2026.pdf", "filename": "slip-march-2026.pdf", "mimeType": "application/pdf" }
@@ -570,6 +575,7 @@ Persist a new immutable document. At least one of `personId` or `householdId` mu
 | `embedding` | float[] | yes |
 | `personId` | UUID | no (one of personId/householdId required) |
 | `householdId` | UUID | no (one of personId/householdId required) |
+| `sourceConnectionId` | UUID | no | FK to `source_connections` |
 | `supersedesIds` | UUID[] | no |
 | `files` | object[] | no |
 
@@ -583,6 +589,7 @@ Each `files` element: `{ filePath: string, filename: string, mimeType?: string }
   "sourceTypeId": "uuid",
   "personId": "uuid",
   "householdId": null,
+  "sourceConnectionId": null,
   "supersedesIds": [],
   "files": [],
   "createdAt": "2026-04-25T10:00:00Z"
@@ -697,7 +704,8 @@ Persist a single fact operation. For a new entity, the caller generates a fresh 
     "status": "pending",
     "dueDate": "2026-05-01"
   },
-  "embedding": [0.123, -0.456, 0.789]
+  "embedding": [0.123, -0.456, 0.789],
+  "sourceConnectionId": null
 }
 ```
 
@@ -709,6 +717,7 @@ Persist a single fact operation. For a new entity, the caller generates a fresh 
 | `operationType` | `"create"` \| `"update"` \| `"delete"` | yes |
 | `fields` | object (JSONB) | yes |
 | `embedding` | float[] | yes |
+| `sourceConnectionId` | UUID | no | FK to `source_connections` |
 
 **Response `201`:**
 ```json
@@ -716,6 +725,7 @@ Persist a single fact operation. For a new entity, the caller generates a fresh 
   "id": "uuid",
   "documentId": "uuid",
   "schemaId": "uuid",
+  "sourceConnectionId": null,
   "entityInstanceId": "uuid",
   "operationType": "create",
   "fields": { "title": "Passport renewal", "status": "pending", "dueDate": "2026-05-01" },
@@ -1485,6 +1495,472 @@ Record the result of a scheduled job execution.
 
 ---
 
+## Group 8 — Source Connections
+
+A `source_connection` is the unified registry for every external data source that feeds the assistant — Plaid bank feeds, Gmail polling, news polling, chatbot re-extractions, bulk file/image imports, etc. Each connection is owned by exactly one person OR one household. Sync can be triggered two independent ways: `sync_scheduled` (cron-driven) and `sync_adhoc` (user-initiated "Refresh Now"). Both flags may be true simultaneously.
+
+Sensitive credentials (OAuth tokens, API keys) are stored AES-256-GCM encrypted in the `secrets` column. The plaintext is **NEVER** returned by any API endpoint — it is decrypted only at sync time inside the connector worker process. Non-secret configuration (institution name, account filters, topics, etc.) lives in `config` as plain JSONB.
+
+Each sync run inserts one row into `sync_runs` with `status='running'`; the connector worker writes the terminal status, `stats`, and `log_lines` on completion.
+
+### Response shapes
+
+**`SourceConnectionResponse`** (the `secrets` field is NEVER included in any response):
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | |
+| `sourceType` | string | One of: `plaid_poll`, `gmail_poll`, `news_poll`, `chatbot`, `bulk_file`, `bulk_image` |
+| `connectionName` | string | Human-readable label shown in the UI |
+| `personId` | UUID \| null | Set when the connection is owned by an individual |
+| `householdId` | UUID \| null | Set when the connection is owned by a household |
+| `config` | object | Non-secret connector configuration (JSONB) |
+| `syncScheduled` | boolean | Whether cron-driven polling is enabled |
+| `syncAdhoc` | boolean | Whether the user can trigger on-demand syncs |
+| `syncSchedule` | string \| null | Cron expression (required when `syncScheduled=true`) |
+| `nextRunAt` | timestamp \| null | When the scheduler should next trigger this connection |
+| `lastSyncedAt` | timestamp \| null | Timestamp of the most recently completed run |
+| `status` | `"active"` \| `"paused"` \| `"error"` | Lifecycle state |
+| `createdAt` | timestamp | |
+| `updatedAt` | timestamp | Auto-maintained by the `source_connections_updated_at` trigger |
+
+**`SyncRunResponse`:**
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | UUID | |
+| `sourceConnectionId` | UUID | FK to `source_connections` |
+| `runType` | `"scheduled"` \| `"adhoc"` \| `"re_extract"` | How the run was triggered |
+| `status` | `"running"` \| `"success"` \| `"warning"` \| `"failed"` | Lifecycle state |
+| `startedAt` | timestamp | Set on insert |
+| `completedAt` | timestamp \| null | Null while the run is in progress |
+| `stats` | object \| null | Connector-agnostic JSONB summary, e.g. `{ "added": 23, "modified": 3, "removed": 0, "errors": 0 }` |
+| `logLines` | array of objects | Structured log entries, each `{ "time": "ISO-8601", "level": "info\|warn\|error", "msg": "..." }`. Defaults to `[]` |
+
+---
+
+### `POST /api/v1/source-connections`
+
+Create a new source connection. If `secrets` is supplied it is AES-256-GCM encrypted before storage; the plaintext is never persisted and never echoed back.
+
+**Request body:**
+```json
+{
+  "sourceType": "plaid_poll",
+  "connectionName": "Chase Checking",
+  "personId": "uuid",
+  "householdId": null,
+  "config": { "institutionName": "Chase", "institutionId": "ins_3" },
+  "secrets": "{\"access_token\":\"access-sandbox-xxx\",\"item_id\":\"yyy\"}",
+  "syncScheduled": false,
+  "syncAdhoc": true,
+  "syncSchedule": null
+}
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `sourceType` | string | yes |
+| `connectionName` | string | yes |
+| `personId` | UUID | no (exactly one of `personId`/`householdId` required) |
+| `householdId` | UUID | no |
+| `config` | object | no — defaults to `{}` |
+| `secrets` | string | no — plaintext credentials to encrypt; null/omitted = no secrets |
+| `syncScheduled` | boolean | no — defaults to `false` |
+| `syncAdhoc` | boolean | no — defaults to `true` |
+| `syncSchedule` | string | required when `syncScheduled=true`, otherwise must be null |
+
+**Response `201`:** `SourceConnectionResponse` (no `secrets` field).
+
+**Errors:** `400`, `422` (e.g. neither/both of personId/householdId set, or `syncScheduled` without `syncSchedule`), `404` (person or household not found).
+
+---
+
+### `GET /api/v1/source-connections`
+
+List source connections for a person or household.
+
+**Query parameters:**
+
+| Parameter | Type | Required |
+|---|---|---|
+| `personId` | UUID | no (one of `personId`/`householdId` required) |
+| `householdId` | UUID | no |
+
+**Response `200`:**
+```json
+{ "items": [ /* SourceConnectionResponse[] */ ] }
+```
+
+**Errors:** `400` (neither `personId` nor `householdId` supplied).
+
+---
+
+### `GET /api/v1/source-connections/{id}`
+
+Fetch a single source connection by UUID. The response never includes the `secrets` field.
+
+**Path parameter:** `id` — UUID
+
+**Response `200`:** `SourceConnectionResponse`
+
+**Errors:** `400`, `404`
+
+---
+
+### `PUT /api/v1/source-connections/{id}`
+
+Full update of a source connection. All fields in the request body replace the stored values.
+
+Special handling of `secrets`:
+- If `secrets` is omitted, `null`, or an empty string → the existing encrypted blob is preserved (no overwrite).
+- If `secrets` is a non-empty string → it is re-encrypted with AES-256-GCM and overwrites the stored blob.
+
+**Path parameter:** `id` — UUID
+
+**Request body:** identical shape to `POST /api/v1/source-connections`.
+
+**Response `200`:** updated `SourceConnectionResponse` (no `secrets` field).
+
+**Errors:** `400`, `404`, `422`
+
+---
+
+### `DELETE /api/v1/source-connections/{id}`
+
+Delete a source connection. ON DELETE CASCADE removes the connection's `sync_runs` history as well.
+
+**Path parameter:** `id` — UUID
+
+**Response `204`:** Empty body on success.
+
+**Errors:** `400`, `404`
+
+---
+
+### `POST /api/v1/source-connections/{id}/sync`
+
+Trigger an adhoc sync run for a source connection. Inserts a row into `sync_runs` with `runType='adhoc'` and `status='running'`; the actual fetch + ingest work is performed asynchronously by the connector worker.
+
+**Path parameter:** `id` — UUID
+
+**Request body:** `{}` (empty object).
+
+**Response `202 Accepted`:**
+```json
+{ "message": "sync queued", "connectionId": "uuid" }
+```
+
+**Errors:** `400`, `404`, `409` (connection not eligible — e.g. `syncAdhoc=false`).
+
+---
+
+### `GET /api/v1/source-connections/{id}/runs`
+
+List run history for a source connection, newest first.
+
+**Path parameter:** `id` — UUID
+
+**Query parameters:**
+
+| Parameter | Type | Required | Default |
+|---|---|---|---|
+| `limit` | int | no | `20` |
+
+**Response `200`:**
+```json
+{ "items": [ /* SyncRunResponse[] */ ] }
+```
+
+**Errors:** `400`, `404`
+
+---
+
+### `GET /api/v1/source-connections/{id}/runs/latest`
+
+Convenience endpoint returning the most recent adhoc run and the most recent scheduled run for a connection. Either field is null when no run of that type has ever occurred.
+
+**Path parameter:** `id` — UUID
+
+**Response `200`:**
+```json
+{
+  "lastAdhoc":     { /* SyncRunResponse */ } /* | null */,
+  "lastScheduled": { /* SyncRunResponse */ } /* | null */
+}
+```
+
+**Errors:** `400`, `404`
+
+---
+
+### `GET /api/v1/source-connections/{id}/runs/{run_id}`
+
+Fetch a single sync run by its UUID, including the full `logLines` array.
+
+**Path parameters:** `id` — UUID, `run_id` — UUID
+
+**Response `200`:** `SyncRunResponse`
+
+**Errors:** `400`, `404`
+
+---
+
+### `GET /api/v1/source-connections/due`
+
+Scheduler-internal endpoint. Returns the connections whose cron-driven sync is due —
+i.e. `sync_scheduled = true AND status = 'active' AND (next_run_at IS NULL OR next_run_at <= now())`.
+Used by the Python scheduler worker to discover work; not intended for client UIs.
+
+**Request body:** none.
+
+**Response `200`:**
+```json
+{ "items": [ /* SourceConnectionResponse[] */ ] }
+```
+
+**Errors:** `500` on database failure.
+
+---
+
+### `GET /api/v1/source-connections/{id}/secrets`
+
+Scheduler-internal endpoint. Returns the decrypted `secrets` JSON object for a given
+connection so the connector worker can authenticate against the upstream provider.
+Never called from client UIs. The HTTP server decrypts the AES-256-GCM blob inline
+and returns the resulting JSON object (or `null` if the column is empty).
+
+**Path parameter:** `id` — UUID
+
+**Response `200`:**
+```json
+{ "secrets": { "access_token": "access-sandbox-xxx", "item_id": "yyy" } }
+```
+or, when the secrets column is NULL:
+```json
+{ "secrets": null }
+```
+
+**Errors:** `400` (bad UUID), `404` (connection not found), `500`.
+
+---
+
+### `PATCH /api/v1/source-connections/{id}/runs/{run_id}`
+
+Scheduler-internal endpoint. Updates a `sync_runs` row in place — typically used by
+the connector worker on completion to record terminal status, stats, completion
+timestamp, and the structured log lines emitted during the run.
+
+All fields are optional (PATCH semantics). Only the supplied fields are written;
+omitted fields are left unchanged.
+
+**Path parameters:** `id` — UUID (connection), `run_id` — UUID (run)
+
+**Request body:**
+```json
+{
+  "status":      "success",
+  "completedAt": "2026-05-18T06:01:23.456Z",
+  "stats":       { "added": 23, "modified": 3, "removed": 0, "errors": 0 },
+  "logLines":    [
+    { "time": "06:00:01", "level": "info", "msg": "..." }
+  ]
+}
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `status` | `"running"` \| `"success"` \| `"warning"` \| `"failed"` | no |
+| `completedAt` | ISO-8601 | no |
+| `stats` | object | no |
+| `logLines` | array of objects | no |
+
+**Response `200`:** updated `SyncRunResponse`.
+
+**Errors:** `400`, `404`, `422`.
+
+---
+
+### `POST /api/v1/source-connections/{id}/advance`
+
+Scheduler-internal endpoint. Sets `next_run_at` on the source connection so the
+scheduler advances past the just-completed run. Equivalent to calling `PUT` with
+the full body, but exists as a focused endpoint to avoid round-tripping all fields
+through the scheduler.
+
+**Path parameter:** `id` — UUID
+
+**Request body:**
+```json
+{ "nextRunAt": "2026-05-19T02:00:00Z" }
+```
+
+**Response `204`:** empty body.
+
+**Errors:** `400`, `404`.
+
+---
+
+### `POST /api/v1/source-connections/{id}/mark-synced`
+
+Scheduler-internal endpoint. Sets `last_synced_at` on the source connection after
+a successful sync run.
+
+**Path parameter:** `id` — UUID
+
+**Request body:**
+```json
+{ "lastSyncedAt": "2026-05-18T06:01:23.456Z" }
+```
+
+**Response `204`:** empty body.
+
+**Errors:** `400`, `404`.
+
+---
+
+### `POST /api/v1/source-connections/{id}/runs/create-scheduled`
+
+Scheduler-internal endpoint. Inserts a `sync_runs` row with `runType='scheduled'`
+and `status='running'` so the connector worker has a row to PATCH on completion.
+Mirrors the adhoc `POST /api/v1/source-connections/{id}/sync` flow but for cron-driven
+runs.
+
+**Path parameter:** `id` — UUID
+
+**Request body:** `{}` (empty object).
+
+**Response `201`:** `SyncRunResponse` — the newly inserted row.
+
+**Errors:** `400`, `404`.
+
+---
+
+## Group 9 — Plaid Native Tables
+
+The Plaid connector stores its data in dedicated `plaid.*` PostgreSQL tables rather than the generic `document`/`fact` store — see schema `13_plaid_schema.sql`. These endpoints are scheduler/connector-internal upsert helpers; the chatbot reads from facts/views as usual, and the UI uses the unified view builder.
+
+### `POST /api/v1/plaid/connections/upsert`
+
+Upsert a `plaid.connections` row. Insert if `plaid_item_id` does not exist; otherwise
+overwrite `institution_name` and `cursor` on the existing row.
+
+**Request body:**
+```json
+{
+  "sourceConnectionId": "uuid",
+  "plaidItemId":        "eVBnVMp7zdTJLkRNr35Rs6zs4H9b2Y8Kx5GRDN",
+  "institutionName":    "Chase",
+  "cursor":             "opaque-bookmark-or-null"
+}
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `sourceConnectionId` | UUID | yes |
+| `plaidItemId` | string | yes |
+| `institutionName` | string | yes |
+| `cursor` | string \| null | no |
+
+**Response `200`:**
+```json
+{
+  "id":                 "uuid",
+  "sourceConnectionId": "uuid",
+  "plaidItemId":        "...",
+  "institutionName":    "...",
+  "cursor":             "...|null",
+  "createdAt":          "ISO-8601",
+  "updatedAt":          "ISO-8601"
+}
+```
+
+**Errors:** `400`, `404` (source connection not found), `500`.
+
+---
+
+### `POST /api/v1/plaid/accounts/upsert`
+
+Upsert a `plaid.bank_accounts` row. Insert if `plaid_account_id` does not exist;
+otherwise overwrite `name`, `account_type`, and `current_balance` on the existing row.
+
+**Request body:**
+```json
+{
+  "sourceConnectionId": "uuid",
+  "connectionId":       "uuid",
+  "plaidAccountId":     "BxBXxLj1m4HMXBm9WZZmCWVbPjX16EHwv99vp",
+  "name":               "Plaid Checking",
+  "accountType":        "depository",
+  "currentBalance":     1234.56
+}
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `sourceConnectionId` | UUID | yes |
+| `connectionId` | UUID | yes (FK to `plaid.connections.id`) |
+| `plaidAccountId` | string | yes |
+| `name` | string | yes |
+| `accountType` | string | yes |
+| `currentBalance` | number \| null | no |
+
+**Response `200`:** the upserted bank account row including its UUID and timestamps.
+
+**Errors:** `400`, `404`, `500`.
+
+---
+
+### `POST /api/v1/plaid/transactions/batch`
+
+Batch upsert + delete transactions for an account. Each entry in `added` and `modified`
+is upserted into `plaid.transactions` on `plaid_transaction_id`. Each id in
+`removedPlaidTransactionIds` is deleted (hard delete — Plaid issues stable IDs that are
+never reused).
+
+**Request body:**
+```json
+{
+  "sourceConnectionId": "uuid",
+  "accountId":          "uuid",
+  "added":              [ /* PlaidTransactionWrite */ ],
+  "modified":           [ /* PlaidTransactionWrite */ ],
+  "removedPlaidTransactionIds": ["txn-id-1", "txn-id-2"]
+}
+```
+
+`PlaidTransactionWrite`:
+```json
+{
+  "plaidTransactionId": "lPNjeW1nR6CDn5okmGQ6hEpMo4lLNoSrzqDje",
+  "amount":             12.34,
+  "date":               "2026-05-15",
+  "merchantName":       "Starbucks",
+  "category":           ["Food and Drink", "Coffee Shop"],
+  "paymentChannel":     "in store",
+  "pending":            false
+}
+```
+
+| Field | Type | Required |
+|---|---|---|
+| `plaidTransactionId` | string | yes |
+| `amount` | number | yes |
+| `date` | ISO date | yes |
+| `merchantName` | string \| null | no |
+| `category` | string[] | no — defaults to `[]` |
+| `paymentChannel` | string \| null | no |
+| `pending` | boolean | no — defaults to `false` |
+
+**Response `200`:**
+```json
+{ "added": 23, "modified": 3, "removed": 0 }
+```
+
+**Errors:** `400`, `404`, `500`.
+
+---
+
 ## Health Check
 
 ### `GET /health`
@@ -1566,4 +2042,22 @@ Not under `/api/v1` — no auth required. Returns service liveness and database 
 | 49 | DELETE | `/api/v1/scheduled-jobs/{id}` | `delete_scheduled_job` |
 | 50 | GET | `/api/v1/scheduled-jobs/{id}/runs` | — |
 | 51 | POST | `/api/v1/scheduled-jobs/{id}/runs` | (scheduler internal) |
+| 52 | POST | `/api/v1/source-connections` | — |
+| 53 | GET | `/api/v1/source-connections` | — |
+| 54 | GET | `/api/v1/source-connections/{id}` | — |
+| 55 | PUT | `/api/v1/source-connections/{id}` | — |
+| 56 | DELETE | `/api/v1/source-connections/{id}` | — |
+| 57 | POST | `/api/v1/source-connections/{id}/sync` | — |
+| 58 | GET | `/api/v1/source-connections/{id}/runs` | — |
+| 59 | GET | `/api/v1/source-connections/{id}/runs/latest` | — |
+| 60 | GET | `/api/v1/source-connections/{id}/runs/{run_id}` | — |
+| 61 | GET | `/api/v1/source-connections/due` | (scheduler internal) |
+| 62 | GET | `/api/v1/source-connections/{id}/secrets` | (scheduler internal) |
+| 63 | PATCH | `/api/v1/source-connections/{id}/runs/{run_id}` | (scheduler internal) |
+| 64 | POST | `/api/v1/source-connections/{id}/advance` | (scheduler internal) |
+| 65 | POST | `/api/v1/source-connections/{id}/mark-synced` | (scheduler internal) |
+| 66 | POST | `/api/v1/source-connections/{id}/runs/create-scheduled` | (scheduler internal) |
+| 67 | POST | `/api/v1/plaid/connections/upsert` | (connector internal) |
+| 68 | POST | `/api/v1/plaid/accounts/upsert` | (connector internal) |
+| 69 | POST | `/api/v1/plaid/transactions/batch` | (connector internal) |
 | — | GET | `/health` | (health check, no auth) |

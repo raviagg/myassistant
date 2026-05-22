@@ -1,7 +1,37 @@
 import json
 import httpx
+import chatbot_provisioner
 from client import _check
 from tools.embeddings import embed
+
+
+def _validate_entity_refs(http: httpx.Client, schema_id: str, fields: dict) -> None:
+    """Validate entity_ref fields reference existing entities. Silently skips if schema fetch fails."""
+    try:
+        resp = http.get(f"/api/v1/schemas/{schema_id}")
+        if not resp.is_success:
+            return
+        schema = resp.json()
+    except Exception:
+        return
+
+    for field_def in schema.get("fieldDefinitions", []):
+        if field_def.get("type") != "entity_ref":
+            continue
+        field_name = field_def["name"]
+        if field_name not in fields:
+            continue
+        ref_id = fields[field_name]
+        ref_resp = http.get(f"/api/v1/facts/{ref_id}/current")
+        try:
+            ref_empty = not ref_resp.is_success or not ref_resp.json()
+        except Exception:
+            ref_empty = not ref_resp.is_success
+        if ref_empty:
+            raise ValueError(
+                f"entity_ref field '{field_name}' references entity_instance_id "
+                f"'{ref_id}' which does not exist in current_facts"
+            )
 
 
 def create_fact(
@@ -11,7 +41,17 @@ def create_fact(
     entity_instance_id: str,
     operation_type: str,
     fields: dict,
+    source_connection_id: str | None = None,
+    person_id: str | None = None,
+    household_id: str | None = None,
 ) -> dict:
+    """Persist a single fact operation. Embedding is generated automatically from fields.
+    For 'update'/'delete': resolve entity_instance_id first via search_current_facts.
+    sourceConnectionId is auto-provisioned for chatbot-originated calls.
+    """
+    if source_connection_id is None:
+        source_connection_id = chatbot_provisioner.get_or_create(http, person_id, household_id)
+    _validate_entity_refs(http, schema_id, fields)
     body: dict = {
         "documentId": document_id,
         "schemaId": schema_id,
@@ -20,6 +60,8 @@ def create_fact(
         "fields": fields,
         "embedding": embed(json.dumps(fields, sort_keys=True)),
     }
+    if source_connection_id is not None:
+        body["sourceConnectionId"] = source_connection_id
     resp = http.post("/api/v1/facts", json=body)
     _check(resp)
     return resp.json()
@@ -96,9 +138,12 @@ def register(mcp, http: httpx.Client) -> None:
         entity_instance_id: str,
         operation_type: str,
         fields: dict,
+        source_connection_id: str | None = None,
+        person_id: str | None = None,
+        household_id: str | None = None,
     ) -> dict:
-        """Persist a single fact operation. Embedding is generated automatically from fields. For 'update'/'delete': resolve entity_instance_id first via search_current_facts."""
-        return create_fact(http, document_id, schema_id, entity_instance_id, operation_type, fields)
+        """Persist a single fact operation. Embedding is generated automatically from fields. For 'update'/'delete': resolve entity_instance_id first via search_current_facts. sourceConnectionId is auto-provisioned for chatbot-originated calls."""
+        return create_fact(http, document_id, schema_id, entity_instance_id, operation_type, fields, source_connection_id, person_id, household_id)
 
     @mcp.tool(name="get_fact_history")
     def _history_tool(entity_instance_id: str) -> dict:

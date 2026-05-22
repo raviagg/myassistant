@@ -71,3 +71,37 @@ export interface Message {
   isSummaryDivider?: true
   summaryData?: SummarizedTopic
 }
+
+export interface SourceConnection {
+  id: string
+  sourceType: string
+  connectionName: string
+  personId: string | null
+  householdId: string | null
+  config: Record<string, unknown>
+  hasSecrets: boolean
+  syncScheduled: boolean
+  syncAdhoc: boolean
+  syncSchedule: string | null
+  nextRunAt: string | null
+  lastSyncedAt: string | null
+  status: 'active' | 'paused' | 'error'
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SyncRun {
+  id: string
+  sourceConnectionId: string
+  runType: 'scheduled' | 'adhoc' | 're_extract'
+  status: 'running' | 'success' | 'warning' | 'failed'
+  startedAt: string
+  completedAt: string | null
+  stats: Record<string, number> | null
+  logLines: Array<{ time: string; level: string; msg: string }> | null
+}
+
+export interface LatestRuns {
+  lastScheduled: SyncRun | null
+  lastAdhoc: SyncRun | null
+}

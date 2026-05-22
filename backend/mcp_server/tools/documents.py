@@ -1,4 +1,5 @@
 import httpx
+import chatbot_provisioner
 from client import _check
 from tools.embeddings import embed
 
@@ -11,7 +12,14 @@ def create_document(
     household_id: str | None = None,
     supersedes_ids: list | None = None,
     files: list | None = None,
+    source_connection_id: str | None = None,
 ) -> dict:
+    """Persist a new immutable document. Embedding is generated automatically from content_text.
+    At least one of person_id or household_id must be provided.
+    sourceConnectionId is auto-provisioned for chatbot-originated calls.
+    """
+    if source_connection_id is None:
+        source_connection_id = chatbot_provisioner.get_or_create(http, person_id, household_id)
     body: dict = {
         "contentText": content_text,
         "sourceTypeId": source_type_id,
@@ -23,6 +31,8 @@ def create_document(
         body["personId"] = person_id
     if household_id is not None:
         body["householdId"] = household_id
+    if source_connection_id is not None:
+        body["sourceConnectionId"] = source_connection_id
     resp = http.post("/api/v1/documents", json=body)
     _check(resp)
     return resp.json()
@@ -94,9 +104,10 @@ def register(mcp, http: httpx.Client) -> None:
         household_id: str | None = None,
         supersedes_ids: list | None = None,
         files: list | None = None,
+        source_connection_id: str | None = None,
     ) -> dict:
-        """Persist a new immutable document. Embedding is generated automatically from content_text. At least one of person_id or household_id must be provided."""
-        return create_document(http, content_text, source_type_id, person_id, household_id, supersedes_ids, files)
+        """Persist a new immutable document. Embedding is generated automatically from content_text. At least one of person_id or household_id must be provided. sourceConnectionId is auto-provisioned for chatbot-originated calls."""
+        return create_document(http, content_text, source_type_id, person_id, household_id, supersedes_ids, files, source_connection_id)
 
     @mcp.tool(name="get_document")
     def _get_tool(document_id: str) -> dict:
