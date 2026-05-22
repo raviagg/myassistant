@@ -9,7 +9,7 @@ AUTH_TOKEN = os.environ["AUTH_TOKEN"]
 POLL_INTERVAL = 60  # seconds
 
 # Source types dispatched via source_connections (not legacy scheduled_job).
-_SOURCE_CONN_TYPES = {"plaid_poll"}
+_SOURCE_CONN_TYPES = {"plaid_poll", "news_poll"}
 
 
 def build_handler_map(http: httpx.Client) -> dict:
@@ -57,6 +57,27 @@ def _poll_scheduled_jobs(http: httpx.Client, handlers: dict) -> None:
         print(f"[scheduler] scheduled-jobs poll error: {e}")
 
 
+def _poll_adhoc_runs(http: httpx.Client, handlers: dict) -> None:
+    """Pick up pending adhoc sync_runs and execute them immediately."""
+    try:
+        resp = http.get("/api/v1/source-connections/adhoc-pending")
+        resp.raise_for_status()
+        items = resp.json().get("items", [])
+        for item in items:
+            conn        = item["connection"]
+            run_id      = item["pendingRunId"]
+            source_type = conn["sourceType"]
+            if source_type not in _SOURCE_CONN_TYPES:
+                continue
+            handler = handlers.get(source_type)
+            if handler is None:
+                continue
+            print(f"[scheduler] running adhoc {conn['id']} ({source_type}) run={run_id}")
+            handler.run(conn, existing_run_id=run_id)
+    except Exception as e:
+        print(f"[scheduler] adhoc-runs poll error: {e}")
+
+
 def run():
     http = httpx.Client(
         base_url=HTTP_SERVER_URL,
@@ -68,6 +89,7 @@ def run():
     while True:
         _poll_source_connections(http, handlers)
         _poll_scheduled_jobs(http, handlers)
+        _poll_adhoc_runs(http, handlers)
         time.sleep(POLL_INTERVAL)
 
 
