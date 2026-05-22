@@ -65,7 +65,7 @@ object Router:
           SourceConnectionRoutes.routes ++
           PlaidItemsRoutes.routes ++
           PlaidSyncRoutes.routes ++
-             UnifiedSchemaRoutes.routes) @@ AuthMiddleware(authCfg.token)
+          UnifiedSchemaRoutes.routes) @@ AuthMiddleware(authCfg.token)
 
       (publicRoutes ++ protectedRoutes) @@ LoggingMiddleware.logRequests
     }
