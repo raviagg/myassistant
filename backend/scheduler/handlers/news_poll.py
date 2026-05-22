@@ -141,7 +141,8 @@ class NewsPollHandler(BaseHandler):
     def run(self, source_connection: dict, existing_run_id: str | None = None) -> None:
         connection_id = source_connection["id"]
         person_id     = source_connection.get("personId")
-        assert person_id, "news_poll connections must have personId"
+        if not person_id:
+            raise ValueError("news_poll connections must have personId")
 
         is_adhoc = existing_run_id is not None
         run_id   = existing_run_id or self._create_scheduled_run(connection_id)
@@ -167,7 +168,6 @@ class NewsPollHandler(BaseHandler):
             if not categories:
                 logs.append(_log_entry("warn", "No categories configured for this connection"))
                 self._patch_run(connection_id, run_id, "warning", {"added": 0}, logs)
-                self._mark_synced(connection_id)
                 if not is_adhoc:
                     self._advance_next_run(connection_id, source_connection.get("syncSchedule"))
                 return
@@ -183,7 +183,6 @@ class NewsPollHandler(BaseHandler):
             if not ranked_events:
                 logs.append(_log_entry("warn", "No events found for configured categories"))
                 self._patch_run(connection_id, run_id, "warning", {"added": 0}, logs)
-                self._mark_synced(connection_id)
                 if not is_adhoc:
                     self._advance_next_run(connection_id, source_connection.get("syncSchedule"))
                 return
