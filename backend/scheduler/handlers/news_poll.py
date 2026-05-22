@@ -144,8 +144,9 @@ class NewsPollHandler(BaseHandler):
         if not person_id:
             raise ValueError("news_poll connections must have personId")
 
-        is_adhoc = existing_run_id is not None
-        run_id   = existing_run_id or self._create_scheduled_run(connection_id)
+        is_adhoc        = existing_run_id is not None
+        run_id          = existing_run_id or self._create_scheduled_run(connection_id)
+        terminal_status = "failed"
 
         logs: list[dict] = []
         events_stored   = 0
@@ -167,9 +168,7 @@ class NewsPollHandler(BaseHandler):
 
             if not categories:
                 logs.append(_log_entry("warn", "No categories configured for this connection"))
-                self._patch_run(connection_id, run_id, "warning", {"added": 0}, logs)
-                if not is_adhoc:
-                    self._advance_next_run(connection_id, source_connection.get("syncSchedule"))
+                terminal_status = "warning"
                 return
 
             logs.append(_log_entry("info", f"categories={categories} sources={sources}"))
@@ -182,9 +181,7 @@ class NewsPollHandler(BaseHandler):
 
             if not ranked_events:
                 logs.append(_log_entry("warn", "No events found for configured categories"))
-                self._patch_run(connection_id, run_id, "warning", {"added": 0}, logs)
-                if not is_adhoc:
-                    self._advance_next_run(connection_id, source_connection.get("syncSchedule"))
+                terminal_status = "warning"
                 return
 
             source_type_id    = self._get_news_poll_source_type_id()
@@ -275,27 +272,29 @@ class NewsPollHandler(BaseHandler):
                 except Exception as e:
                     errors.append(f"event {event.event_uri!r}: {e}")
 
+            if errors and events_stored == 0:
+                terminal_status = "failed"
+            elif errors:
+                terminal_status = "warning"
+            else:
+                terminal_status = "success"
+
         except Exception as e:
             errors.append(str(e))
+            terminal_status = "failed"
 
         finally:
             for err in errors[:5]:
                 logs.append(_log_entry("error", err))
             logs.append(_log_entry("info", f"stored {events_stored} events, {articles_stored} articles"))
 
-            if errors and events_stored == 0:
-                status = "failed"
-            elif errors:
-                status = "warning"
-            else:
-                status = "success"
-
             stats: dict = {"added": events_stored + articles_stored}
             if errors:
                 stats["errors"] = len(errors)
 
-            print(f"[news_poll] {connection_id} status={status} events={events_stored} articles={articles_stored} errors={len(errors)}")
-            self._patch_run(connection_id, run_id, status, stats, logs)
-            self._mark_synced(connection_id)
-            if not is_adhoc:
+            print(f"[news_poll] {connection_id} status={terminal_status} events={events_stored} articles={articles_stored} errors={len(errors)}")
+            self._patch_run(connection_id, run_id, terminal_status, stats, logs)
+            if terminal_status in ("success", "warning"):
+                self._mark_synced(connection_id)
+            if not is_adhoc and terminal_status in ("success", "warning"):
                 self._advance_next_run(connection_id, source_connection.get("syncSchedule"))

@@ -281,6 +281,16 @@ export default function SourceConnectionForm({ editingId, session, onSaved, onCa
           setSaveError('At least one category is required.')
           return
         }
+        try { JSON.parse(newsCategories.trim()) } catch {
+          setSaveError('Categories must be a valid JSON array, e.g. ["dmoz/Business/Finance"]')
+          return
+        }
+        if (newsSources.trim()) {
+          try { JSON.parse(newsSources.trim()) } catch {
+            setSaveError('Sources must be a valid JSON array, e.g. ["nytimes.com"]')
+            return
+          }
+        }
       }
     }
     setSaving(true)
