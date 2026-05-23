@@ -20,6 +20,7 @@ trait UnifiedSchemaRepository:
   def patch(id: UUID, req: PatchUnifiedSchema): ZIO[ZConnectionPool, AppError, Option[UnifiedSchema]]
   def delete(id: UUID): ZIO[ZConnectionPool, AppError, Boolean]
   def sourceSchemas(personId: Option[UUID], householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, SourceSchemasResponse]
+  def sampleRows(sourceType: String, tableName: String, sourceConnectionId: Option[UUID], personId: Option[UUID], householdId: Option[UUID], limit: Int): ZIO[ZConnectionPool, AppError, List[Json]]
   def data(id: UUID, limit: Int, offset: Int): ZIO[ZConnectionPool, AppError, UnifiedDataResponse]
 
 object UnifiedSchemaRepository:
@@ -240,6 +241,88 @@ object UnifiedSchemaRepository:
         ))
 
       SourceSchemasResponse(profile = profile, sources = chatbotGroup ++ sourceGroups)
+
+    def sampleRows(
+        sourceType:         String,
+        tableName:          String,
+        sourceConnectionId: Option[UUID],
+        personId:           Option[UUID],
+        householdId:        Option[UUID],
+        limit:              Int,
+    ): ZIO[ZConnectionPool, AppError, List[Json]] =
+      val scIdStr        = sourceConnectionId.map(_.toString)
+      val personIdStr    = personId.map(_.toString)
+      val householdIdStr = householdId.map(_.toString)
+      val safeLimit      = limit.max(1).min(20)
+
+      def parseRows(strs: Chunk[String]): List[Json] =
+        strs.toList.flatMap(s => circeParser.parse(s).toOption)
+
+      sourceType match
+        case "plaid_poll" =>
+          val q = tableName match
+            case "plaid.transactions" => sql"""
+              SELECT jsonb_build_object(
+                'amount', t.amount::text, 'date', t.date::text,
+                'merchant_name', t.merchant_name,
+                'category', array_to_string(t.category, ', '),
+                'payment_channel', t.payment_channel,
+                'pending', t.pending::text
+              )::text
+              FROM plaid.transactions t
+              WHERE t.source_connection_id = ${scIdStr}::uuid
+              ORDER BY t.date DESC LIMIT $safeLimit"""
+            case "plaid.bank_accounts" => sql"""
+              SELECT jsonb_build_object(
+                'name', ba.name, 'account_type', ba.account_type,
+                'current_balance', ba.current_balance::text
+              )::text
+              FROM plaid.bank_accounts ba
+              WHERE ba.source_connection_id = ${scIdStr}::uuid
+              LIMIT $safeLimit"""
+            case "plaid.connections" => sql"""
+              SELECT jsonb_build_object(
+                'institution_name', c.institution_name,
+                'plaid_item_id', c.plaid_item_id
+              )::text
+              FROM plaid.connections c
+              WHERE c.source_connection_id = ${scIdStr}::uuid
+              LIMIT $safeLimit"""
+            case _ => sql"SELECT NULL::text WHERE false"
+          transaction(q.query[String].selectAll).mapError(mapSqlError).map(parseRows)
+
+        case "chatbot" =>
+          val entityType = tableName.stripPrefix("chatbot/")
+          val q = sql"""
+            SELECT DISTINCT ON (f.entity_instance_id) f.fields::text
+            FROM fact f
+            JOIN document d ON f.document_id = d.id
+            JOIN entity_type_schema ets ON f.schema_id = ets.id
+            WHERE ets.entity_type = $entityType
+              AND f.source_connection_id IS NULL
+              AND (${personIdStr}::uuid IS NULL OR d.person_id = ${personIdStr}::uuid)
+              AND (${householdIdStr}::uuid IS NULL OR d.household_id = ${householdIdStr}::uuid)
+            ORDER BY f.entity_instance_id, f.created_at DESC
+            LIMIT $safeLimit"""
+          transaction(q.query[String].selectAll).mapError(mapSqlError).map(parseRows)
+
+        case "news_poll" =>
+          val entityType = tableName.stripPrefix("news_poll/")
+          val q = sql"""
+            SELECT DISTINCT ON (f.entity_instance_id) f.fields::text
+            FROM fact f
+            JOIN document d ON f.document_id = d.id
+            JOIN source_type st ON d.source_type_id = st.id
+            JOIN entity_type_schema ets ON f.schema_id = ets.id
+            WHERE ets.entity_type = $entityType
+              AND st.name = 'news_poll'
+              AND (${personIdStr}::uuid IS NULL OR d.person_id = ${personIdStr}::uuid)
+              AND (${householdIdStr}::uuid IS NULL OR d.household_id = ${householdIdStr}::uuid)
+            ORDER BY f.entity_instance_id, f.created_at DESC
+            LIMIT $safeLimit"""
+          transaction(q.query[String].selectAll).mapError(mapSqlError).map(parseRows)
+
+        case _ => ZIO.succeed(Nil)
 
     def data(id: UUID, limit: Int, offset: Int): ZIO[ZConnectionPool, AppError, UnifiedDataResponse] =
       findById(id).flatMap:

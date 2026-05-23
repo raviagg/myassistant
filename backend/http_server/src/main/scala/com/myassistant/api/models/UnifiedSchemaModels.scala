@@ -97,6 +97,12 @@ final case class SourceSchemasResponse(
     sources: List[SourceGroupResponse],
 ) derives Codec.AsObject
 
+// Sample rows from /source-schemas/sample endpoint
+
+final case class SampleRowsResponse(
+    rows: List[Json],
+) derives Codec.AsObject
+
 // Data row from /data endpoint
 
 final case class UnifiedDataRow(

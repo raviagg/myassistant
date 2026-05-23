@@ -16,6 +16,7 @@ trait UnifiedSchemaService:
   def patch(id: UUID, req: PatchUnifiedSchema): ZIO[ZConnectionPool, AppError, UnifiedSchema]
   def delete(id: UUID): ZIO[ZConnectionPool, AppError, Unit]
   def sourceSchemas(personId: Option[UUID], householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, SourceSchemasResponse]
+  def sampleRows(sourceType: String, tableName: String, sourceConnectionId: Option[UUID], personId: Option[UUID], householdId: Option[UUID], limit: Int): ZIO[ZConnectionPool, AppError, List[io.circe.Json]]
   def data(id: UUID, limit: Int, offset: Int): ZIO[ZConnectionPool, AppError, UnifiedDataResponse]
 
 object UnifiedSchemaService:
@@ -58,6 +59,9 @@ object UnifiedSchemaService:
 
     def sourceSchemas(personId: Option[UUID], householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, SourceSchemasResponse] =
       repo.sourceSchemas(personId, householdId)
+
+    def sampleRows(sourceType: String, tableName: String, sourceConnectionId: Option[UUID], personId: Option[UUID], householdId: Option[UUID], limit: Int): ZIO[ZConnectionPool, AppError, List[io.circe.Json]] =
+      repo.sampleRows(sourceType, tableName, sourceConnectionId, personId, householdId, limit)
 
     // TODO: repo.data also calls findById internally; thread schema through to avoid double fetch
     def data(id: UUID, limit: Int, offset: Int): ZIO[ZConnectionPool, AppError, UnifiedDataResponse] =

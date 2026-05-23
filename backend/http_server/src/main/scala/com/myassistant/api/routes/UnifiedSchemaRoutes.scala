@@ -3,6 +3,7 @@ package com.myassistant.api.routes
 import com.myassistant.api.middleware.ErrorMiddleware
 import com.myassistant.api.models.*
 import com.myassistant.services.UnifiedSchemaService
+import io.circe.Json
 import io.circe.parser.decode
 import io.circe.syntax.*
 import zio.*
@@ -16,6 +17,26 @@ object UnifiedSchemaRoutes:
 
   val routes: Routes[UnifiedSchemaService & ZConnectionPool, Nothing] =
     Routes(
+
+      // GET /api/v1/unified-schemas/source-schemas/sample?sourceType=&tableName=&sourceConnectionId=&personId=&householdId=&limit=
+      // IMPORTANT: registered before /source-schemas and /{id}
+      Method.GET / "api" / "v1" / "unified-schemas" / "source-schemas" / "sample" ->
+        handler { (req: Request) =>
+          val sourceType         = req.queryParam("sourceType").getOrElse("")
+          val tableName          = req.queryParam("tableName").getOrElse("")
+          val sourceConnectionId = req.queryParam("sourceConnectionId").flatMap(s => Try(UUID.fromString(s)).toOption)
+          val personId           = req.queryParam("personId").flatMap(s => Try(UUID.fromString(s)).toOption)
+          val householdId        = req.queryParam("householdId").flatMap(s => Try(UUID.fromString(s)).toOption)
+          val limit              = req.queryParam("limit").flatMap(_.toIntOption).getOrElse(5).min(20)
+          if sourceType.isEmpty || tableName.isEmpty then
+            ZIO.succeed(Response.json("""{"error":"bad_request","message":"sourceType and tableName are required"}""").status(Status.BadRequest))
+          else
+            ZIO.serviceWithZIO[UnifiedSchemaService](_.sampleRows(sourceType, tableName, sourceConnectionId, personId, householdId, limit))
+              .foldZIO(
+                err  => ZIO.succeed(ErrorMiddleware.appErrorToResponse(err)),
+                rows => ZIO.succeed(Response.json(SampleRowsResponse(rows).asJson.noSpaces)),
+              )
+        },
 
       // GET /api/v1/unified-schemas/source-schemas?personId=&householdId=
       // IMPORTANT: registered before /{id} to prevent routing conflict

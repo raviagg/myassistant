@@ -7,6 +7,7 @@ import {
   getUnifiedSchemaData,
   getPersonHouseholds,
   getHousehold,
+  fetchSourceTableSample,
 } from '../api'
 import type {
   UnifiedSchema,
@@ -41,62 +42,153 @@ function SourceTableCard({
   table,
   highlightedFields,
   accentColor,
+  sourceType,
+  sourceConnectionId,
+  personId,
+  householdId,
 }: {
   table: SourceTable
   highlightedFields: Set<string>
   accentColor: string
+  sourceType: string
+  sourceConnectionId?: string
+  personId?: string
+  householdId?: string
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [sampleError, setSampleError] = useState<string | null>(null)
+
   const hasHighlight = table.columns.some(c => highlightedFields.has(c.name))
-  // Use 8-digit hex (css alpha): accentColor is always a 7-char '#rrggbb'
-  const c = accentColor
+  const c = accentColor  // 7-char '#rrggbb' — append 2-char alpha for 8-digit hex
+
+  async function toggleSample() {
+    if (expanded) { setExpanded(false); return }
+    setExpanded(true)
+    if (rows !== null) return  // already fetched
+    setLoading(true)
+    setSampleError(null)
+    try {
+      const result = await fetchSourceTableSample({
+        sourceType,
+        tableName: table.tableName,
+        sourceConnectionId,
+        personId,
+        householdId,
+        limit: 5,
+      })
+      setRows(result)
+    } catch (e) {
+      setSampleError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const colNames = table.columns.map(col => col.name)
 
   return (
     <div
       style={{
         background: hasHighlight ? c + '1a' : c + '0b',
         borderRadius: 7,
-        padding: '8px 10px',
         border: `1px solid ${hasHighlight ? c + '66' : c + '30'}`,
         borderLeft: `3px solid ${hasHighlight ? c : c + '55'}`,
         marginBottom: 6,
+        overflow: 'hidden',
       }}
     >
-      <div style={{
-        color: hasHighlight ? '#ffffff' : c + 'cc',
-        fontSize: 11,
-        fontWeight: 700,
-        marginBottom: 7,
-        fontFamily: 'monospace',
-        letterSpacing: '-.01em',
-      }}>
-        {table.tableName}
+      {/* Header row — click to expand sample */}
+      <div
+        onClick={toggleSample}
+        style={{ padding: '8px 10px', cursor: 'pointer' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 7 }}>
+          <div style={{
+            color: hasHighlight ? '#ffffff' : c + 'cc',
+            fontSize: 11, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '-.01em',
+            flex: 1,
+          }}>
+            {table.tableName}
+          </div>
+          <div style={{ color: c + '66', fontSize: 9 }}>
+            {loading ? '…' : expanded ? '▴' : '▾ rows'}
+          </div>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+          {table.columns.map(col => {
+            const isHighlighted = highlightedFields.has(col.name)
+            const suffix = fieldSuffix(col.dataType)
+            return (
+              <span
+                key={col.name}
+                style={{
+                  background: isHighlighted ? c + '33' : c + '15',
+                  color: isHighlighted ? c : c + '99',
+                  border: `1px solid ${isHighlighted ? c + '77' : c + '33'}`,
+                  borderRadius: 4, padding: '2px 7px',
+                  fontSize: 9, fontFamily: 'monospace',
+                  fontWeight: isHighlighted ? 700 : 400,
+                }}
+              >
+                {col.name}{suffix}
+              </span>
+            )
+          })}
+        </div>
+        {table.foreignKeys.length > 0 && (
+          <div style={{ marginTop: 5, fontSize: 8, color: c + '44', fontFamily: 'monospace' }}>
+            → {table.foreignKeys.map(fk => fk.refTable).join(', ')}
+          </div>
+        )}
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-        {table.columns.map(col => {
-          const isHighlighted = highlightedFields.has(col.name)
-          const suffix = fieldSuffix(col.dataType)
-          return (
-            <span
-              key={col.name}
-              style={{
-                background: isHighlighted ? c + '33' : c + '15',
-                color: isHighlighted ? c : c + '99',
-                border: `1px solid ${isHighlighted ? c + '77' : c + '33'}`,
-                borderRadius: 4,
-                padding: '2px 7px',
-                fontSize: 9,
-                fontFamily: 'monospace',
-                fontWeight: isHighlighted ? 700 : 400,
-              }}
-            >
-              {col.name}{suffix}
-            </span>
-          )
-        })}
-      </div>
-      {table.foreignKeys.length > 0 && (
-        <div style={{ marginTop: 6, fontSize: 8, color: c + '55', fontFamily: 'monospace' }}>
-          → {table.foreignKeys.map(fk => fk.refTable).join(', ')}
+
+      {/* Sample rows panel */}
+      {expanded && (
+        <div style={{ borderTop: `1px solid ${c}22`, background: c + '08' }}>
+          {sampleError && (
+            <div style={{ padding: '6px 10px', color: '#f87171', fontSize: 9, fontFamily: 'monospace' }}>{sampleError}</div>
+          )}
+          {loading && (
+            <div style={{ padding: '6px 10px', color: c + '66', fontSize: 9 }}>loading…</div>
+          )}
+          {rows && rows.length === 0 && (
+            <div style={{ padding: '6px 10px', color: c + '44', fontSize: 9, fontStyle: 'italic' }}>no rows found</div>
+          )}
+          {rows && rows.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9, fontFamily: 'monospace' }}>
+                <thead>
+                  <tr>
+                    {colNames.map(col => (
+                      <th key={col} style={{
+                        padding: '4px 8px', textAlign: 'left',
+                        color: c + '99', fontWeight: 600, borderBottom: `1px solid ${c}22`,
+                        whiteSpace: 'nowrap',
+                      }}>{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => (
+                    <tr key={i} style={{ background: i % 2 === 0 ? c + '08' : 'transparent' }}>
+                      {colNames.map(col => {
+                        const val = row[col]
+                        const display = val == null ? '' : typeof val === 'object' ? JSON.stringify(val) : String(val)
+                        return (
+                          <td key={col} style={{
+                            padding: '3px 8px', color: c + 'cc',
+                            maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                          }} title={display}>{display}</td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -106,9 +198,13 @@ function SourceTableCard({
 function SourceGroupPanel({
   group,
   highlightedFields,
+  personId,
+  householdId,
 }: {
   group: SourceSchemaGroup
   highlightedFields: Set<string>
+  personId?: string
+  householdId?: string
 }) {
   const color = sourceColor(group.sourceType)
 
@@ -144,6 +240,10 @@ function SourceGroupPanel({
             table={table}
             highlightedFields={highlightedFields}
             accentColor={color}
+            sourceType={group.sourceType}
+            sourceConnectionId={group.sourceConnectionId ?? undefined}
+            personId={personId}
+            householdId={householdId}
           />
         ))
       )}
@@ -492,6 +592,8 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
             key={src.sourceConnectionId ?? src.connectionName}
             group={src}
             highlightedFields={highlightedSourceFields}
+            personId={pivotHouseholdId ? undefined : personId}
+            householdId={pivotHouseholdId ?? undefined}
           />
         ))}
       </div>

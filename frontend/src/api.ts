@@ -173,6 +173,27 @@ export async function getHousehold(householdId: string): Promise<{ id: string; n
   return res.json()
 }
 
+export async function fetchSourceTableSample(params: {
+  sourceType: string
+  tableName: string
+  sourceConnectionId?: string
+  personId?: string
+  householdId?: string
+  limit?: number
+}): Promise<Record<string, unknown>[]> {
+  const q = new URLSearchParams()
+  q.set('sourceType', params.sourceType)
+  q.set('tableName', params.tableName)
+  if (params.sourceConnectionId) q.set('sourceConnectionId', params.sourceConnectionId)
+  if (params.personId)           q.set('personId', params.personId)
+  if (params.householdId)        q.set('householdId', params.householdId)
+  if (params.limit != null)      q.set('limit', String(params.limit))
+  const resp = await fetch(`/api/v1/unified-schemas/source-schemas/sample?${q}`)
+  if (!resp.ok) throw new Error(`sample fetch failed: ${await resp.text()}`)
+  const data = await resp.json()
+  return (data.rows ?? []) as Record<string, unknown>[]
+}
+
 // ─── Unified Schema API ──────────────────────────────────────────────────────
 
 export async function listUnifiedSchemas(
