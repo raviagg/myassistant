@@ -16,44 +16,80 @@ import type {
   SourceTable,
 } from '../types'
 
+// ─── Source-type color palette ────────────────────────────────────────────────
+
+function sourceColor(sourceType: string): string {
+  switch (sourceType) {
+    case 'plaid_poll': return '#f59e0b'
+    case 'chatbot':    return '#8b5cf6'
+    case 'news_poll':  return '#10b981'
+    case 'gmail_poll': return '#3b82f6'
+    case 'profile':    return '#7c8cf8'
+    default:           return '#64748b'
+  }
+}
+
+function fieldSuffix(dataType: string): string {
+  if (dataType === 'entity_ref') return '+'
+  if (dataType.includes('[]'))   return '[]'
+  return ''
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SourceTableCard({
   table,
   highlightedFields,
+  accentColor,
 }: {
   table: SourceTable
   highlightedFields: Set<string>
+  accentColor: string
 }) {
+  const hasHighlight = table.columns.some(c => highlightedFields.has(c.name))
+
   return (
-    <div style={{ background: T.bgCard, borderRadius: 4, padding: '7px 9px', border: `1px solid ${T.border}`, marginBottom: 4 }}>
-      <div style={{ color: T.textMuted, fontSize: 10, fontWeight: 600, marginBottom: 4 }}>
+    <div
+      style={{
+        background: '#0e1525',
+        borderRadius: 7,
+        padding: '8px 10px',
+        border: `1px solid ${hasHighlight ? accentColor + '55' : '#1a2540'}`,
+        borderLeft: `3px solid ${hasHighlight ? accentColor : '#1a2540'}`,
+        marginBottom: 6,
+      }}
+    >
+      <div style={{ color: '#e2e8f0', fontSize: 11, fontWeight: 700, marginBottom: 7, fontFamily: 'monospace', letterSpacing: '-.01em' }}>
         {table.tableName}
-        {table.foreignKeys.length > 0 && (
-          <span style={{ color: T.textVeryMuted, fontWeight: 400, fontSize: 8, marginLeft: 6 }}>
-            → {table.foreignKeys.map(fk => fk.refTable).join(', ')}
-          </span>
-        )}
       </div>
-      <div style={{ fontFamily: 'monospace', fontSize: 9, lineHeight: 1.8 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {table.columns.map(col => {
           const isHighlighted = highlightedFields.has(col.name)
+          const suffix = fieldSuffix(col.dataType)
           return (
-            <div
+            <span
               key={col.name}
               style={{
-                background: isHighlighted ? '#2a2000' : 'transparent',
-                color: isHighlighted ? '#e8a838' : T.textVeryMuted,
-                borderRadius: isHighlighted ? 2 : 0,
-                padding: isHighlighted ? '0 4px' : 0,
-                borderLeft: isHighlighted ? '2px solid #e8a838' : 'none',
+                background: isHighlighted ? accentColor + '22' : '#141d33',
+                color: isHighlighted ? accentColor : '#4a5a7a',
+                border: `1px solid ${isHighlighted ? accentColor + '55' : '#1e2d4a'}`,
+                borderRadius: 4,
+                padding: '2px 7px',
+                fontSize: 9,
+                fontFamily: 'monospace',
+                fontWeight: isHighlighted ? 600 : 400,
               }}
             >
-              {col.name} {col.dataType} {isHighlighted && '✦'}
-            </div>
+              {col.name}{suffix}
+            </span>
           )
         })}
       </div>
+      {table.foreignKeys.length > 0 && (
+        <div style={{ marginTop: 6, fontSize: 8, color: '#2a3a5a', fontFamily: 'monospace' }}>
+          → {table.foreignKeys.map(fk => fk.refTable).join(', ')}
+        </div>
+      )}
     </div>
   )
 }
@@ -65,25 +101,28 @@ function SourceGroupPanel({
   group: SourceSchemaGroup
   highlightedFields: Set<string>
 }) {
-  const icon = group.sourceType === 'profile' ? '👤'
-    : group.sourceType === 'plaid_poll' ? '🏦'
-    : group.sourceType === 'gmail_poll' ? '📧'
-    : group.sourceType === 'news_poll'  ? '📰'
-    : group.sourceType === 'chatbot'    ? '🤖'
-    : '📄'
+  const color = sourceColor(group.sourceType)
 
   return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ color: '#e8a838', fontSize: 10, marginBottom: 5, fontWeight: 600 }}>
-        {icon} {group.connectionName}
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+        <span style={{ color, fontSize: 8, lineHeight: 1 }}>●</span>
+        <span style={{ color, fontSize: 9, fontWeight: 700, letterSpacing: '.09em' }}>
+          {group.connectionName.toUpperCase()}
+        </span>
       </div>
       {group.tables.length === 0 ? (
-        <div style={{ color: T.textVeryMuted, fontSize: 9, fontStyle: 'italic', padding: '4px 2px' }}>
+        <div style={{ color: '#2a3a5a', fontSize: 9, fontStyle: 'italic', padding: '4px 2px' }}>
           No schema data yet — run a sync to populate
         </div>
       ) : (
         group.tables.map(table => (
-          <SourceTableCard key={table.tableName} table={table} highlightedFields={highlightedFields} />
+          <SourceTableCard
+            key={table.tableName}
+            table={table}
+            highlightedFields={highlightedFields}
+            accentColor={color}
+          />
         ))
       )}
     </div>
@@ -199,27 +238,40 @@ function UnifiedSchemaCard({
     }
   }
 
+  const sourceTables = schema.fieldDefinitions
+    .flatMap(f => f.sources.map(s => s.source_table))
+    .filter((v, i, a) => a.indexOf(v) === i)
+
   return (
-    <div style={{ background: '#0d1a0d', borderRadius: 6, padding: 10, border: '1px solid #1e3020', marginBottom: 10 }}>
+    <div style={{ background: '#0c1220', borderRadius: 8, padding: 12, border: '1px solid #1a2540', marginBottom: 10 }}>
       <div
-        style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: expanded ? 8 : 0, cursor: 'pointer' }}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: expanded ? 10 : 0, cursor: 'pointer' }}
         onClick={() => setExpanded(e => !e)}
       >
-        <div style={{ color: '#4ade80', fontSize: 11, fontWeight: 600 }}>💡 unified.{schema.name}</div>
-        <div style={{ background: '#1a3020', borderRadius: 3, padding: '1px 6px', color: '#4ade80', fontSize: 9 }}>
-          {schema.status}
+        <div style={{ color: '#4ade80', fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>unified.{schema.name}</div>
+        <div style={{
+          background: schema.status === 'approved' ? '#10b98122' : '#f59e0b22',
+          border: `1px solid ${schema.status === 'approved' ? '#10b98166' : '#f59e0b66'}`,
+          borderRadius: 4,
+          padding: '1px 7px',
+          color: schema.status === 'approved' ? '#10b981' : '#f59e0b',
+          fontSize: 8,
+          fontWeight: 700,
+          letterSpacing: '.06em',
+        }}>
+          {schema.status.toUpperCase()}
         </div>
         {pendingCount > 0 && (
-          <div style={{ background: '#e8a838', color: '#000', fontSize: 8, padding: '1px 4px', borderRadius: 2 }}>
+          <div style={{ background: '#f59e0b', color: '#000', fontSize: 8, padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
             {pendingCount} REVIEW
           </div>
         )}
-        <div style={{ marginLeft: 'auto', color: T.textVeryMuted, fontSize: 9 }}>{expanded ? '▾ collapse' : '▸ expand'}</div>
+        <div style={{ marginLeft: 'auto', color: '#2a3a5a', fontSize: 9 }}>{expanded ? '▾' : '▸'}</div>
       </div>
 
       {expanded && (
         <>
-          <div style={{ background: '#0f1f0f', borderRadius: 4, overflow: 'hidden', fontSize: 9 }}>
+          <div style={{ background: '#080e1c', borderRadius: 5, overflow: 'hidden', fontSize: 9, border: '1px solid #111e35' }}>
             {schema.fieldDefinitions.map(field => (
               <UnifiedFieldRow
                 key={field.name}
@@ -236,22 +288,22 @@ function UnifiedSchemaCard({
             <div style={{ color: '#f87171', fontSize: 9, padding: '4px 7px' }}>{patchError}</div>
           )}
 
-          <div style={{ display: 'flex', gap: 5, marginTop: 8, alignItems: 'center' }}>
-            {schema.fieldDefinitions.flatMap(f => f.sources.map(s => s.source_table)).filter((v, i, a) => a.indexOf(v) === i).map(src => (
-              <span key={src} style={{ background: '#1e2130', borderRadius: 3, padding: '2px 7px', color: '#7c8cf8', fontSize: 9 }}>{src}</span>
+          <div style={{ display: 'flex', gap: 5, marginTop: 9, alignItems: 'center', flexWrap: 'wrap' }}>
+            {sourceTables.map(src => (
+              <span key={src} style={{ background: '#0e1830', border: '1px solid #1e2e50', borderRadius: 4, padding: '2px 8px', color: '#4a6aa0', fontSize: 8, fontFamily: 'monospace' }}>{src}</span>
             ))}
             <button
               type="button"
               onClick={loadData}
               disabled={loadingData}
-              style={{ marginLeft: 'auto', background: '#1e2130', border: 'none', color: '#7c8cf8', fontSize: 9, padding: '2px 7px', borderRadius: 3, cursor: 'pointer' }}
+              style={{ marginLeft: 'auto', background: '#0e1830', border: '1px solid #1e2e50', color: '#4a6aa0', fontSize: 9, padding: '3px 9px', borderRadius: 4, cursor: 'pointer' }}
             >
               {loadingData ? 'loading…' : '▶ sample data'}
             </button>
           </div>
 
           {dataRows && (
-            <div style={{ marginTop: 8, background: '#0a0f0a', borderRadius: 4, padding: 8, fontSize: 9, fontFamily: 'monospace', color: T.textVeryMuted, maxHeight: 120, overflow: 'auto' }}>
+            <div style={{ marginTop: 8, background: '#060b14', borderRadius: 5, padding: 10, fontSize: 9, fontFamily: 'monospace', color: '#3a4a6a', maxHeight: 140, overflow: 'auto', border: '1px solid #111e35' }}>
               {dataRows.length === 0 ? 'no data' : JSON.stringify(dataRows.slice(0, 3), null, 2)}
             </div>
           )}
@@ -371,30 +423,36 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
 
       {/* ── Sidebar ── */}
       <div style={{ background: '#13161f', borderRight: `1px solid ${T.border}`, padding: '10px 0', fontSize: 10, overflowY: 'auto' }}>
-        <div style={{ padding: '4px 10px', color: '#7c8cf8', fontSize: 9, letterSpacing: '.06em', marginBottom: 2 }}>PROFILE</div>
+        <div style={{ padding: '4px 10px', color: '#7c8cf8', fontSize: 9, letterSpacing: '.06em', marginBottom: 2, fontWeight: 700 }}>PROFILE</div>
         {sourceSchemas?.profile.tables.map(t => (
-          <div key={t.tableName} style={{ padding: '3px 10px', color: T.textVeryMuted }}>{t.tableName}</div>
+          <div key={t.tableName} style={{ padding: '3px 10px', color: '#2a3a6a', fontSize: 10 }}>{t.tableName}</div>
         ))}
 
         <div style={{ borderTop: `1px solid ${T.border}`, margin: '7px 0' }} />
-        <div style={{ padding: '4px 10px', color: '#e8a838', fontSize: 9, letterSpacing: '.06em', marginBottom: 2 }}>DATA SOURCES</div>
-        {sourceSchemas?.sources.map(src => (
-          <div
-            key={src.sourceConnectionId ?? src.connectionName}
-            onClick={() => setSelectedSource(
-              selectedSource === (src.sourceConnectionId ?? src.connectionName) ? null : (src.sourceConnectionId ?? src.connectionName)
-            )}
-            style={{
-              padding: '3px 10px',
-              color: selectedSource === (src.sourceConnectionId ?? src.connectionName) ? '#fff' : T.textVeryMuted,
-              background: selectedSource === (src.sourceConnectionId ?? src.connectionName) ? '#1e2130' : 'transparent',
-              borderLeft: selectedSource === (src.sourceConnectionId ?? src.connectionName) ? '2px solid #e8a838' : 'none',
-              cursor: 'pointer',
-            }}
-          >
-            {src.sourceType === 'plaid_poll' ? '🏦' : src.sourceType === 'gmail_poll' ? '📧' : src.sourceType === 'news_poll' ? '📰' : src.sourceType === 'chatbot' ? '🤖' : '📄'} {src.connectionName}
-          </div>
-        ))}
+        <div style={{ padding: '4px 10px', color: '#4a5a7a', fontSize: 9, letterSpacing: '.06em', marginBottom: 2 }}>DATA SOURCES</div>
+        {sourceSchemas?.sources.map(src => {
+          const srcKey = src.sourceConnectionId ?? src.connectionName
+          const isActive = selectedSource === srcKey
+          const color = sourceColor(src.sourceType)
+          const icon = src.sourceType === 'plaid_poll' ? '🏦' : src.sourceType === 'gmail_poll' ? '📧' : src.sourceType === 'news_poll' ? '📰' : src.sourceType === 'chatbot' ? '🤖' : '📄'
+          return (
+            <div
+              key={srcKey}
+              onClick={() => setSelectedSource(isActive ? null : srcKey)}
+              style={{
+                padding: '4px 10px',
+                color: isActive ? color : '#4a5a7a',
+                background: isActive ? color + '15' : 'transparent',
+                borderLeft: `2px solid ${isActive ? color : 'transparent'}`,
+                cursor: 'pointer',
+                fontSize: 10,
+                fontWeight: isActive ? 600 : 400,
+              }}
+            >
+              {icon} {src.connectionName}
+            </div>
+          )
+        })}
 
         {!selectedSource && (
           <>
@@ -409,7 +467,7 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
 
       {/* ── Left panel: Source Schema Browser ── */}
       <div style={{ borderRight: `1px solid ${T.border}`, padding: 12, overflowY: 'auto', background: '#0f1117' }}>
-        <div style={{ color: T.textVeryMuted, fontSize: 9, letterSpacing: '.06em', marginBottom: 10 }}>
+        <div style={{ color: '#2a3a5a', fontSize: 9, letterSpacing: '.08em', fontWeight: 700, marginBottom: 12 }}>
           {selectedSource ? 'FOCUSED SOURCE SCHEMA' : 'ALL SOURCE SCHEMAS'}
         </div>
 
@@ -433,7 +491,7 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
 
       {/* ── Right panel: Unified Schema View ── */}
       <div style={{ padding: 12, overflowY: 'auto', background: '#0b0f0b' }}>
-        <div style={{ color: T.textVeryMuted, fontSize: 9, letterSpacing: '.06em', marginBottom: 10 }}>UNIFIED SCHEMAS</div>
+        <div style={{ color: '#2a3a5a', fontSize: 9, letterSpacing: '.08em', fontWeight: 700, marginBottom: 12 }}>UNIFIED SCHEMAS</div>
 
         {schemas.length === 0 ? (
           <div style={{ color: T.textVeryMuted, fontSize: 11, padding: 8 }}>No unified schemas yet.</div>
@@ -449,13 +507,13 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
           ))
         )}
 
-        <div style={{ marginTop: 10, border: '1px dashed #1e3020', borderRadius: 6, padding: 8, textAlign: 'center' }}>
-          <div style={{ color: T.textVeryMuted, fontSize: 10 }}>+ Ask LLM to propose a new unified schema</div>
+        <div style={{ marginTop: 10, border: '1px dashed #1a2540', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
+          <div style={{ color: '#2a3a5a', fontSize: 10 }}>+ Ask LLM to propose a new unified schema</div>
         </div>
 
         {highlightedField && (
-          <div style={{ marginTop: 12, background: '#13161f', borderRadius: 4, padding: '7px 10px', fontSize: 9, color: T.textVeryMuted }}>
-            <div style={{ marginBottom: 3 }}><span style={{ color: '#e8a838' }}>✦</span> = selected — highlighted in source schemas on left</div>
+          <div style={{ marginTop: 12, background: '#0c1220', borderRadius: 6, padding: '8px 10px', fontSize: 9, color: '#2a3a5a', border: '1px solid #1a2540' }}>
+            <div style={{ marginBottom: 3 }}><span style={{ color: '#4ade80' }}>✦</span> {highlightedField} — highlighted in source schemas on left</div>
             <div>Click again to deselect</div>
           </div>
         )}
