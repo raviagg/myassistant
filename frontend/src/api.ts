@@ -1,4 +1,4 @@
-import type { Session, SourceConnection, SyncRun, LatestRuns } from './types'
+import type { Session, SourceConnection, SyncRun, LatestRuns, UnifiedSchema, SourceSchemasResponse, UnifiedDataResponse } from './types'
 
 export async function login(username: string): Promise<Session> {
   const resp = await fetch('/api/login', {
@@ -157,4 +157,87 @@ export async function fetchRunDetail(connId: string, runId: string): Promise<Syn
   const resp = await fetch(`/api/v1/source-connections/${connId}/runs/${runId}`)
   if (!resp.ok) throw new Error(`fetch run failed: ${resp.status}`)
   return resp.json()
+}
+
+// ─── Unified Schema API ──────────────────────────────────────────────────────
+
+export async function listUnifiedSchemas(
+  personId?: string,
+  householdId?: string,
+): Promise<{ items: UnifiedSchema[] }> {
+  const params = new URLSearchParams()
+  if (personId) params.set('personId', personId)
+  if (householdId) params.set('householdId', householdId)
+  const res = await fetch(`/api/v1/unified-schemas?${params}`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` },
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function listSourceSchemas(
+  personId?: string,
+  householdId?: string,
+): Promise<SourceSchemasResponse> {
+  const params = new URLSearchParams()
+  if (personId) params.set('personId', personId)
+  if (householdId) params.set('householdId', householdId)
+  const res = await fetch(`/api/v1/unified-schemas/source-schemas?${params}`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` },
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function createUnifiedSchema(body: {
+  personId?: string
+  householdId?: string
+  name: string
+  description?: string
+  status?: string
+  fieldDefinitions: unknown[]
+}): Promise<UnifiedSchema> {
+  const res = await fetch('/api/v1/unified-schemas', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token') ?? ''}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function updateUnifiedSchema(
+  id: string,
+  patch: {
+    name?: string
+    description?: string
+    status?: string
+    fieldDefinitions?: unknown[]
+  },
+): Promise<UnifiedSchema> {
+  const res = await fetch(`/api/v1/unified-schemas/${id}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('token') ?? ''}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getUnifiedSchemaData(
+  id: string,
+  limit = 50,
+  offset = 0,
+): Promise<UnifiedDataResponse> {
+  const res = await fetch(`/api/v1/unified-schemas/${id}/data?limit=${limit}&offset=${offset}`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem('token') ?? ''}` },
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
 }

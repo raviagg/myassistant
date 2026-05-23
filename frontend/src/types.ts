@@ -105,3 +105,72 @@ export interface LatestRuns {
   lastScheduled: SyncRun | null
   lastAdhoc: SyncRun | null
 }
+
+// ─── Unified Schema types ────────────────────────────────────────────────────
+
+export interface FieldSource {
+  source_connection_id: string
+  source_table: string
+  source_field: string
+}
+
+export interface UnifiedFieldDefinition {
+  name: string
+  type: string
+  status: 'approved' | 'pending' | 'rejected'
+  sources: FieldSource[]
+}
+
+export interface UnifiedSchema {
+  id: string
+  personId?: string
+  householdId?: string
+  name: string
+  description?: string
+  status: 'proposed' | 'approved'
+  fieldDefinitions: UnifiedFieldDefinition[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SourceColumn {
+  name: string
+  dataType: string
+}
+
+export interface ForeignKey {
+  column: string
+  refTable: string
+  refColumn: string
+}
+
+export interface SourceTable {
+  tableName: string
+  columns: SourceColumn[]
+  foreignKeys: ForeignKey[]
+}
+
+export interface SourceSchemaGroup {
+  sourceConnectionId?: string
+  sourceType: string
+  connectionName: string
+  tables: SourceTable[]
+}
+
+export interface SourceSchemasResponse {
+  profile: SourceSchemaGroup
+  sources: SourceSchemaGroup[]
+}
+
+export interface UnifiedDataRow {
+  sourceConnectionId?: string
+  sourceType: string
+  fields: Record<string, unknown>
+}
+
+export interface UnifiedDataResponse {
+  items: UnifiedDataRow[]
+  total: number
+  limit: number
+  offset: number
+}
