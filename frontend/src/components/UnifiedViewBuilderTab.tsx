@@ -47,19 +47,28 @@ function SourceTableCard({
   accentColor: string
 }) {
   const hasHighlight = table.columns.some(c => highlightedFields.has(c.name))
+  // Use 8-digit hex (css alpha): accentColor is always a 7-char '#rrggbb'
+  const c = accentColor
 
   return (
     <div
       style={{
-        background: '#0e1525',
+        background: hasHighlight ? c + '1a' : c + '0b',
         borderRadius: 7,
         padding: '8px 10px',
-        border: `1px solid ${hasHighlight ? accentColor + '55' : '#1a2540'}`,
-        borderLeft: `3px solid ${hasHighlight ? accentColor : '#1a2540'}`,
+        border: `1px solid ${hasHighlight ? c + '66' : c + '30'}`,
+        borderLeft: `3px solid ${hasHighlight ? c : c + '55'}`,
         marginBottom: 6,
       }}
     >
-      <div style={{ color: '#e2e8f0', fontSize: 11, fontWeight: 700, marginBottom: 7, fontFamily: 'monospace', letterSpacing: '-.01em' }}>
+      <div style={{
+        color: hasHighlight ? '#ffffff' : c + 'cc',
+        fontSize: 11,
+        fontWeight: 700,
+        marginBottom: 7,
+        fontFamily: 'monospace',
+        letterSpacing: '-.01em',
+      }}>
         {table.tableName}
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
@@ -70,14 +79,14 @@ function SourceTableCard({
             <span
               key={col.name}
               style={{
-                background: isHighlighted ? accentColor + '22' : '#141d33',
-                color: isHighlighted ? accentColor : '#4a5a7a',
-                border: `1px solid ${isHighlighted ? accentColor + '55' : '#1e2d4a'}`,
+                background: isHighlighted ? c + '33' : c + '15',
+                color: isHighlighted ? c : c + '99',
+                border: `1px solid ${isHighlighted ? c + '77' : c + '33'}`,
                 borderRadius: 4,
                 padding: '2px 7px',
                 fontSize: 9,
                 fontFamily: 'monospace',
-                fontWeight: isHighlighted ? 600 : 400,
+                fontWeight: isHighlighted ? 700 : 400,
               }}
             >
               {col.name}{suffix}
@@ -86,7 +95,7 @@ function SourceTableCard({
         })}
       </div>
       {table.foreignKeys.length > 0 && (
-        <div style={{ marginTop: 6, fontSize: 8, color: '#2a3a5a', fontFamily: 'monospace' }}>
+        <div style={{ marginTop: 6, fontSize: 8, color: c + '55', fontFamily: 'monospace' }}>
           → {table.foreignKeys.map(fk => fk.refTable).join(', ')}
         </div>
       )}
@@ -104,15 +113,28 @@ function SourceGroupPanel({
   const color = sourceColor(group.sourceType)
 
   return (
-    <div style={{ marginBottom: 18 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-        <span style={{ color, fontSize: 8, lineHeight: 1 }}>●</span>
-        <span style={{ color, fontSize: 9, fontWeight: 700, letterSpacing: '.09em' }}>
+    <div style={{ marginBottom: 20 }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        marginBottom: 8,
+        paddingBottom: 5,
+        borderBottom: `1px solid ${color}22`,
+      }}>
+        <span style={{
+          display: 'inline-block',
+          width: 8, height: 8,
+          borderRadius: '50%',
+          background: color,
+          flexShrink: 0,
+        }} />
+        <span style={{ color, fontSize: 10, fontWeight: 700, letterSpacing: '.08em' }}>
           {group.connectionName.toUpperCase()}
         </span>
       </div>
       {group.tables.length === 0 ? (
-        <div style={{ color: '#2a3a5a', fontSize: 9, fontStyle: 'italic', padding: '4px 2px' }}>
+        <div style={{ color: color + '44', fontSize: 9, fontStyle: 'italic', padding: '4px 6px' }}>
           No schema data yet — run a sync to populate
         </div>
       ) : (
