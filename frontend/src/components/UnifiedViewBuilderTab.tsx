@@ -69,6 +69,7 @@ function SourceGroupPanel({
     : group.sourceType === 'plaid_poll' ? '🏦'
     : group.sourceType === 'gmail_poll' ? '📧'
     : group.sourceType === 'news_poll'  ? '📰'
+    : group.sourceType === 'chatbot'    ? '🤖'
     : '📄'
 
   return (
@@ -391,7 +392,7 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
               cursor: 'pointer',
             }}
           >
-            {src.sourceType === 'plaid_poll' ? '🏦' : src.sourceType === 'gmail_poll' ? '📧' : src.sourceType === 'news_poll' ? '📰' : '📄'} {src.connectionName}
+            {src.sourceType === 'plaid_poll' ? '🏦' : src.sourceType === 'gmail_poll' ? '📧' : src.sourceType === 'news_poll' ? '📰' : src.sourceType === 'chatbot' ? '🤖' : '📄'} {src.connectionName}
           </div>
         ))}
 

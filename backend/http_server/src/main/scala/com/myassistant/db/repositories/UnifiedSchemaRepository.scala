@@ -147,18 +147,38 @@ object UnifiedSchemaRepository:
 
       type EtsRow = (String, String, String)
 
+      // Fetch entity_type_schemas from facts that have no source_connection (chatbot / AI-extracted)
+      val personIdStr    = personId.map(_.toString)
+      val householdIdStr = householdId.map(_.toString)
+      val chatbotQ = sql"""
+        SELECT ets.entity_type, ets.field_definitions::text
+        FROM fact f
+        JOIN document d ON f.document_id = d.id
+        JOIN entity_type_schema ets ON f.schema_id = ets.id AND ets.is_active = true
+        WHERE f.source_connection_id IS NULL
+          AND (${personIdStr}::uuid IS NULL OR d.person_id = ${personIdStr}::uuid)
+          AND (${householdIdStr}::uuid IS NULL OR d.household_id = ${householdIdStr}::uuid)
+        GROUP BY ets.entity_type, ets.field_definitions
+        ORDER BY ets.entity_type"""
+
+      type ChatbotRow = (String, String)
+
       for
-        conns <- transaction(connQ.query[ConnRow].selectAll)
-                   .mapError(mapSqlError)
-                   .map(_.toList)
-        etss  <- transaction(etsQ.query[EtsRow].selectAll)
-                   .mapError(mapSqlError)
-                   .map(_.toList)
-      yield buildSourceSchemasResponse(conns, etss)
+        conns       <- transaction(connQ.query[ConnRow].selectAll)
+                         .mapError(mapSqlError)
+                         .map(_.toList)
+        etss        <- transaction(etsQ.query[EtsRow].selectAll)
+                         .mapError(mapSqlError)
+                         .map(_.toList)
+        chatbotEts  <- transaction(chatbotQ.query[ChatbotRow].selectAll)
+                         .mapError(mapSqlError)
+                         .map(_.toList)
+      yield buildSourceSchemasResponse(conns, etss, chatbotEts)
 
     private def buildSourceSchemasResponse(
-        conns: List[(String, String, String)],
-        etss:  List[(String, String, String)],
+        conns:      List[(String, String, String)],
+        etss:       List[(String, String, String)],
+        chatbotEts: List[(String, String)],
     ): SourceSchemasResponse =
       val profile = SourceGroupResponse(
         sourceConnectionId = None,
@@ -170,22 +190,25 @@ object UnifiedSchemaRepository:
       val etsMap: Map[String, List[(String, String)]] =
         etss.groupMap(_._1)(r => (r._2, r._3))
 
+      def etsTables(sourceType: String, connId: String): List[SourceTableResponse] =
+        etsMap.getOrElse(connId, Nil).map: (entityType, fieldDefsJson) =>
+          val fields = circeParser.parse(fieldDefsJson).getOrElse(Json.arr())
+          val columns = fields.asArray.getOrElse(Vector.empty).toList.flatMap: fieldDef =>
+            for
+              name  <- fieldDef.hcursor.get[String]("name").toOption
+              ftype <- fieldDef.hcursor.get[String]("type").toOption
+            yield SourceColumnResponse(name, ftype)
+          SourceTableResponse(
+            tableName   = s"$sourceType/$entityType",
+            columns     = columns,
+            foreignKeys = Nil,
+          )
+
       val sourceGroups = conns.map: (connId, sourceType, connName) =>
         val tables: List[SourceTableResponse] = sourceType match
           case "plaid_poll" => NativeSchemaRegistry.plaidTables
-          case _ =>
-            etsMap.getOrElse(connId, Nil).map: (entityType, fieldDefsJson) =>
-              val fields = circeParser.parse(fieldDefsJson).getOrElse(Json.arr())
-              val columns = fields.asArray.getOrElse(Vector.empty).toList.flatMap: fieldDef =>
-                for
-                  name  <- fieldDef.hcursor.get[String]("name").toOption
-                  ftype <- fieldDef.hcursor.get[String]("type").toOption
-                yield SourceColumnResponse(name, ftype)
-              SourceTableResponse(
-                tableName   = s"$sourceType/$entityType",
-                columns     = columns,
-                foreignKeys = Nil,
-              )
+          case "news_poll"  => NativeSchemaRegistry.newsTables
+          case _            => etsTables(sourceType, connId)
 
         SourceGroupResponse(
           sourceConnectionId = Some(UUID.fromString(connId)),
@@ -194,7 +217,29 @@ object UnifiedSchemaRepository:
           tables             = tables,
         )
 
-      SourceSchemasResponse(profile = profile, sources = sourceGroups)
+      val chatbotTables = chatbotEts.map: (entityType, fieldDefsJson) =>
+        val fields = circeParser.parse(fieldDefsJson).getOrElse(Json.arr())
+        val columns = fields.asArray.getOrElse(Vector.empty).toList.flatMap: fieldDef =>
+          for
+            name  <- fieldDef.hcursor.get[String]("name").toOption
+            ftype <- fieldDef.hcursor.get[String]("type").toOption
+          yield SourceColumnResponse(name, ftype)
+        SourceTableResponse(
+          tableName   = s"chatbot/$entityType",
+          columns     = columns,
+          foreignKeys = Nil,
+        )
+
+      val chatbotGroup =
+        if chatbotTables.isEmpty then Nil
+        else List(SourceGroupResponse(
+          sourceConnectionId = None,
+          sourceType         = "chatbot",
+          connectionName     = "Chatbot",
+          tables             = chatbotTables,
+        ))
+
+      SourceSchemasResponse(profile = profile, sources = chatbotGroup ++ sourceGroups)
 
     def data(id: UUID, limit: Int, offset: Int): ZIO[ZConnectionPool, AppError, UnifiedDataResponse] =
       findById(id).flatMap:

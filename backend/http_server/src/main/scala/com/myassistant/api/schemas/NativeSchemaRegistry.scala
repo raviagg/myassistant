@@ -55,6 +55,35 @@ object NativeSchemaRegistry:
     ),
   )
 
+  /** Tables defined by the news_poll connector (entity_type_schema rows for domain=news). */
+  val newsTables: List[SourceTableResponse] = List(
+    SourceTableResponse(
+      tableName   = "news/news_event",
+      columns     = List(
+        SourceColumnResponse("title",         "text"),
+        SourceColumnResponse("event_uri",     "text"),
+        SourceColumnResponse("published_date","date"),
+        SourceColumnResponse("summary",       "text"),
+        SourceColumnResponse("category",      "text"),
+        SourceColumnResponse("article_count", "number"),
+        SourceColumnResponse("social_score",  "number"),
+      ),
+      foreignKeys = Nil,
+    ),
+    SourceTableResponse(
+      tableName   = "news/news_article",
+      columns     = List(
+        SourceColumnResponse("headline",      "text"),
+        SourceColumnResponse("url",           "text"),
+        SourceColumnResponse("published_date","date"),
+        SourceColumnResponse("event_id",      "entity_ref"),
+        SourceColumnResponse("source",        "text"),
+        SourceColumnResponse("description",   "text"),
+      ),
+      foreignKeys = Nil,
+    ),
+  )
+
   /** Tables defined by the Plaid connector (13_plaid_schema.sql / V20__plaid_schema.sql). */
   val plaidTables: List[SourceTableResponse] = List(
     SourceTableResponse(
