@@ -61,5 +61,5 @@ def test_query_unified_schema_propagates_http_error(http):
         respx.get("http://testserver/api/v1/unified-schemas/bad/data").mock(
             return_value=httpx.Response(404, json={"error": "not_found"})
         )
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match="404"):
             query_unified_schema(http, unified_schema_id="bad")

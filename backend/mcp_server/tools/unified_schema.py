@@ -35,7 +35,7 @@ def list_unified_schemas(
 
 
 def register(mcp, http: httpx.Client) -> None:
-    @mcp.tool()
+    @mcp.tool(name="list_unified_schemas")
     def list_unified_schemas_tool(
         person_id: str | None = None,
         household_id: str | None = None,
@@ -45,7 +45,7 @@ def register(mcp, http: httpx.Client) -> None:
         """
         return list_unified_schemas(http, person_id=person_id, household_id=household_id)
 
-    @mcp.tool()
+    @mcp.tool(name="query_unified_schema")
     def query_unified_schema_tool(
         unified_schema_id: str,
         limit: int = 50,
