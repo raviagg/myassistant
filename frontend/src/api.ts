@@ -159,6 +159,20 @@ export async function fetchRunDetail(connId: string, runId: string): Promise<Syn
   return resp.json()
 }
 
+// ─── Person / Household helpers ──────────────────────────────────────────────
+
+export async function getPersonHouseholds(personId: string): Promise<{ personId: string; householdIds: string[] }> {
+  const res = await fetch(`/api/v1/persons/${personId}/households`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getHousehold(householdId: string): Promise<{ id: string; name: string; createdAt: string; updatedAt: string }> {
+  const res = await fetch(`/api/v1/households/${householdId}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ─── Unified Schema API ──────────────────────────────────────────────────────
 
 export async function listUnifiedSchemas(

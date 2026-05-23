@@ -5,6 +5,8 @@ import {
   listSourceSchemas,
   updateUnifiedSchema,
   getUnifiedSchemaData,
+  getPersonHouseholds,
+  getHousehold,
 } from '../api'
 import type {
   UnifiedSchema,
@@ -74,9 +76,15 @@ function SourceGroupPanel({
       <div style={{ color: '#e8a838', fontSize: 10, marginBottom: 5, fontWeight: 600 }}>
         {icon} {group.connectionName}
       </div>
-      {group.tables.map(table => (
-        <SourceTableCard key={table.tableName} table={table} highlightedFields={highlightedFields} />
-      ))}
+      {group.tables.length === 0 ? (
+        <div style={{ color: T.textVeryMuted, fontSize: 9, fontStyle: 'italic', padding: '4px 2px' }}>
+          No schema data yet — run a sync to populate
+        </div>
+      ) : (
+        group.tables.map(table => (
+          <SourceTableCard key={table.tableName} table={table} highlightedFields={highlightedFields} />
+        ))
+      )}
     </div>
   )
 }
@@ -258,22 +266,38 @@ function UnifiedSchemaCard({
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export default function UnifiedViewBuilderTab({ personId }: { personId: string }) {
+export default function UnifiedViewBuilderTab({ personId, displayName }: { personId: string; displayName: string }) {
   const [schemas, setSchemas]               = useState<UnifiedSchema[]>([])
   const [sourceSchemas, setSourceSchemas]   = useState<SourceSchemasResponse | null>(null)
   const [selectedSource, setSelectedSource] = useState<string | null>(null)
   const [highlightedField, setHighlightedField] = useState<string | null>(null)
   const [loading, setLoading]               = useState(true)
   const [error, setError]                   = useState<string | null>(null)
+  const [households, setHouseholds]         = useState<Array<{ id: string; name: string }>>([])
+  const [pivotHouseholdId, setPivotHouseholdId] = useState<string | null>(null)
 
+  // Fetch households once on mount so the pivot picker can show them
+  useEffect(() => {
+    getPersonHouseholds(personId)
+      .then(resp => Promise.all(resp.householdIds.map(hid => getHousehold(hid))))
+      .then(houses => setHouseholds(houses.map(h => ({ id: h.id, name: h.name }))))
+      .catch(() => { /* households not critical */ })
+  }, [personId])
+
+  // Reload data whenever the pivot changes
   useEffect(() => {
     async function load() {
       setLoading(true)
       setError(null)
+      setSelectedSource(null)
       try {
         const [schemasResp, sourceSchemasResp] = await Promise.all([
-          listUnifiedSchemas(personId),
-          listSourceSchemas(personId),
+          pivotHouseholdId
+            ? listUnifiedSchemas(undefined, pivotHouseholdId)
+            : listUnifiedSchemas(personId),
+          pivotHouseholdId
+            ? listSourceSchemas(undefined, pivotHouseholdId)
+            : listSourceSchemas(personId),
         ])
         setSchemas(schemasResp.items)
         setSourceSchemas(sourceSchemasResp)
@@ -284,7 +308,7 @@ export default function UnifiedViewBuilderTab({ personId }: { personId: string }
       }
     }
     load()
-  }, [personId])
+  }, [personId, pivotHouseholdId])
 
   // Compute which source fields should be highlighted based on the selected unified field
   const highlightedSourceFields = (() => {
@@ -308,7 +332,41 @@ export default function UnifiedViewBuilderTab({ personId }: { personId: string }
   )
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr', height: '100%', background: '#0f1117' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr', gridTemplateRows: 'auto 1fr', height: '100%', background: '#0f1117' }}>
+
+      {/* ── Pivot picker (spans all 3 columns) ── */}
+      <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', background: '#13161f', borderBottom: `1px solid ${T.border}` }}>
+        <button
+          type="button"
+          onClick={() => setPivotHouseholdId(null)}
+          style={{
+            background: !pivotHouseholdId ? '#7c8cf8' : '#1e2130',
+            border: 'none', borderRadius: 4, padding: '4px 12px',
+            color: !pivotHouseholdId ? '#fff' : T.textVeryMuted,
+            fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          👤 {displayName}
+        </button>
+        {households.map(h => (
+          <button
+            key={h.id}
+            type="button"
+            onClick={() => setPivotHouseholdId(h.id)}
+            style={{
+              background: pivotHouseholdId === h.id ? '#7c8cf8' : '#1e2130',
+              border: 'none', borderRadius: 4, padding: '4px 12px',
+              color: pivotHouseholdId === h.id ? '#fff' : T.textVeryMuted,
+              fontSize: 11, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            🏠 {h.name}
+          </button>
+        ))}
+        <div style={{ marginLeft: 'auto', color: T.textVeryMuted, fontSize: 9, fontStyle: 'italic' }}>
+          {pivotHouseholdId ? 'household view' : 'person view · full picture'}
+        </div>
+      </div>
 
       {/* ── Sidebar ── */}
       <div style={{ background: '#13161f', borderRight: `1px solid ${T.border}`, padding: '10px 0', fontSize: 10, overflowY: 'auto' }}>
@@ -333,7 +391,7 @@ export default function UnifiedViewBuilderTab({ personId }: { personId: string }
               cursor: 'pointer',
             }}
           >
-            {src.sourceType === 'plaid_poll' ? '🏦' : src.sourceType === 'gmail_poll' ? '📧' : '📄'} {src.connectionName}
+            {src.sourceType === 'plaid_poll' ? '🏦' : src.sourceType === 'gmail_poll' ? '📧' : src.sourceType === 'news_poll' ? '📰' : '📄'} {src.connectionName}
           </div>
         ))}
 
