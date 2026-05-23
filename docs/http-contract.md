@@ -2234,4 +2234,11 @@ Not under `/api/v1` — no auth required. Returns service liveness and database 
 | 67 | POST | `/api/v1/plaid/connections/upsert` | (connector internal) |
 | 68 | POST | `/api/v1/plaid/accounts/upsert` | (connector internal) |
 | 69 | POST | `/api/v1/plaid/transactions/batch` | (connector internal) |
+| 70 | GET | `/api/v1/unified-schemas` | `list_unified_schemas_tool` |
+| 71 | GET | `/api/v1/unified-schemas/source-schemas` | — |
+| 72 | GET | `/api/v1/unified-schemas/{id}` | — |
+| 73 | POST | `/api/v1/unified-schemas` | — |
+| 74 | PATCH | `/api/v1/unified-schemas/{id}` | — |
+| 75 | DELETE | `/api/v1/unified-schemas/{id}` | — |
+| 76 | GET | `/api/v1/unified-schemas/{id}/data` | `query_unified_schema_tool` |
 | — | GET | `/health` | (health check, no auth) |
