@@ -445,12 +445,6 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
 
       {/* ── Sidebar ── */}
       <div style={{ background: '#13161f', borderRight: `1px solid ${T.border}`, padding: '10px 0', fontSize: 10, overflowY: 'auto' }}>
-        <div style={{ padding: '4px 10px', color: '#7c8cf8', fontSize: 9, letterSpacing: '.06em', marginBottom: 2, fontWeight: 700 }}>PROFILE</div>
-        {sourceSchemas?.profile.tables.map(t => (
-          <div key={t.tableName} style={{ padding: '3px 10px', color: '#2a3a6a', fontSize: 10 }}>{t.tableName}</div>
-        ))}
-
-        <div style={{ borderTop: `1px solid ${T.border}`, margin: '7px 0' }} />
         <div style={{ padding: '4px 10px', color: '#4a5a7a', fontSize: 9, letterSpacing: '.06em', marginBottom: 2 }}>DATA SOURCES</div>
         {sourceSchemas?.sources.map(src => {
           const srcKey = src.sourceConnectionId ?? src.connectionName
@@ -493,15 +487,6 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
           {selectedSource ? 'FOCUSED SOURCE SCHEMA' : 'ALL SOURCE SCHEMAS'}
         </div>
 
-        {/* Always show Profile group */}
-        {sourceSchemas && (
-          <SourceGroupPanel
-            group={sourceSchemas.profile}
-            highlightedFields={highlightedSourceFields}
-          />
-        )}
-
-        {/* Source connection groups */}
         {visibleSources.map(src => (
           <SourceGroupPanel
             key={src.sourceConnectionId ?? src.connectionName}
