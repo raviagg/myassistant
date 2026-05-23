@@ -5,7 +5,7 @@ import com.dimafeng.testcontainers.scalatest.TestContainerForAll
 import com.myassistant.config.DatabaseConfig
 import com.myassistant.db.{DatabaseModule, MigrationRunner}
 import com.myassistant.db.repositories.UnifiedSchemaRepository
-import com.myassistant.domain.CreateUnifiedSchema
+import com.myassistant.domain.{CreateUnifiedSchema, PatchUnifiedSchema}
 import com.myassistant.errors.AppError
 import io.circe.Json
 import org.scalatest.funsuite.AnyFunSuite
@@ -54,7 +54,7 @@ class UnifiedSchemaRepositorySpec extends AnyFunSuite with Matchers with TestCon
         for
           _ <- MigrationRunner.migrate
                  .provide(ZLayer.succeed(dbConfig(container)))
-                 .timeoutFail(new RuntimeException("Migration timed out"))(30.seconds)
+                 .timeoutFail(new RuntimeException("Migration timed out after 30s"))(30.seconds)
           scope   <- Scope.make
           poolEnv <- (ZLayer.succeed(dbConfig(container)) >>> DatabaseModule.connectionPoolLive)
                        .build
@@ -84,7 +84,11 @@ class UnifiedSchemaRepositorySpec extends AnyFunSuite with Matchers with TestCon
   private def run[A](effect: ZIO[ZConnectionPool, AppError, A]): A =
     Unsafe.unsafe { implicit unsafe =>
       Runtime.default.unsafe
-        .run(effect.provideEnvironment(ZEnvironment(sharedPool)))
+        .run(
+          effect
+            .provideEnvironment(ZEnvironment(sharedPool))
+            .timeoutFail(new RuntimeException("Test timed out after 30s"))(30.seconds)
+        )
         .getOrThrowFiberFailure()
     }
 
@@ -121,7 +125,7 @@ class UnifiedSchemaRepositorySpec extends AnyFunSuite with Matchers with TestCon
   test("patch updates status") {
     val created = run(repo.create(makeCreate("patch-test")))
     val patched = run(repo.patch(created.id,
-      com.myassistant.domain.PatchUnifiedSchema(None, None, Some("approved"), None)))
+      PatchUnifiedSchema(None, None, Some("approved"), None)))
     patched.isDefined  shouldBe true
     patched.get.status shouldBe "approved"
   }
