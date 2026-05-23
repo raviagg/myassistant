@@ -120,10 +120,10 @@ function UnifiedFieldRow({
               {field.sources.map(s => s.source_field).join(' · ')}
             </span>
             {onAccept && (
-              <button onClick={e => { e.stopPropagation(); onAccept() }} style={{ background: '#4ade80', color: '#000', fontSize: 8, padding: '1px 4px', borderRadius: 2, border: 'none', cursor: 'pointer' }}>✓</button>
+              <button type="button" onClick={e => { e.stopPropagation(); onAccept() }} style={{ background: '#4ade80', color: '#000', fontSize: 8, padding: '1px 4px', borderRadius: 2, border: 'none', cursor: 'pointer' }}>✓</button>
             )}
             {onReject && (
-              <button onClick={e => { e.stopPropagation(); onReject() }} style={{ background: '#555', color: '#000', fontSize: 8, padding: '1px 4px', borderRadius: 2, border: 'none', cursor: 'pointer' }}>✕</button>
+              <button type="button" onClick={e => { e.stopPropagation(); onReject() }} style={{ background: '#555', color: '#000', fontSize: 8, padding: '1px 4px', borderRadius: 2, border: 'none', cursor: 'pointer' }}>✕</button>
             )}
             <span style={{ background: '#e8a838', color: '#000', fontSize: 8, padding: '1px 4px', borderRadius: 2 }}>REVIEW</span>
           </div>
@@ -159,22 +159,32 @@ function UnifiedSchemaCard({
   const [expanded, setExpanded] = useState(true)
   const [loadingData, setLoadingData] = useState(false)
   const [dataRows, setDataRows] = useState<unknown[] | null>(null)
+  const [patchError, setPatchError] = useState<string | null>(null)
+  const [dataError, setDataError] = useState<string | null>(null)
 
   const pendingCount = schema.fieldDefinitions.filter(f => f.status === 'pending').length
 
   async function patchField(fieldName: string, newStatus: 'approved' | 'rejected') {
-    const newDefs = schema.fieldDefinitions.map(f =>
-      f.name === fieldName ? { ...f, status: newStatus } : f
-    )
-    const updated = await updateUnifiedSchema(schema.id, { fieldDefinitions: newDefs })
-    onFieldUpdate(updated)
+    setPatchError(null)
+    try {
+      const newDefs = schema.fieldDefinitions.map(f =>
+        f.name === fieldName ? { ...f, status: newStatus } : f
+      )
+      const updated = await updateUnifiedSchema(schema.id, { fieldDefinitions: newDefs })
+      onFieldUpdate(updated)
+    } catch (e) {
+      setPatchError(e instanceof Error ? e.message : 'Update failed')
+    }
   }
 
   async function loadData() {
     setLoadingData(true)
+    setDataError(null)
     try {
       const result = await getUnifiedSchemaData(schema.id, 10, 0)
       setDataRows(result.items)
+    } catch (e) {
+      setDataError(e instanceof Error ? e.message : 'Failed to load data')
     } finally {
       setLoadingData(false)
     }
@@ -213,11 +223,16 @@ function UnifiedSchemaCard({
             ))}
           </div>
 
+          {patchError && (
+            <div style={{ color: '#f87171', fontSize: 9, padding: '4px 7px' }}>{patchError}</div>
+          )}
+
           <div style={{ display: 'flex', gap: 5, marginTop: 8, alignItems: 'center' }}>
             {schema.fieldDefinitions.flatMap(f => f.sources.map(s => s.source_table)).filter((v, i, a) => a.indexOf(v) === i).map(src => (
               <span key={src} style={{ background: '#1e2130', borderRadius: 3, padding: '2px 7px', color: '#7c8cf8', fontSize: 9 }}>{src}</span>
             ))}
             <button
+              type="button"
               onClick={loadData}
               disabled={loadingData}
               style={{ marginLeft: 'auto', background: '#1e2130', border: 'none', color: '#7c8cf8', fontSize: 9, padding: '2px 7px', borderRadius: 3, cursor: 'pointer' }}
@@ -230,6 +245,10 @@ function UnifiedSchemaCard({
             <div style={{ marginTop: 8, background: '#0a0f0a', borderRadius: 4, padding: 8, fontSize: 9, fontFamily: 'monospace', color: T.textVeryMuted, maxHeight: 120, overflow: 'auto' }}>
               {dataRows.length === 0 ? 'no data' : JSON.stringify(dataRows.slice(0, 3), null, 2)}
             </div>
+          )}
+
+          {dataError && (
+            <div style={{ marginTop: 6, color: '#f87171', fontSize: 9, fontFamily: 'monospace' }}>{dataError}</div>
           )}
         </>
       )}
