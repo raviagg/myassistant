@@ -1961,6 +1961,180 @@ never reused).
 
 ---
 
+## Unified Schemas
+
+Unified schemas are LLM-proposed, user-tunable cross-source schema definitions. Each schema belongs to exactly one person OR one household. `field_definitions` is a JSONB array defining unified fields with per-source mappings.
+
+### GET /api/v1/unified-schemas
+
+List all unified schemas for a person or household.
+
+**Query parameters:**
+- `personId` (UUID, optional)
+- `householdId` (UUID, optional)
+
+**Response 200:**
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "personId": "uuid | null",
+      "householdId": "uuid | null",
+      "name": "transaction",
+      "description": "string | null",
+      "status": "proposed | approved",
+      "fieldDefinitions": [
+        {
+          "name": "merchant",
+          "type": "text",
+          "status": "approved | pending | rejected",
+          "sources": [
+            { "source_connection_id": "uuid", "source_table": "plaid.transactions", "source_field": "merchant_name" }
+          ]
+        }
+      ],
+      "createdAt": "2026-05-22T00:00:00Z",
+      "updatedAt": "2026-05-22T00:00:00Z"
+    }
+  ]
+}
+```
+
+### GET /api/v1/unified-schemas/source-schemas
+
+Returns all source schemas for the pivot (person or household). **Must be registered before `/{id}` in the router** to avoid the literal "source-schemas" being parsed as an ID.
+
+**Query parameters:** `personId` or `householdId`
+
+**Response 200:**
+```json
+{
+  "profile": {
+    "sourceConnectionId": null,
+    "sourceType": "profile",
+    "connectionName": "Profile",
+    "tables": [
+      {
+        "tableName": "person",
+        "columns": [{ "name": "id", "dataType": "UUID" }, { "name": "display_name", "dataType": "TEXT" }],
+        "foreignKeys": []
+      }
+    ]
+  },
+  "sources": [
+    {
+      "sourceConnectionId": "uuid",
+      "sourceType": "plaid_poll",
+      "connectionName": "Chase Checking",
+      "tables": [
+        {
+          "tableName": "plaid.transactions",
+          "columns": [{ "name": "amount", "dataType": "DECIMAL(15,2)" }],
+          "foreignKeys": [{ "column": "account_id", "refTable": "plaid.bank_accounts", "refColumn": "id" }]
+        }
+      ]
+    }
+  ]
+}
+```
+
+### GET /api/v1/unified-schemas/{id}
+
+Fetch a single unified schema by ID.
+
+**Response 200:** UnifiedSchema object (see GET list for shape).
+**Response 404:** `{"error":"not_found","message":"unified_schema <id> not found"}`
+
+### POST /api/v1/unified-schemas
+
+Create a unified schema (typically called to store an LLM-proposed schema).
+
+**Request body:**
+```json
+{
+  "personId": "uuid | null",
+  "householdId": "uuid | null",
+  "name": "transaction",
+  "description": "optional string",
+  "fieldDefinitions": [
+    {
+      "name": "merchant",
+      "type": "text",
+      "status": "pending",
+      "sources": [
+        { "source_connection_id": "uuid", "source_table": "plaid.transactions", "source_field": "merchant_name" }
+      ]
+    }
+  ]
+}
+```
+
+Exactly one of `personId` or `householdId` must be set. `status` defaults to `"proposed"` if omitted.
+
+**Response 201:** Created UnifiedSchema object.
+**Response 400:** Validation error (neither or both owner IDs set, invalid status).
+
+### PATCH /api/v1/unified-schemas/{id}
+
+Update field statuses (accept/reject individual fields) or approve the overall schema. All body fields are optional.
+
+**Request body:**
+```json
+{
+  "name": "string",
+  "description": "string",
+  "status": "proposed | approved",
+  "fieldDefinitions": [...]
+}
+```
+
+**Response 200:** Updated UnifiedSchema object.
+**Response 404:** Not found.
+
+### DELETE /api/v1/unified-schemas/{id}
+
+Remove a unified schema permanently.
+
+**Response 204:** No content.
+**Response 404:** Not found.
+
+### GET /api/v1/unified-schemas/{id}/data
+
+Read-time UNION query — returns rows from all contributing sources mapped to unified fields. Queries Plaid native tables and entity_type_schema sources at query time (no materialization). Each row is tagged with source provenance.
+
+**Query parameters:**
+- `limit` (int, default 50, max 200)
+- `offset` (int, default 0)
+
+**Response 200:**
+```json
+{
+  "items": [
+    {
+      "sourceConnectionId": "uuid | null",
+      "sourceType": "plaid_poll",
+      "fields": {
+        "id": "uuid",
+        "amount": "42.50",
+        "date": "2026-05-22",
+        "merchant_name": "Starbucks",
+        "category": "Food and Drink",
+        "payment_channel": "in store",
+        "pending": "false"
+      }
+    }
+  ],
+  "total": 1,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Only approved fields are included in query results. Returns empty if no approved fields exist.
+
+---
+
 ## Health Check
 
 ### `GET /health`
