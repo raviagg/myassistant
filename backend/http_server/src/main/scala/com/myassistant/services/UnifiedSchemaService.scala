@@ -59,6 +59,7 @@ object UnifiedSchemaService:
     def sourceSchemas(personId: Option[UUID], householdId: Option[UUID]): ZIO[ZConnectionPool, AppError, SourceSchemasResponse] =
       repo.sourceSchemas(personId, householdId)
 
+    // TODO: repo.data also calls findById internally; thread schema through to avoid double fetch
     def data(id: UUID, limit: Int, offset: Int): ZIO[ZConnectionPool, AppError, UnifiedDataResponse] =
       get(id).flatMap(_ => repo.data(id, limit, offset))
 
