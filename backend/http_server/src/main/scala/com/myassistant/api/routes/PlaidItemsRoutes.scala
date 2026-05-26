@@ -80,25 +80,13 @@ object PlaidItemsRoutes:
                               }.flatMap(ZIO.fromEither(_))
                                .mapError(AppError.InternalError(_))
 
-            plaidConn <- ZIO.serviceWithZIO[PlaidSyncRepository](_.upsertConnection(
-                           sourceConnectionId = scId,
-                           plaidItemId        = itemId,
-                           institutionName    = institutionName,
-                           cursor             = None,
-                           accessToken        = Some(encryptedToken),
-                         ))
-
-            _ <- ZIO.foreachDiscard(accountsResp.accounts) { account =>
-                   val balance = account.balances.current.map(BigDecimal.apply)
-                   ZIO.serviceWithZIO[PlaidSyncRepository](_.upsertBankAccount(
-                     sourceConnectionId = scId,
-                     connectionId       = plaidConn.id,
-                     plaidAccountId     = account.account_id,
-                     name               = account.name,
-                     accountType        = account.`type`,
-                     currentBalance     = balance,
-                   ))
-                 }
+            _ <- ZIO.serviceWithZIO[PlaidSyncRepository](_.upsertConnection(
+                   sourceConnectionId = scId,
+                   plaidItemId        = itemId,
+                   institutionName    = institutionName,
+                   cursor             = None,
+                   accessToken        = Some(encryptedToken),
+                 ))
 
           yield Response.json(
             Json.obj(

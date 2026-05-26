@@ -1,7 +1,6 @@
 package com.myassistant.db.repositories
 
 import com.myassistant.api.models.*
-import com.myassistant.api.schemas.NativeSchemaRegistry
 import com.myassistant.domain.{CreateUnifiedSchema, PatchUnifiedSchema, UnifiedSchema}
 import com.myassistant.errors.AppError
 import io.circe.Json
@@ -185,7 +184,7 @@ object UnifiedSchemaRepository:
         sourceConnectionId = None,
         sourceType         = "profile",
         connectionName     = "Profile",
-        tables             = NativeSchemaRegistry.profileTables,
+        tables             = Nil,
       )
 
       val etsMap: Map[String, List[(String, String)]] =
@@ -206,10 +205,7 @@ object UnifiedSchemaRepository:
           )
 
       val sourceGroups = conns.map: (connId, sourceType, connName) =>
-        val tables: List[SourceTableResponse] = sourceType match
-          case "plaid_poll" => NativeSchemaRegistry.plaidTables
-          case "news_poll"  => NativeSchemaRegistry.newsTables
-          case _            => etsTables(sourceType, connId)
+        val tables: List[SourceTableResponse] = etsTables(sourceType, connId)
 
         SourceGroupResponse(
           sourceConnectionId = Some(UUID.fromString(connId)),
@@ -259,38 +255,6 @@ object UnifiedSchemaRepository:
         strs.toList.flatMap(s => circeParser.parse(s).toOption)
 
       sourceType match
-        case "plaid_poll" =>
-          val q = tableName match
-            case "plaid.transactions" => sql"""
-              SELECT jsonb_build_object(
-                'amount', t.amount::text, 'date', t.date::text,
-                'merchant_name', t.merchant_name,
-                'category', array_to_string(t.category, ', '),
-                'payment_channel', t.payment_channel,
-                'pending', t.pending::text
-              )::text
-              FROM plaid.transactions t
-              WHERE t.source_connection_id = ${scIdStr}::uuid
-              ORDER BY t.date DESC LIMIT $safeLimit"""
-            case "plaid.bank_accounts" => sql"""
-              SELECT jsonb_build_object(
-                'name', ba.name, 'account_type', ba.account_type,
-                'current_balance', ba.current_balance::text
-              )::text
-              FROM plaid.bank_accounts ba
-              WHERE ba.source_connection_id = ${scIdStr}::uuid
-              LIMIT $safeLimit"""
-            case "plaid.connections" => sql"""
-              SELECT jsonb_build_object(
-                'institution_name', c.institution_name,
-                'plaid_item_id', c.plaid_item_id
-              )::text
-              FROM plaid.connections c
-              WHERE c.source_connection_id = ${scIdStr}::uuid
-              LIMIT $safeLimit"""
-            case _ => sql"SELECT NULL::text WHERE false"
-          transaction(q.query[String].selectAll).mapError(mapSqlError).map(parseRows)
-
         case "chatbot" =>
           val entityType = tableName.stripPrefix("chatbot/")
           val q = sql"""
@@ -306,23 +270,20 @@ object UnifiedSchemaRepository:
             LIMIT $safeLimit"""
           transaction(q.query[String].selectAll).mapError(mapSqlError).map(parseRows)
 
-        case "news_poll" =>
-          val entityType = tableName.stripPrefix("news_poll/")
+        case _ =>
+          val entityType = tableName.stripPrefix(s"$sourceType/")
           val q = sql"""
             SELECT DISTINCT ON (f.entity_instance_id) f.fields::text
             FROM fact f
             JOIN document d ON f.document_id = d.id
-            JOIN source_type st ON d.source_type_id = st.id
             JOIN entity_type_schema ets ON f.schema_id = ets.id
             WHERE ets.entity_type = $entityType
-              AND st.name = 'news_poll'
+              AND (${scIdStr}::uuid IS NULL OR f.source_connection_id = ${scIdStr}::uuid)
               AND (${personIdStr}::uuid IS NULL OR d.person_id = ${personIdStr}::uuid)
               AND (${householdIdStr}::uuid IS NULL OR d.household_id = ${householdIdStr}::uuid)
             ORDER BY f.entity_instance_id, f.created_at DESC
             LIMIT $safeLimit"""
           transaction(q.query[String].selectAll).mapError(mapSqlError).map(parseRows)
-
-        case _ => ZIO.succeed(Nil)
 
     def data(id: UUID, limit: Int, offset: Int): ZIO[ZConnectionPool, AppError, UnifiedDataResponse] =
       findById(id).flatMap:
@@ -340,56 +301,43 @@ object UnifiedSchemaRepository:
             ZIO.succeed(UnifiedDataResponse(items = Nil, total = 0, limit = limit, offset = offset))
           else
             val countQ = sql"""
-              SELECT COUNT(*)::text
-              FROM plaid.transactions t
-              JOIN source_connections sc ON t.source_connection_id = sc.id
-              WHERE (${personIdStr}::uuid IS NULL OR sc.person_id = ${personIdStr}::uuid)
-                AND (${householdIdStr}::uuid IS NULL OR sc.household_id = ${householdIdStr}::uuid)"""
+              SELECT COUNT(DISTINCT f.entity_instance_id)::text
+              FROM fact f
+              JOIN document d ON f.document_id = d.id
+              WHERE (${personIdStr}::uuid IS NULL OR d.person_id = ${personIdStr}::uuid)
+                AND (${householdIdStr}::uuid IS NULL OR d.household_id = ${householdIdStr}::uuid)"""
 
-            val plaidQ = sql"""
-              SELECT
-                t.source_connection_id::text AS source_connection_id,
-                'plaid_poll'                 AS source_type,
-                t.id::text                   AS row_id,
-                t.amount::text               AS amount,
-                t.date::text                 AS date,
-                t.merchant_name              AS merchant_name,
-                array_to_string(t.category, ',') AS category,
-                t.payment_channel            AS payment_channel,
-                t.pending::text              AS pending
-              FROM plaid.transactions t
-              JOIN source_connections sc ON t.source_connection_id = sc.id
-              WHERE (${personIdStr}::uuid IS NULL OR sc.person_id = ${personIdStr}::uuid)
-                AND (${householdIdStr}::uuid IS NULL OR sc.household_id = ${householdIdStr}::uuid)
-              ORDER BY t.date DESC
+            val dataQ = sql"""
+              SELECT DISTINCT ON (f.entity_instance_id)
+                COALESCE(f.source_connection_id::text, '') AS sc_id,
+                st.name                                    AS source_type,
+                f.fields::text                             AS fields
+              FROM fact f
+              JOIN document d ON f.document_id = d.id
+              JOIN source_type st ON d.source_type_id = st.id
+              WHERE (${personIdStr}::uuid IS NULL OR d.person_id = ${personIdStr}::uuid)
+                AND (${householdIdStr}::uuid IS NULL OR d.household_id = ${householdIdStr}::uuid)
+              ORDER BY f.entity_instance_id, f.created_at DESC
               LIMIT $limit OFFSET $offset"""
 
-            type DataRow = (String, String, String, Option[String], Option[String],
-                            Option[String], Option[String], Option[String], Option[String])
+            type DataRow = (String, String, String)
 
             for
-              countStr <- transaction(countQ.query[String].selectOne)
-                            .mapError(mapSqlError)
-                            .map(_.flatMap(_.toLongOption).getOrElse(0L).toInt)
-              rows     <- transaction(plaidQ.query[DataRow].selectAll)
-                            .mapError(mapSqlError)
-              items     = rows.toList.map: row =>
-                            val (scId, srcType, rowId, amount, date, merchant, category, channel, pending) = row
-                            val fields = Map(
-                              "id"              -> Json.fromString(rowId),
-                              "amount"          -> amount.map(Json.fromString).getOrElse(Json.Null),
-                              "date"            -> date.map(Json.fromString).getOrElse(Json.Null),
-                              "merchant_name"   -> merchant.map(Json.fromString).getOrElse(Json.Null),
-                              "category"        -> category.map(Json.fromString).getOrElse(Json.Null),
-                              "payment_channel" -> channel.map(Json.fromString).getOrElse(Json.Null),
-                              "pending"         -> pending.map(Json.fromString).getOrElse(Json.Null),
-                            )
-                            UnifiedDataRow(
-                              sourceConnectionId = Some(UUID.fromString(scId)),
-                              sourceType         = srcType,
-                              fields             = fields,
-                            )
-            yield UnifiedDataResponse(items = items, total = countStr, limit = limit, offset = offset)
+              count <- transaction(countQ.query[String].selectOne)
+                         .mapError(mapSqlError)
+                         .map(_.flatMap(_.toLongOption).getOrElse(0L).toInt)
+              rows  <- transaction(dataQ.query[DataRow].selectAll)
+                         .mapError(mapSqlError)
+              items  = rows.toList.flatMap: row =>
+                         val (scId, srcType, fieldsJson) = row
+                         circeParser.parse(fieldsJson).toOption.map: fieldsObj =>
+                           val fields = fieldsObj.asObject.getOrElse(io.circe.JsonObject.empty).toMap
+                           UnifiedDataRow(
+                             sourceConnectionId = scala.util.Try(UUID.fromString(scId)).toOption,
+                             sourceType         = srcType,
+                             fields             = fields,
+                           )
+            yield UnifiedDataResponse(items = items, total = count, limit = limit, offset = offset)
 
   val live: ZLayer[Any, Nothing, UnifiedSchemaRepository] =
     ZLayer.succeed(new Live)
