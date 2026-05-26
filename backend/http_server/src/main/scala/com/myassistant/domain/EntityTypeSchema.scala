@@ -12,6 +12,7 @@ final case class EntityTypeSchema(
     fieldDefinitions: io.circe.Json,
     mandatoryFields:  List[String],
     isActive:         Boolean,
+    connectorManaged: Boolean,
     createdAt:        Instant,
     updatedAt:        Instant,
 )

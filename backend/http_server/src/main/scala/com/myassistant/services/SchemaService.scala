@@ -34,15 +34,27 @@ object SchemaService:
         case None    => ZIO.fail(AppError.NotFound("current_entity_type_schema", s"$domainId/$entityType"))
 
     def addVersion(domainId: UUID, entityType: String, req: CreateSchemaVersion): ZIO[ZConnectionPool, AppError, EntityTypeSchema] =
-      repo.addVersion(domainId, entityType, req)
+      getCurrentSchema(domainId, entityType).flatMap: current =>
+        if current.connectorManaged then
+          ZIO.fail(AppError.ValidationError(
+            s"Schema '$entityType' is connector-managed and cannot be modified via the API"
+          ))
+        else
+          repo.addVersion(domainId, entityType, req)
 
     def listSchemas(domainId: Option[UUID], entityType: Option[String], activeOnly: Boolean): ZIO[ZConnectionPool, AppError, List[EntityTypeSchema]] =
       repo.listSchemas(domainId, entityType, activeOnly)
 
     def deactivateSchema(domainId: UUID, entityType: String): ZIO[ZConnectionPool, AppError, Unit] =
-      repo.deactivate(domainId, entityType).flatMap:
-        case true  => ZIO.unit
-        case false => ZIO.fail(AppError.NotFound("active_entity_type_schema", s"$domainId/$entityType"))
+      getCurrentSchema(domainId, entityType).flatMap: current =>
+        if current.connectorManaged then
+          ZIO.fail(AppError.ValidationError(
+            s"Schema '$entityType' is connector-managed and cannot be deactivated via the API"
+          ))
+        else
+          repo.deactivate(domainId, entityType).flatMap:
+            case true  => ZIO.unit
+            case false => ZIO.fail(AppError.NotFound("active_entity_type_schema", s"$domainId/$entityType"))
 
   val live: ZLayer[SchemaRepository, Nothing, SchemaService] =
     ZLayer.fromFunction(new Live(_))
