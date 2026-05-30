@@ -221,12 +221,13 @@ class NewsPollHandler(BaseHandler):
                         event_fields["social_score"] = event.social_score
 
                     fact_resp = self.http.post("/api/v1/facts", json={
-                        "documentId":       doc_id,
-                        "schemaId":         schema_id_event,
-                        "entityInstanceId": event_instance_id,
-                        "operationType":    "create",
-                        "fields":           event_fields,
-                        "embedding":        embed(json.dumps(event_fields, sort_keys=True)),
+                        "documentId":         doc_id,
+                        "schemaId":           schema_id_event,
+                        "entityInstanceId":   event_instance_id,
+                        "operationType":      "create",
+                        "fields":             event_fields,
+                        "embedding":          embed(json.dumps(event_fields, sort_keys=True)),
+                        "sourceConnectionId": connection_id,
                     })
                     fact_resp.raise_for_status()
                     events_stored += 1
@@ -257,12 +258,13 @@ class NewsPollHandler(BaseHandler):
                                 art_fields["description"] = article.description
 
                             art_fact_resp = self.http.post("/api/v1/facts", json={
-                                "documentId":       art_doc_id,
-                                "schemaId":         schema_id_article,
-                                "entityInstanceId": str(uuid.uuid4()),
-                                "operationType":    "create",
-                                "fields":           art_fields,
-                                "embedding":        embed(json.dumps(art_fields, sort_keys=True)),
+                                "documentId":         art_doc_id,
+                                "schemaId":           schema_id_article,
+                                "entityInstanceId":   str(uuid.uuid4()),
+                                "operationType":      "create",
+                                "fields":             art_fields,
+                                "embedding":          embed(json.dumps(art_fields, sort_keys=True)),
+                                "sourceConnectionId": connection_id,
                             })
                             art_fact_resp.raise_for_status()
                             articles_stored += 1

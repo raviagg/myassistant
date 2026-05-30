@@ -87,7 +87,7 @@ export default function App() {
       </div>
       {activeTab === 'chat'        && <ChatScreen session={session} onLogout={() => setSession(null)} />}
       {activeTab === 'connections' && <SourceConnectionsTab session={session} />}
-      {activeTab === 'unified'     && <UnifiedViewBuilderTab />}
+      {activeTab === 'unified'     && <UnifiedViewBuilderTab personId={session.personId} displayName={session.displayName} />}
     </div>
   )
 }

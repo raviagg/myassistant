@@ -10,12 +10,14 @@ Per source_connection run:
      → { client_id, secret }
   3. List linked banks from /api/v1/source-connections/{id}/plaid/items
      → [{ id, plaid_item_id, institution_name, cursor, access_token }]
-  4. For each bank item: run /transactions/sync + /accounts/get, upsert results.
+  4. For each bank item: run /transactions/sync + /accounts/get, write to document/fact pipeline.
   5. Patch sync_run with terminal status and stats.
   6. Mark source_connection synced; advance next_run_at.
 """
 
+import json as _json
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -57,6 +59,50 @@ class PlaidPollHandler(BaseHandler):
 
     def __init__(self, http: httpx.Client):
         self.http = http
+        self._plaid_poll_source_type_id: str | None = None
+        self._finance_domain_id: str | None = None
+        self._transaction_schema_id: str | None = None
+        self._account_schema_id: str | None = None
+
+    # ── Reference data (cached per handler instance) ──────────────────────
+
+    def _get_plaid_poll_source_type_id(self) -> str:
+        if self._plaid_poll_source_type_id is None:
+            resp = self.http.get("/api/v1/reference/source-types")
+            resp.raise_for_status()
+            match = next((st for st in resp.json().get("items", []) if st["name"] == "plaid_poll"), None)
+            if match is None:
+                raise RuntimeError("plaid_poll source type not found in reference data")
+            self._plaid_poll_source_type_id = match["id"]
+        return self._plaid_poll_source_type_id
+
+    def _get_finance_domain_id(self) -> str:
+        if self._finance_domain_id is None:
+            resp = self.http.get("/api/v1/reference/domains")
+            resp.raise_for_status()
+            match = next((d for d in resp.json().get("items", []) if d["name"] == "finance"), None)
+            if match is None:
+                raise RuntimeError("finance domain not found in reference data")
+            self._finance_domain_id = match["id"]
+        return self._finance_domain_id
+
+    def _get_schema_id(self, entity_type: str) -> str:
+        resp = self.http.get(
+            "/api/v1/schemas/current",
+            params={"domainId": self._get_finance_domain_id(), "entityType": entity_type},
+        )
+        resp.raise_for_status()
+        return resp.json()["id"]
+
+    def _get_transaction_schema_id(self) -> str:
+        if self._transaction_schema_id is None:
+            self._transaction_schema_id = self._get_schema_id("transaction")
+        return self._transaction_schema_id
+
+    def _get_account_schema_id(self) -> str:
+        if self._account_schema_id is None:
+            self._account_schema_id = self._get_schema_id("bank_account")
+        return self._account_schema_id
 
     # ── Sync run lifecycle ────────────────────────────────────────────────
 
@@ -131,7 +177,7 @@ class PlaidPollHandler(BaseHandler):
         resp.raise_for_status()
         return resp.json()
 
-    # ── plaid.* upserts (via Scala API) ──────────────────────────────────
+    # ── plaid.connections cursor store ───────────────────────────────────
 
     def _upsert_plaid_connection(
         self,
@@ -150,63 +196,155 @@ class PlaidPollHandler(BaseHandler):
         resp.raise_for_status()
         return resp.json()
 
-    def _upsert_plaid_account(
+    # ── Document/fact pipeline writers ───────────────────────────────────
+
+    def _write_account_to_pipeline(
         self,
         source_connection_id: str,
-        connection_id: str,
-        plaid_account_id: str,
-        name: str,
-        account_type: str,
-        current_balance: float | None,
-    ) -> dict:
-        resp = self.http.post("/api/v1/plaid/accounts/upsert", json={
+        person_id: str,
+        account: dict,
+        embed,
+    ) -> None:
+        name = account["name"]
+        account_type = account.get("type", "other")
+        subtype = account.get("subtype") or ""
+        balances = account.get("balances") or {}
+        current_balance = balances.get("current")
+        available_balance = balances.get("available")
+        iso_currency = balances.get("iso_currency_code") or ""
+        mask = account.get("mask") or ""
+        plaid_account_id = account["account_id"]
+
+        content_text = f"{name} ({account_type}) — balance: {current_balance} {iso_currency}"
+        doc_resp = self.http.post("/api/v1/documents", json={
+            "contentText":   content_text,
+            "sourceTypeId":  self._get_plaid_poll_source_type_id(),
+            "embedding":     embed(content_text),
+            "supersedesIds": [],
+            "files":         [],
+            "personId":      person_id,
+        })
+        doc_resp.raise_for_status()
+        doc_id = doc_resp.json()["id"]
+
+        fields: dict = {
+            "account_id":  plaid_account_id,
+            "name":        name,
+            "type":        account_type,
+        }
+        if subtype:
+            fields["subtype"] = subtype
+        if mask:
+            fields["mask"] = mask
+        if current_balance is not None:
+            fields["current_balance"] = current_balance
+        if available_balance is not None:
+            fields["available_balance"] = available_balance
+        if iso_currency:
+            fields["iso_currency_code"] = iso_currency
+
+        fact_resp = self.http.post("/api/v1/facts", json={
+            "documentId":         doc_id,
+            "schemaId":           self._get_account_schema_id(),
+            "entityInstanceId":   str(uuid.uuid5(uuid.NAMESPACE_URL, plaid_account_id)),
+            "operationType":      "create",
+            "fields":             fields,
+            "embedding":          embed(_json.dumps(fields, sort_keys=True)),
             "sourceConnectionId": source_connection_id,
-            "connectionId":       connection_id,
-            "plaidAccountId":     plaid_account_id,
-            "name":               name,
-            "accountType":        account_type,
-            "currentBalance":     current_balance,
         })
-        resp.raise_for_status()
-        return resp.json()
+        fact_resp.raise_for_status()
 
-    def _send_transactions_batch(
+    def _write_transaction_to_pipeline(
         self,
         source_connection_id: str,
-        account_id: str,
-        added: list[dict],
-        modified: list[dict],
-        removed_ids: list[str],
-    ) -> dict:
-        resp = self.http.post("/api/v1/plaid/transactions/batch", json={
-            "sourceConnectionId":         source_connection_id,
-            "accountId":                  account_id,
-            "added":                      added,
-            "modified":                   modified,
-            "removedPlaidTransactionIds": removed_ids,
-        })
-        resp.raise_for_status()
-        return resp.json()
-
-    @staticmethod
-    def _txn_to_payload(txn: dict) -> dict:
+        person_id: str,
+        txn: dict,
+        operation_type: str,  # "create" or "update"
+        embed,
+    ) -> None:
+        plaid_txn_id = txn["transaction_id"]
+        amount = txn["amount"]
+        date = txn["date"]
+        merchant_name = txn.get("merchant_name") or txn.get("name") or ""
+        iso_currency = txn.get("iso_currency_code") or ""
+        pending = txn.get("pending", False)
         cat = txn.get("personal_finance_category") or {}
         category_list = [c for c in [cat.get("primary"), cat.get("detailed")] if c]
-        return {
-            "plaidTransactionId": txn["transaction_id"],
-            "amount":             txn["amount"],
-            "date":               txn["date"],
-            "merchantName":       txn.get("merchant_name") or txn.get("name"),
-            "category":           category_list,
-            "paymentChannel":     txn.get("payment_channel"),
-            "pending":            txn.get("pending", False),
+
+        content_text = f"{merchant_name} — {amount} {iso_currency} on {date}"
+        doc_resp = self.http.post("/api/v1/documents", json={
+            "contentText":   content_text,
+            "sourceTypeId":  self._get_plaid_poll_source_type_id(),
+            "embedding":     embed(content_text),
+            "supersedesIds": [],
+            "files":         [],
+            "personId":      person_id,
+        })
+        doc_resp.raise_for_status()
+        doc_id = doc_resp.json()["id"]
+
+        fields: dict = {
+            "transaction_id":  plaid_txn_id,
+            "account_id":      txn["account_id"],
+            "bank_account_id": str(uuid.uuid5(uuid.NAMESPACE_URL, txn["account_id"])),
+            "amount":          amount,
+            "date":            date,
         }
+        if merchant_name:
+            fields["merchant_name"] = merchant_name
+        if category_list:
+            fields["category"] = category_list
+        if iso_currency:
+            fields["iso_currency_code"] = iso_currency
+        fields["pending"] = pending
+
+        fact_resp = self.http.post("/api/v1/facts", json={
+            "documentId":         doc_id,
+            "schemaId":           self._get_transaction_schema_id(),
+            "entityInstanceId":   str(uuid.uuid5(uuid.NAMESPACE_URL, plaid_txn_id)),
+            "operationType":      operation_type,
+            "fields":             fields,
+            "embedding":          embed(_json.dumps(fields, sort_keys=True)),
+            "sourceConnectionId": source_connection_id,
+        })
+        fact_resp.raise_for_status()
+
+    def _delete_transaction_in_pipeline(
+        self,
+        source_connection_id: str,
+        person_id: str,
+        plaid_txn_id: str,
+        embed,
+    ) -> None:
+        content_text = f"Transaction {plaid_txn_id} removed"
+        doc_resp = self.http.post("/api/v1/documents", json={
+            "contentText":   content_text,
+            "sourceTypeId":  self._get_plaid_poll_source_type_id(),
+            "embedding":     embed(content_text),
+            "supersedesIds": [],
+            "files":         [],
+            "personId":      person_id,
+        })
+        doc_resp.raise_for_status()
+        doc_id = doc_resp.json()["id"]
+
+        fact_resp = self.http.post("/api/v1/facts", json={
+            "documentId":         doc_id,
+            "schemaId":           self._get_transaction_schema_id(),
+            "entityInstanceId":   str(uuid.uuid5(uuid.NAMESPACE_URL, plaid_txn_id)),
+            "operationType":      "delete",
+            "fields":             {},
+            "embedding":          embed("{}"),
+            "sourceConnectionId": source_connection_id,
+        })
+        fact_resp.raise_for_status()
 
     # ── Per-item sync ─────────────────────────────────────────────────────
 
     def _sync_item(
         self,
         source_connection_id: str,
+        person_id: str,
         item: dict,
         client_id: str,
         secret: str,
@@ -214,11 +352,12 @@ class PlaidPollHandler(BaseHandler):
         log_lines: list[dict],
     ) -> None:
         """Sync one plaid.connections item (one bank)."""
+        from embed import embed
+
         access_token     = item.get("accessToken", "")
         plaid_item_id    = item.get("plaidItemId", "")
         institution_name = item.get("institutionName", "Unknown")
         cursor           = item.get("cursor")
-        plaid_conn_id    = item["id"]
 
         if not access_token:
             log_lines.append(_log_entry("error", f"No access_token for item {plaid_item_id}"))
@@ -227,16 +366,16 @@ class PlaidPollHandler(BaseHandler):
 
         log_lines.append(_log_entry("info", f"Syncing {institution_name} (item {plaid_item_id})"))
 
-        all_added:   list[dict] = []
+        all_added:    list[dict] = []
         all_modified: list[dict] = []
-        all_removed: list[dict] = []
+        all_removed:  list[dict] = []
         next_cursor = cursor
 
         while True:
             body: dict = {"access_token": access_token}
             if next_cursor:
                 body["cursor"] = next_cursor
-            sync_resp  = _plaid_post("/transactions/sync", body, client_id, secret)
+            sync_resp      = _plaid_post("/transactions/sync", body, client_id, secret)
             batch_added    = sync_resp.get("added", [])
             batch_modified = sync_resp.get("modified", [])
             batch_removed  = sync_resp.get("removed", [])
@@ -257,62 +396,47 @@ class PlaidPollHandler(BaseHandler):
         accounts      = accounts_resp.get("accounts", [])
 
         if (next_cursor or "") != (cursor or ""):
-            updated = self._upsert_plaid_connection(
+            self._upsert_plaid_connection(
                 source_connection_id=source_connection_id,
                 plaid_item_id=plaid_item_id,
                 institution_name=institution_name,
                 cursor=next_cursor,
             )
-            plaid_conn_id = updated["id"]
 
-        plaid_acct_to_row_id: dict[str, str] = {}
         for account in accounts:
-            balances = account.get("balances") or {}
-            row = self._upsert_plaid_account(
-                source_connection_id=source_connection_id,
-                connection_id=plaid_conn_id,
-                plaid_account_id=account["account_id"],
-                name=account["name"],
-                account_type=account.get("type", "other"),
-                current_balance=balances.get("current"),
-            )
-            plaid_acct_to_row_id[account["account_id"]] = row["id"]
-            stats["accounts_checked"] += 1
-
-        added_by_acct:    dict[str, list[dict]] = {}
-        modified_by_acct: dict[str, list[dict]] = {}
-        removed_by_acct:  dict[str, list[str]]  = {}
+            try:
+                self._write_account_to_pipeline(source_connection_id, person_id, account, embed)
+                stats["accounts_stored"] += 1
+            except Exception as e:
+                log_lines.append(_log_entry("error", f"Account {account.get('account_id')}: {e}"))
+                stats["errors"] += 1
 
         for txn in all_added:
-            added_by_acct.setdefault(txn["account_id"], []).append(self._txn_to_payload(txn))
-        for txn in all_modified:
-            modified_by_acct.setdefault(txn["account_id"], []).append(self._txn_to_payload(txn))
-        for r in all_removed:
-            acct_plaid_id = r.get("account_id")
-            txn_plaid_id  = r.get("transaction_id")
-            if not txn_plaid_id:
-                continue
-            if acct_plaid_id and acct_plaid_id in plaid_acct_to_row_id:
-                removed_by_acct.setdefault(acct_plaid_id, []).append(txn_plaid_id)
-            else:
-                log_lines.append(_log_entry("warn", f"Removed txn {txn_plaid_id}: unknown account_id {acct_plaid_id!r}, skipping"))
-
-        for acct_plaid_id in set(added_by_acct) | set(modified_by_acct) | set(removed_by_acct):
-            row_id = plaid_acct_to_row_id.get(acct_plaid_id)
-            if not row_id:
-                log_lines.append(_log_entry("warn", f"Skipping {acct_plaid_id}: no matching row"))
+            try:
+                self._write_transaction_to_pipeline(source_connection_id, person_id, txn, "create", embed)
+                stats["added"] += 1
+            except Exception as e:
+                log_lines.append(_log_entry("error", f"Add txn {txn.get('transaction_id')}: {e}"))
                 stats["errors"] += 1
+
+        for txn in all_modified:
+            try:
+                self._write_transaction_to_pipeline(source_connection_id, person_id, txn, "update", embed)
+                stats["modified"] += 1
+            except Exception as e:
+                log_lines.append(_log_entry("error", f"Modify txn {txn.get('transaction_id')}: {e}"))
+                stats["errors"] += 1
+
+        for removed in all_removed:
+            plaid_txn_id = removed.get("transaction_id")
+            if not plaid_txn_id:
                 continue
-            batch_resp = self._send_transactions_batch(
-                source_connection_id=source_connection_id,
-                account_id=row_id,
-                added=added_by_acct.get(acct_plaid_id, []),
-                modified=modified_by_acct.get(acct_plaid_id, []),
-                removed_ids=removed_by_acct.get(acct_plaid_id, []),
-            )
-            stats["added"]    += batch_resp.get("added", 0)
-            stats["modified"] += batch_resp.get("modified", 0)
-            stats["removed"]  += batch_resp.get("removed", 0)
+            try:
+                self._delete_transaction_in_pipeline(source_connection_id, person_id, plaid_txn_id, embed)
+                stats["removed"] += 1
+            except Exception as e:
+                log_lines.append(_log_entry("error", f"Remove txn {plaid_txn_id}: {e}"))
+                stats["errors"] += 1
 
     # ── Main entry point ──────────────────────────────────────────────────
 
@@ -325,11 +449,15 @@ class PlaidPollHandler(BaseHandler):
         created and the cron schedule is advanced on completion.
         """
         connection_id   = source_connection["id"]
+        person_id       = source_connection.get("personId")
         cron_expression = source_connection.get("syncSchedule")
         is_adhoc        = existing_run_id is not None
 
+        if not person_id:
+            raise ValueError("plaid_poll connections must have personId")
+
         log_lines: list[dict] = []
-        stats = {"added": 0, "modified": 0, "removed": 0, "accounts_checked": 0, "errors": 0}
+        stats = {"added": 0, "modified": 0, "removed": 0, "accounts_stored": 0, "errors": 0}
         terminal_status = "running"
         run_id: str | None = existing_run_id
 
@@ -354,7 +482,7 @@ class PlaidPollHandler(BaseHandler):
 
             for item in items:
                 try:
-                    self._sync_item(connection_id, item, client_id, secret, stats, log_lines)
+                    self._sync_item(connection_id, person_id, item, client_id, secret, stats, log_lines)
                 except Exception as e:
                     log_lines.append(_log_entry("error", f"Item {item.get('plaidItemId')} failed: {e}"))
                     stats["errors"] += 1
@@ -362,7 +490,7 @@ class PlaidPollHandler(BaseHandler):
             log_lines.append(_log_entry(
                 "info",
                 f"Sync complete: +{stats['added']} ~{stats['modified']} -{stats['removed']} "
-                f"across {stats['accounts_checked']} account(s)",
+                f"across {stats['accounts_stored']} account(s)",
             ))
 
             terminal_status = "warning" if stats["errors"] > 0 else "success"

@@ -21,21 +21,21 @@ trait SchemaRepository:
 object SchemaRepository:
 
   // id, domain_id (text), entity_type, schema_version, description, field_definitions (text),
-  // mandatory_fields (json text), is_active, created_at, updated_at
+  // mandatory_fields (json text), is_active, connector_managed, created_at, updated_at
   private type SchemaRow =
     (String, String, String, Int, Option[String], String, String,
-     Boolean, java.sql.Timestamp, java.sql.Timestamp)
+     Boolean, Boolean, java.sql.Timestamp, java.sql.Timestamp)
 
   private val schemaCols = SqlFragment(
     """id::text, domain_id::text, entity_type, schema_version, description,
        field_definitions::text,
        array_to_json(mandatory_fields)::text,
-       is_active, created_at, updated_at"""
+       is_active, connector_managed, created_at, updated_at"""
   )
 
   private def rowToSchema(row: SchemaRow): EntityTypeSchema =
     val (id, domainId, entityType, schemaVersion, description, fieldDefsJson,
-         mandatoryFieldsJson, isActive, createdAt, updatedAt) = row
+         mandatoryFieldsJson, isActive, connectorManaged, createdAt, updatedAt) = row
     val fieldDefs       = circeParser.parse(fieldDefsJson).getOrElse(Json.arr())
     val mandatoryFields = circeParser.parse(mandatoryFieldsJson)
       .toOption
@@ -51,6 +51,7 @@ object SchemaRepository:
       fieldDefinitions = fieldDefs,
       mandatoryFields  = mandatoryFields,
       isActive         = isActive,
+      connectorManaged = connectorManaged,
       createdAt        = createdAt.toInstant,
       updatedAt        = updatedAt.toInstant,
     )

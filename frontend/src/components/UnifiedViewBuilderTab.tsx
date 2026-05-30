@@ -1,908 +1,565 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { T } from '../theme'
+import {
+  listEntityTypeSchemas,
+  listSourceSchemas,
+  listDomains,
+  getPersonHouseholds,
+  getHousehold,
+  fetchSourceTableSample,
+} from '../api'
+import type {
+  EntityTypeSchema,
+  EntityTypeFieldDef,
+  Domain,
+  SourceSchemasResponse,
+} from '../types'
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
+// ─── Color helpers ────────────────────────────────────────────────────────────
 
-const MOCK_SOURCE_SCHEMAS = [
-  {
-    id: 'plaid-chase',
-    name: "Ravi's Chase",
-    sourceType: 'plaid_poll',
-    fields: ['amount', 'date', 'merchant_name'],
-  },
-  {
-    id: 'plaid-vanguard',
-    name: "Ravi's Vanguard",
-    sourceType: 'plaid_poll',
-    fields: ['amount', 'date', 'description'],
-  },
-]
-
-const MOCK_UNIFIED_ENTITIES = [
-  {
-    id: 'txn',
-    name: 'Transaction',
-    mergeType: 'UNION',
-    fields: ['amount', 'date', 'merchant_name', 'description'],
-  },
-]
-
-type ChangeType = 'added' | 'modified' | 'removed'
-type Decision = 'accepted' | 'rejected' | null
-
-interface DiffRow {
-  field: string
-  changeType: ChangeType
-  source: string
-  decision: Decision
+function domainColor(name: string): string {
+  const map: Record<string, string> = {
+    finance:          '#f59e0b',
+    health:           '#10b981',
+    news:             '#3b82f6',
+    employment:       '#8b5cf6',
+    todo:             '#f97316',
+    household:        '#ec4899',
+    personal_details: '#06b6d4',
+  }
+  return map[name] ?? '#64748b'
 }
 
-const MOCK_DIFF_INITIAL: DiffRow[] = [
-  { field: 'merchant_name', changeType: 'added',    source: "Ravi's Chase",    decision: null },
-  { field: 'description',   changeType: 'modified', source: "Ravi's Vanguard", decision: null },
-  { field: 'category',      changeType: 'removed',  source: "Ravi's Chase",    decision: null },
-]
+function sourceColor(sourceType: string): string {
+  switch (sourceType) {
+    case 'plaid_poll': return '#f59e0b'
+    case 'chatbot':    return '#7c8cf8'
+    case 'news_poll':  return '#10b981'
+    case 'gmail_poll': return '#3b82f6'
+    default:           return '#64748b'
+  }
+}
+
+function fieldTypeColor(type: string): string {
+  switch (type) {
+    case 'text':       return '#4a8aaa'
+    case 'number':     return '#a878d8'
+    case 'date':       return '#4aba80'
+    case 'boolean':    return '#ea8040'
+    case 'entity_ref': return '#e8b840'
+    case 'file':       return '#7890e8'
+    default:           return '#64748b'
+  }
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type UnifiedSubTab = 'view' | 'update'
-type WizardStep = 1 | 2 | 3 | 4
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function getSourceIcon(sourceType: string): string {
-  if (sourceType === 'plaid_poll') return '🏦'
-  if (sourceType === 'gmail_poll') return '✉️'
-  return '⚙️'
+interface Connector {
+  sourceConnectionId: string
+  sourceType: string
+  connectionName: string
 }
 
-function getChangeBadgeStyle(changeType: ChangeType): React.CSSProperties {
-  if (changeType === 'added')    return { background: T.successBg, color: T.successText, border: `1px solid ${T.successBorder}` }
-  if (changeType === 'modified') return { background: T.warningBg, color: T.warningText, border: `1px solid ${T.warningBorder}` }
-  return                                 { background: T.errorBg,   color: T.errorText,   border: `1px solid ${T.errorBorder}` }
+interface Arrow {
+  id: string
+  fromX: number
+  fromY: number
+  toX: number
+  toY: number
 }
 
-function getChangeRowStyle(changeType: ChangeType): React.CSSProperties {
-  if (changeType === 'added')    return { background: T.successBg }
-  if (changeType === 'modified') return { background: T.warningBg }
-  return                                 { background: T.errorBg }
-}
+// ─── EntityTypeSchemaCard ─────────────────────────────────────────────────────
 
-function getChangeLabel(changeType: ChangeType): string {
-  if (changeType === 'added')    return '+ added'
-  if (changeType === 'modified') return '~ modified'
-  return                                 '- removed'
-}
+function EntityTypeSchemaCard({
+  schema,
+  domainName,
+  connectors,
+  cardRef,
+  fieldRef,
+  personId,
+  householdId,
+}: {
+  schema: EntityTypeSchema
+  domainName: string
+  connectors: Connector[]
+  cardRef: (el: HTMLDivElement | null) => void
+  fieldRef: (fieldName: string, el: HTMLDivElement | null) => void
+  personId?: string
+  householdId?: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
+  const [loadingRows, setLoadingRows] = useState(false)
+  const [rowsError, setRowsError] = useState<string | null>(null)
 
-// ─── Lineage Diagram ──────────────────────────────────────────────────────────
+  const dColor = domainColor(domainName)
+  const primaryConnector = connectors[0]
+  const accentColor = primaryConnector ? sourceColor(primaryConnector.sourceType) : dColor
 
-function LineageDiagram() {
-  // Layout constants
-  const W = 560
-  const H = 220
-  const srcX = 30
-  const srcW = 140
-  const srcH = 56
-  const unifiedX = 370
-  const unifiedW = 150
-  const unifiedH = 72
+  async function toggleSample() {
+    if (expanded) { setExpanded(false); return }
+    setExpanded(true)
+    if (rows !== null) return
+    setLoadingRows(true)
+    setRowsError(null)
+    try {
+      const sourceType = primaryConnector?.sourceType ?? 'chatbot'
+      const tableName = `${sourceType}/${schema.entityType}`
+      const result = await fetchSourceTableSample({
+        sourceType,
+        tableName,
+        sourceConnectionId: primaryConnector?.sourceConnectionId || undefined,
+        personId,
+        householdId,
+        limit: 5,
+      })
+      setRows(result)
+    } catch (e) {
+      setRowsError(e instanceof Error ? e.message : 'Failed to load sample rows')
+    } finally {
+      setLoadingRows(false)
+    }
+  }
 
-  const srcY0 = 40
-  const srcY1 = 132
-  const unifiedY0 = 74
-
-  const srcMidY = [srcY0 + srcH / 2, srcY1 + srcH / 2]
-  const unifiedMidY = unifiedY0 + unifiedH / 2
+  const colNames = schema.fieldDefinitions.map((f: EntityTypeFieldDef) => f.name)
 
   return (
-    <svg
-      width="100%"
-      height={H}
-      viewBox={`0 0 ${W} ${H}`}
-      style={{ display: 'block', maxWidth: W }}
+    <div
+      ref={cardRef}
+      style={{
+        background: '#0c1220',
+        border: `1px solid ${accentColor}33`,
+        borderTop: `3px solid ${accentColor}`,
+        borderRadius: 8,
+        overflow: 'hidden',
+      }}
     >
-      {/* Source nodes */}
-      {MOCK_SOURCE_SCHEMAS.map((src, i) => {
-        const y = i === 0 ? srcY0 : srcY1
-        return (
-          <g key={src.id}>
-            <rect
-              x={srcX} y={y} width={srcW} height={srcH} rx={6}
-              fill={T.bgCard}
-              stroke={T.warningBorder}
-              strokeWidth={1.5}
-            />
-            <text x={srcX + 10} y={y + 18} fontSize={10} fill={T.warningText} fontWeight={700}>
-              {getSourceIcon(src.sourceType)} {src.name}
-            </text>
-            <text x={srcX + 10} y={y + 32} fontSize={9} fill={T.textMuted}>
-              {src.fields.slice(0, 3).join(', ')}
-            </text>
-            {/* Arrow line */}
-            <line
-              x1={srcX + srcW} y1={srcMidY[i]}
-              x2={unifiedX - 2}  y2={unifiedMidY}
-              stroke={T.border}
-              strokeWidth={1.5}
-            />
-            {/* Arrow head */}
-            <polygon
-              points={`${unifiedX - 2},${unifiedMidY - 5} ${unifiedX + 8},${unifiedMidY} ${unifiedX - 2},${unifiedMidY + 5}`}
-              fill={T.border}
-            />
-            {/* Badge on line */}
-            <rect
-              x={(srcX + srcW + unifiedX - 2) / 2 - 28}
-              y={((srcMidY[i] + unifiedMidY) / 2) - 9}
-              width={56} height={18} rx={4}
-              fill={T.accentTint}
-              stroke={T.accentBorder}
-            />
-            <text
-              x={(srcX + srcW + unifiedX - 2) / 2}
-              y={((srcMidY[i] + unifiedMidY) / 2) + 4}
-              fontSize={8}
-              fill={T.accentLight}
-              textAnchor="middle"
-              fontWeight={700}
-            >
-              UNION
-            </text>
-          </g>
-        )
-      })}
+      {/* Header */}
+      <div
+        onClick={toggleSample}
+        style={{ padding: '10px 12px', cursor: 'pointer' }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+          <span style={{ color: accentColor, fontFamily: 'monospace', fontSize: 12, fontWeight: 700, flex: 1 }}>
+            {schema.entityType}
+          </span>
+          {schema.connectorManaged && (
+            <span title="connector-managed — read only" style={{ fontSize: 10 }}>🔒</span>
+          )}
+          <span style={{
+            background: dColor + '22',
+            border: `1px solid ${dColor}44`,
+            color: dColor,
+            fontSize: 8,
+            padding: '1px 6px',
+            borderRadius: 3,
+            fontWeight: 600,
+            letterSpacing: '.04em',
+          }}>
+            {domainName}
+          </span>
+          <span style={{ color: accentColor + '55', fontSize: 9 }}>
+            {loadingRows ? '…' : expanded ? '▴' : '▾ rows'}
+          </span>
+        </div>
 
-      {/* Unified entity node */}
-      <rect
-        x={unifiedX} y={unifiedY0} width={unifiedW} height={unifiedH} rx={6}
-        fill={T.bgCard}
-        stroke={T.accentBorder}
-        strokeWidth={1.5}
-      />
-      <text x={unifiedX + 10} y={unifiedY0 + 18} fontSize={10} fill={T.accentLight} fontWeight={700}>
-        {MOCK_UNIFIED_ENTITIES[0].name}
-      </text>
-      <text x={unifiedX + 10} y={unifiedY0 + 32} fontSize={9} fill={T.textMuted}>
-        {MOCK_UNIFIED_ENTITIES[0].fields.slice(0, 2).join(', ')}
-      </text>
-      <text x={unifiedX + 10} y={unifiedY0 + 46} fontSize={9} fill={T.textMuted}>
-        {MOCK_UNIFIED_ENTITIES[0].fields.slice(2).join(', ')}
-      </text>
-      <text x={unifiedX + 10} y={unifiedY0 + 60} fontSize={8} fill={T.textVeryMuted}>
-        {MOCK_UNIFIED_ENTITIES[0].mergeType}
-      </text>
-    </svg>
-  )
-}
-
-// ─── Current Unified View ─────────────────────────────────────────────────────
-
-interface CurrentViewProps {
-  onReviewChanges: () => void
-}
-
-function CurrentUnifiedView({ onReviewChanges }: CurrentViewProps) {
-  const pendingCount = MOCK_DIFF_INITIAL.filter(r => r.decision === null).length
-  const hasUnreviewed = pendingCount > 0
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      {/* Review Changes banner */}
-      {hasUnreviewed && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 20px',
-          background: T.warningBg,
-          borderBottom: `1px solid ${T.warningBorder}`,
-          flexShrink: 0,
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ color: T.warningText, fontSize: 13, fontWeight: 600 }}>
-              ⚠ Unreviewed schema updates
-            </span>
-            <span style={{ color: T.textMuted, fontSize: 12 }}>
-              {pendingCount} field changes pending review
-            </span>
+        {/* Connector badges */}
+        {connectors.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+            {connectors.map(c => {
+              const sc = sourceColor(c.sourceType)
+              return (
+                <span key={c.sourceConnectionId} style={{
+                  background: sc + '18',
+                  border: `1px solid ${sc}44`,
+                  color: sc,
+                  fontSize: 8,
+                  padding: '1px 6px',
+                  borderRadius: 3,
+                  fontFamily: 'monospace',
+                  fontWeight: 500,
+                }}>
+                  {c.connectionName}
+                </span>
+              )
+            })}
           </div>
-          <button
-            style={{
-              padding: '6px 14px',
-              background: T.warningBorder,
-              color: T.warningText,
-              border: `1px solid ${T.warningBorder}`,
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: 12,
-              fontWeight: 600,
-            }}
-            onClick={onReviewChanges}
-          >
-            Review Changes →
-          </button>
+        )}
+
+        {/* Field list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {schema.fieldDefinitions.map((field: EntityTypeFieldDef) => {
+            const isRef = field.type === 'entity_ref'
+            const fc = fieldTypeColor(field.type)
+            return (
+              <div
+                key={field.name}
+                ref={isRef ? (el: HTMLDivElement | null) => fieldRef(field.name, el) : undefined}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '2px 0',
+                  paddingLeft: isRef ? 6 : 0,
+                  borderLeft: isRef ? `2px solid ${fc}66` : 'none',
+                }}
+              >
+                <span style={{
+                  fontFamily: 'monospace',
+                  fontSize: 9,
+                  color: isRef ? fc : '#6080a0',
+                  fontWeight: isRef ? 600 : 400,
+                  flex: 1,
+                }}>
+                  {field.name}
+                  {field.mandatory && <span style={{ color: '#e87060', marginLeft: 2 }}>*</span>}
+                </span>
+                <span style={{
+                  background: fc + '18',
+                  border: `1px solid ${fc}33`,
+                  color: fc,
+                  fontSize: 8,
+                  padding: '0 4px',
+                  borderRadius: 2,
+                  fontFamily: 'monospace',
+                }}>
+                  {field.type}
+                </span>
+                {isRef && field.refEntityType && (
+                  <span style={{ color: fc + '77', fontSize: 8, fontFamily: 'monospace' }}>
+                    → {field.refEntityType}
+                  </span>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Sample rows panel */}
+      {expanded && (
+        <div style={{ borderTop: `1px solid ${accentColor}22`, background: accentColor + '08' }}>
+          {rowsError && (
+            <div style={{ padding: '6px 12px', color: '#f87171', fontSize: 9, fontFamily: 'monospace' }}>{rowsError}</div>
+          )}
+          {loadingRows && (
+            <div style={{ padding: '6px 12px', color: accentColor + '66', fontSize: 9 }}>loading…</div>
+          )}
+          {rows && rows.length === 0 && (
+            <div style={{ padding: '6px 12px', color: accentColor + '44', fontSize: 9, fontStyle: 'italic' }}>no rows found</div>
+          )}
+          {rows && rows.length > 0 && (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9, fontFamily: 'monospace' }}>
+                <thead>
+                  <tr>
+                    {colNames.map((col: string) => (
+                      <th key={col} style={{
+                        padding: '4px 8px', textAlign: 'left',
+                        color: accentColor + '88', fontWeight: 600,
+                        borderBottom: `1px solid ${accentColor}22`,
+                        whiteSpace: 'nowrap',
+                      }}>{col}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => (
+                    <tr key={i} style={{ background: i % 2 === 0 ? accentColor + '08' : 'transparent' }}>
+                      {colNames.map((col: string) => {
+                        const val = row[col]
+                        const display = val == null ? '' : typeof val === 'object' ? JSON.stringify(val) : String(val)
+                        return (
+                          <td key={col} style={{
+                            padding: '3px 8px',
+                            color: accentColor + 'bb',
+                            maxWidth: 140,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }} title={display}>{display}</td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
-
-      {/* 3-panel layout */}
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-
-        {/* Left — Source Schemas */}
-        <div style={{
-          width: 230,
-          flexShrink: 0,
-          borderRight: `1px solid ${T.border}`,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}>
-          <div style={{
-            padding: '12px 14px 10px',
-            borderBottom: `1px solid ${T.border}`,
-            fontSize: 11,
-            fontWeight: 700,
-            color: T.textSecondary,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase' as const,
-            flexShrink: 0,
-          }}>
-            Source Schemas
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto' as const, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {MOCK_SOURCE_SCHEMAS.map(src => (
-              <div key={src.id} style={{
-                background: T.bgCard,
-                border: `1px solid ${T.warningBorder}`,
-                borderRadius: 8,
-                padding: '10px 12px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                  <span style={{ fontSize: 14 }}>{getSourceIcon(src.sourceType)}</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: T.warningText }}>{src.name}</span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {src.fields.map(f => (
-                    <div key={f} style={{ fontSize: 11, color: T.textMuted, paddingLeft: 4 }}>
-                      · {f}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Center — Lineage Diagram */}
-        <div style={{
-          flex: 1,
-          minWidth: 0,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}>
-          <div style={{
-            padding: '12px 16px 10px',
-            borderBottom: `1px solid ${T.border}`,
-            fontSize: 11,
-            fontWeight: 700,
-            color: T.textSecondary,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase' as const,
-            flexShrink: 0,
-          }}>
-            Schema Lineage
-          </div>
-          <div style={{ flex: 1, overflow: 'auto', padding: '24px 16px', display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
-            <LineageDiagram />
-          </div>
-        </div>
-
-        {/* Right — Unified Entities */}
-        <div style={{
-          width: 230,
-          flexShrink: 0,
-          borderLeft: `1px solid ${T.border}`,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}>
-          <div style={{
-            padding: '12px 14px 10px',
-            borderBottom: `1px solid ${T.border}`,
-            fontSize: 11,
-            fontWeight: 700,
-            color: T.textSecondary,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase' as const,
-            flexShrink: 0,
-          }}>
-            Unified Entities
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto' as const, padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {MOCK_UNIFIED_ENTITIES.map(ent => (
-              <div key={ent.id} style={{
-                background: T.bgCard,
-                border: `1px solid ${T.accentBorder}`,
-                borderRadius: 8,
-                padding: '10px 12px',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: T.accentLight }}>{ent.name}</span>
-                  <span style={{
-                    fontSize: 9,
-                    fontWeight: 700,
-                    color: T.accentLight,
-                    background: T.accentTint,
-                    border: `1px solid ${T.accentBorder}`,
-                    borderRadius: 4,
-                    padding: '1px 5px',
-                  }}>
-                    {ent.mergeType}
-                  </span>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {ent.fields.map(f => (
-                    <div key={f} style={{ fontSize: 11, color: T.textMuted, paddingLeft: 4 }}>
-                      · {f}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-      </div>
     </div>
   )
 }
 
-// ─── Update Unified View (Wizard) ─────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────────────────────
 
-function UpdateUnifiedView() {
-  const [step, setStep] = useState<WizardStep>(1)
-  const [diff, setDiff] = useState<DiffRow[]>(MOCK_DIFF_INITIAL)
-  const [materializing, setMaterializing] = useState(false)
-  const [materialized, setMaterialized] = useState(false)
+export default function UnifiedViewBuilderTab({ personId, displayName }: { personId: string; displayName: string }) {
+  const [schemas, setSchemas]           = useState<EntityTypeSchema[]>([])
+  const [domains, setDomains]           = useState<Domain[]>([])
+  const [sourceSchemas, setSourceSchemas] = useState<SourceSchemasResponse | null>(null)
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null)
+  const [loading, setLoading]           = useState(true)
+  const [error, setError]               = useState<string | null>(null)
+  const [households, setHouseholds]     = useState<Array<{ id: string; name: string }>>([])
+  const [pivotHouseholdId, setPivotHouseholdId] = useState<string | null>(null)
+  const [arrows, setArrows]             = useState<Arrow[]>([])
 
-  const steps: { id: WizardStep; label: string }[] = [
-    { id: 1, label: 'Review Changes' },
-    { id: 2, label: 'Accept / Reject Fields' },
-    { id: 3, label: 'Preview' },
-    { id: 4, label: 'Approve & Materialize' },
-  ]
+  const containerRef = useRef<HTMLDivElement>(null)
+  const cardRefs     = useRef<Map<string, HTMLDivElement>>(new Map())
+  const fieldRefs    = useRef<Map<string, HTMLDivElement>>(new Map())
 
-  const setDecision = (field: string, decision: Decision) => {
-    setDiff(prev => prev.map(r => r.field === field ? { ...r, decision } : r))
+  useEffect(() => {
+    getPersonHouseholds(personId)
+      .then(resp => Promise.all(resp.householdIds.map(hid => getHousehold(hid))))
+      .then(houses => setHouseholds(houses.map(h => ({ id: h.id, name: h.name }))))
+      .catch(() => {})
+  }, [personId])
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        const [schemasResp, domainsResp, sourceSchemasResp] = await Promise.all([
+          listEntityTypeSchemas(true),
+          listDomains(),
+          pivotHouseholdId
+            ? listSourceSchemas(undefined, pivotHouseholdId)
+            : listSourceSchemas(personId),
+        ])
+        setSchemas(schemasResp.items)
+        setDomains(domainsResp.items)
+        setSourceSchemas(sourceSchemasResp)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load')
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [personId, pivotHouseholdId])
+
+  // Recompute SVG FK arrows after schemas/domain change
+  useEffect(() => {
+    if (loading || !containerRef.current) return
+    const container = containerRef.current
+
+    const id = requestAnimationFrame(() => {
+      const containerRect = container.getBoundingClientRect()
+      const newArrows: Arrow[] = []
+
+      for (const [key, fieldEl] of fieldRefs.current) {
+        const dotIdx = key.indexOf('.')
+        const entityType = key.slice(0, dotIdx)
+        const fieldName  = key.slice(dotIdx + 1)
+
+        const schema = schemas.find(s => s.entityType === entityType)
+        if (!schema) continue
+        const field = schema.fieldDefinitions.find((f: EntityTypeFieldDef) => f.name === fieldName)
+        if (!field || field.type !== 'entity_ref' || !field.refEntityType) continue
+
+        const targetCard = cardRefs.current.get(field.refEntityType)
+        if (!targetCard) continue
+
+        const fieldRect  = fieldEl.getBoundingClientRect()
+        const targetRect = targetCard.getBoundingClientRect()
+        if (!fieldRect.width || !targetRect.width) continue
+
+        const fromX = fieldRect.right  - containerRect.left
+        const fromY = fieldRect.top    + fieldRect.height / 2 - containerRect.top
+        const toX   = targetRect.left  - containerRect.left
+        const toY   = targetRect.top   + 24 - containerRect.top
+
+        newArrows.push({ id: key, fromX, fromY, toX, toY })
+      }
+
+      setArrows(newArrows)
+    })
+
+    return () => cancelAnimationFrame(id)
+  }, [schemas, selectedDomain, loading])
+
+  const domainNameMap = Object.fromEntries(domains.map(d => [d.id, d.name]))
+
+  function connectorsFor(schema: EntityTypeSchema): Connector[] {
+    if (!sourceSchemas) return []
+    return sourceSchemas.sources
+      .filter(g => g.tables.some(t => {
+        const parts = t.tableName.split('/')
+        return parts[parts.length - 1] === schema.entityType
+      }))
+      .map(g => ({
+        sourceConnectionId: g.sourceConnectionId ?? '',
+        sourceType: g.sourceType,
+        connectionName: g.connectionName,
+      }))
   }
 
-  const acceptAll = () => {
-    setDiff(prev => prev.map(r => ({ ...r, decision: 'accepted' })))
-  }
+  const visibleSchemas = selectedDomain
+    ? schemas.filter(s => domainNameMap[s.domainId] === selectedDomain)
+    : schemas
 
-  const undecided = diff.filter(r => r.decision === null)
-  const acceptedCount = diff.filter(r => r.decision === 'accepted').length
-  const rejectedCount = diff.filter(r => r.decision === 'rejected').length
+  const domainCounts = domains
+    .map(d => ({ name: d.name, count: schemas.filter(s => s.domainId === d.id).length }))
+    .filter(d => d.count > 0)
 
-  const handleMaterialize = () => {
-    setMaterializing(true)
-    setTimeout(() => {
-      setMaterializing(false)
-      setMaterialized(true)
-    }, 1400)
-  }
+  const effectivePersonId    = pivotHouseholdId ? undefined : personId
+  const effectiveHouseholdId = pivotHouseholdId ?? undefined
 
-  return (
-    <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
-
-      {/* Sidebar */}
-      <div style={{
-        width: 180,
-        flexShrink: 0,
-        borderRight: `1px solid ${T.border}`,
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '16px 0',
-        gap: 2,
-        background: T.bgCard,
-      }}>
-        <div style={{ fontSize: 10, fontWeight: 700, color: T.textVeryMuted, letterSpacing: '0.1em', textTransform: 'uppercase' as const, padding: '0 14px 10px' }}>
-          Wizard Steps
-        </div>
-        {steps.map(s => {
-          const isActive = step === s.id
-          const isDone = step > s.id
-          return (
-            <button
-              key={s.id}
-              onClick={() => setStep(s.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '8px 14px',
-                border: 'none',
-                background: isActive ? T.accentTint : 'transparent',
-                borderLeft: isActive ? `3px solid ${T.accent}` : '3px solid transparent',
-                color: isActive ? T.accentLight : isDone ? T.successText : T.textSecondary,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: isActive ? 600 : 500,
-                textAlign: 'left' as const,
-                width: '100%',
-              }}
-            >
-              <span style={{
-                width: 18, height: 18, borderRadius: '50%',
-                background: isActive ? T.accent : isDone ? T.successBorder : T.border,
-                color: isActive ? T.white : isDone ? T.successText : T.textMuted,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 9, fontWeight: 700, flexShrink: 0,
-              }}>
-                {isDone ? '✓' : s.id}
-              </span>
-              {s.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Main content */}
-      <div style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 24 }}>
-
-        {/* Step 1 — Review Changes */}
-        {step === 1 && (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary, marginBottom: 4 }}>Review Changes</div>
-                <div style={{ fontSize: 12, color: T.textMuted }}>Field-level changes detected from new source data</div>
-              </div>
-              <button
-                onClick={acceptAll}
-                style={{
-                  padding: '7px 16px',
-                  background: T.accentTint,
-                  border: `1px solid ${T.accentBorder}`,
-                  borderRadius: 6,
-                  color: T.accentLight,
-                  cursor: 'pointer',
-                  fontSize: 12,
-                  fontWeight: 600,
-                }}
-              >
-                Accept All
-              </button>
-            </div>
-
-            {/* Diff table */}
-            <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden' }}>
-              {/* Header */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 110px 160px 130px',
-                padding: '8px 14px',
-                background: T.bgCard,
-                borderBottom: `1px solid ${T.border}`,
-                fontSize: 11,
-                fontWeight: 700,
-                color: T.textMuted,
-                textTransform: 'uppercase' as const,
-                letterSpacing: '0.07em',
-              }}>
-                <span>Field</span>
-                <span>Change</span>
-                <span>Source</span>
-                <span>Decision</span>
-              </div>
-              {diff.map((row, idx) => (
-                <div
-                  key={row.field}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 110px 160px 130px',
-                    padding: '10px 14px',
-                    alignItems: 'center',
-                    ...getChangeRowStyle(row.changeType),
-                    borderBottom: idx < diff.length - 1 ? `1px solid ${T.border}` : 'none',
-                  }}
-                >
-                  <span style={{ fontSize: 13, fontWeight: 600, color: T.textPrimary, fontFamily: 'monospace' }}>
-                    {row.field}
-                  </span>
-                  <span style={{
-                    display: 'inline-block',
-                    padding: '2px 7px',
-                    borderRadius: 4,
-                    fontSize: 11,
-                    fontWeight: 700,
-                    ...getChangeBadgeStyle(row.changeType),
-                  }}>
-                    {getChangeLabel(row.changeType)}
-                  </span>
-                  <span style={{ fontSize: 12, color: T.textSecondary }}>{row.source}</span>
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    {row.decision === null ? (
-                      <>
-                        <button
-                          onClick={() => setDecision(row.field, 'accepted')}
-                          style={{
-                            padding: '4px 10px', border: `1px solid ${T.successBorder}`,
-                            borderRadius: 5, background: 'transparent', color: T.successText,
-                            cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                          }}
-                        >
-                          Accept
-                        </button>
-                        <button
-                          onClick={() => setDecision(row.field, 'rejected')}
-                          style={{
-                            padding: '4px 10px', border: `1px solid ${T.errorBorder}`,
-                            borderRadius: 5, background: 'transparent', color: T.errorText,
-                            cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                          }}
-                        >
-                          Reject
-                        </button>
-                      </>
-                    ) : (
-                      <span style={{
-                        fontSize: 11, fontWeight: 700,
-                        color: row.decision === 'accepted' ? T.successText : T.errorText,
-                      }}>
-                        {row.decision === 'accepted' ? '✓ Accepted' : '✗ Rejected'}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => setStep(2)}
-                style={{
-                  padding: '8px 20px', background: T.accent, border: 'none',
-                  borderRadius: 7, color: T.white, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                }}
-              >
-                Next: Accept / Reject →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 2 — Accept / Reject Fields */}
-        {step === 2 && (
-          <div>
-            <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary, marginBottom: 4 }}>Accept / Reject Fields</div>
-              <div style={{ fontSize: 12, color: T.textMuted }}>
-                {undecided.length > 0
-                  ? `${undecided.length} field${undecided.length > 1 ? 's' : ''} pending decision`
-                  : 'All fields decided'}
-              </div>
-            </div>
-
-            {undecided.length === 0 ? (
-              <div style={{
-                padding: 24, borderRadius: 8, background: T.successBg, border: `1px solid ${T.successBorder}`,
-                color: T.successText, fontSize: 13, fontWeight: 600, textAlign: 'center' as const,
-              }}>
-                All fields have been decided. Click Next to preview the result.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {undecided.map(row => (
-                  <div key={row.field} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '14px 18px',
-                    background: T.bgCard,
-                    border: `1px solid ${T.border}`,
-                    borderRadius: 8,
-                  }}>
-                    <div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: T.textPrimary, fontFamily: 'monospace', marginBottom: 4 }}>
-                        {row.field}
-                      </div>
-                      <div style={{ fontSize: 11, color: T.textMuted }}>{row.source} · {getChangeLabel(row.changeType)}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span style={{ fontSize: 10, color: T.textVeryMuted, marginRight: 4 }}>[A] / [R]</span>
-                      <button
-                        onClick={() => setDecision(row.field, 'accepted')}
-                        style={{
-                          padding: '7px 16px', background: T.successBg,
-                          border: `1px solid ${T.successBorder}`, borderRadius: 6,
-                          color: T.successText, cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                        }}
-                      >
-                        Accept
-                      </button>
-                      <button
-                        onClick={() => setDecision(row.field, 'rejected')}
-                        style={{
-                          padding: '7px 16px', background: T.errorBg,
-                          border: `1px solid ${T.errorBorder}`, borderRadius: 6,
-                          color: T.errorText, cursor: 'pointer', fontSize: 12, fontWeight: 600,
-                        }}
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between' }}>
-              <button
-                onClick={() => setStep(1)}
-                style={{
-                  padding: '8px 18px', background: 'transparent', border: `1px solid ${T.border}`,
-                  borderRadius: 7, color: T.textSecondary, cursor: 'pointer', fontSize: 13,
-                }}
-              >
-                ← Back
-              </button>
-              <button
-                onClick={() => setStep(3)}
-                style={{
-                  padding: '8px 20px', background: T.accent, border: 'none',
-                  borderRadius: 7, color: T.white, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                }}
-              >
-                Next: Preview →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 3 — Preview */}
-        {step === 3 && (
-          <div>
-            <div style={{ marginBottom: 18 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary, marginBottom: 4 }}>Preview</div>
-              <div style={{ fontSize: 12, color: T.textMuted }}>Unified schema after applying accepted changes</div>
-            </div>
-
-            <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: 'hidden' }}>
-              {/* Header */}
-              <div style={{
-                display: 'grid', gridTemplateColumns: '1fr 100px 200px',
-                padding: '8px 14px',
-                background: T.bgCard,
-                borderBottom: `1px solid ${T.border}`,
-                fontSize: 11, fontWeight: 700, color: T.textMuted,
-                textTransform: 'uppercase' as const, letterSpacing: '0.07em',
-              }}>
-                <span>Field</span>
-                <span>Type</span>
-                <span>Source</span>
-              </div>
-
-              {/* Base unified fields always present */}
-              {['amount', 'date'].map((field, idx) => (
-                <div key={field} style={{
-                  display: 'grid', gridTemplateColumns: '1fr 100px 200px',
-                  padding: '10px 14px', alignItems: 'center',
-                  background: idx % 2 === 0 ? T.bgPage : T.bgCard,
-                  borderBottom: `1px solid ${T.border}`,
-                }}>
-                  <span style={{ fontSize: 13, color: T.textPrimary, fontFamily: 'monospace' }}>{field}</span>
-                  <span style={{ fontSize: 12, color: T.textMuted }}>text</span>
-                  <span style={{ fontSize: 12, color: T.textSecondary }}>All sources</span>
-                </div>
-              ))}
-
-              {/* Accepted diff fields */}
-              {diff.filter(r => r.decision === 'accepted').map((row, idx) => (
-                <div key={row.field} style={{
-                  display: 'grid', gridTemplateColumns: '1fr 100px 200px',
-                  padding: '10px 14px', alignItems: 'center',
-                  background: (idx + 2) % 2 === 0 ? T.bgPage : T.bgCard,
-                  borderBottom: `1px solid ${T.border}`,
-                }}>
-                  <span style={{ fontSize: 13, color: T.successText, fontFamily: 'monospace' }}>
-                    {row.field} <span style={{ fontSize: 10, color: T.successText }}>+ accepted</span>
-                  </span>
-                  <span style={{ fontSize: 12, color: T.textMuted }}>text</span>
-                  <span style={{ fontSize: 12, color: T.textSecondary }}>{row.source}</span>
-                </div>
-              ))}
-
-              {diff.filter(r => r.decision === 'accepted').length === 0 && (
-                <div style={{ padding: '14px', fontSize: 12, color: T.textMuted, fontStyle: 'italic' }}>
-                  No additional fields accepted
-                </div>
-              )}
-            </div>
-
-            <div style={{ marginTop: 20, display: 'flex', justifyContent: 'space-between' }}>
-              <button
-                onClick={() => setStep(2)}
-                style={{
-                  padding: '8px 18px', background: 'transparent', border: `1px solid ${T.border}`,
-                  borderRadius: 7, color: T.textSecondary, cursor: 'pointer', fontSize: 13,
-                }}
-              >
-                ← Back
-              </button>
-              <button
-                onClick={() => setStep(4)}
-                style={{
-                  padding: '8px 20px', background: T.accent, border: 'none',
-                  borderRadius: 7, color: T.white, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                }}
-              >
-                Next: Approve & Materialize →
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 4 — Approve & Materialize */}
-        {step === 4 && (
-          <div>
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.textPrimary, marginBottom: 4 }}>Approve & Materialize</div>
-              <div style={{ fontSize: 12, color: T.textMuted }}>Review your decisions and materialize the unified schema</div>
-            </div>
-
-            {/* Summary cards */}
-            <div style={{ display: 'flex', gap: 14, marginBottom: 24 }}>
-              <div style={{
-                flex: 1, padding: '16px 20px', borderRadius: 8,
-                background: T.successBg, border: `1px solid ${T.successBorder}`,
-              }}>
-                <div style={{ fontSize: 28, fontWeight: 800, color: T.successText }}>{acceptedCount}</div>
-                <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 2 }}>Fields Accepted</div>
-              </div>
-              <div style={{
-                flex: 1, padding: '16px 20px', borderRadius: 8,
-                background: T.errorBg, border: `1px solid ${T.errorBorder}`,
-              }}>
-                <div style={{ fontSize: 28, fontWeight: 800, color: T.errorText }}>{rejectedCount}</div>
-                <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 2 }}>Fields Rejected</div>
-              </div>
-              <div style={{
-                flex: 1, padding: '16px 20px', borderRadius: 8,
-                background: T.warningBg, border: `1px solid ${T.warningBorder}`,
-              }}>
-                <div style={{ fontSize: 28, fontWeight: 800, color: T.warningText }}>{undecided.length}</div>
-                <div style={{ fontSize: 12, color: T.textSecondary, marginTop: 2 }}>Pending</div>
-              </div>
-            </div>
-
-            {materialized ? (
-              <div style={{
-                padding: '20px 24px', borderRadius: 8,
-                background: T.successBg, border: `1px solid ${T.successBorder}`,
-                textAlign: 'center' as const,
-              }}>
-                <div style={{ fontSize: 24, marginBottom: 8 }}>✓</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: T.successText, marginBottom: 4 }}>
-                  Schema Materialized
-                </div>
-                <div style={{ fontSize: 12, color: T.textSecondary }}>
-                  The unified schema has been updated and is now active.
-                </div>
-              </div>
-            ) : (
-              <>
-                <div style={{
-                  padding: '14px 18px', borderRadius: 8, marginBottom: 20,
-                  background: T.infoBg, border: `1px solid ${T.infoBorder}`,
-                  fontSize: 12, color: T.infoText,
-                }}>
-                  This will apply {acceptedCount} accepted change{acceptedCount !== 1 ? 's' : ''} to the unified Transaction schema.
-                  {undecided.length > 0 && ` ${undecided.length} pending field${undecided.length > 1 ? 's' : ''} will be skipped.`}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <button
-                    onClick={() => setStep(3)}
-                    style={{
-                      padding: '8px 18px', background: 'transparent', border: `1px solid ${T.border}`,
-                      borderRadius: 7, color: T.textSecondary, cursor: 'pointer', fontSize: 13,
-                    }}
-                  >
-                    ← Back
-                  </button>
-                  <button
-                    onClick={handleMaterialize}
-                    disabled={materializing}
-                    style={{
-                      padding: '10px 28px',
-                      background: materializing ? T.accentTint : T.accent,
-                      border: `1px solid ${materializing ? T.accentBorder : T.accent}`,
-                      borderRadius: 7,
-                      color: materializing ? T.accentLight : T.white,
-                      cursor: materializing ? 'not-allowed' : 'pointer',
-                      fontSize: 14,
-                      fontWeight: 700,
-                      opacity: materializing ? 0.7 : 1,
-                    }}
-                  >
-                    {materializing ? 'Materializing...' : 'Approve & Materialize'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-      </div>
-    </div>
+  if (loading) return (
+    <div style={{ padding: 24, color: T.textVeryMuted, fontSize: 12 }}>Loading schema view…</div>
   )
-}
-
-// ─── Root Component ───────────────────────────────────────────────────────────
-
-export default function UnifiedViewBuilderTab() {
-  const [subTab, setSubTab] = useState<UnifiedSubTab>('view')
-
-  const tabs: { id: UnifiedSubTab; label: string }[] = [
-    { id: 'view',   label: 'Current Unified View' },
-    { id: 'update', label: 'Update Unified View' },
-  ]
+  if (error) return (
+    <div style={{ padding: 24, color: '#f87171', fontSize: 12 }}>Error: {error}</div>
+  )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: T.bgPage }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0f1117' }}>
 
-      {/* Sub-tab bar */}
-      <div style={{
-        display: 'flex',
-        flexDirection: 'row',
-        background: T.bgCard,
-        borderBottom: `1px solid ${T.border}`,
-        height: 40,
-        alignItems: 'stretch',
-        flexShrink: 0,
-      }}>
-        {tabs.map(tab => {
-          const isActive = subTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              style={{
-                height: 40,
-                padding: '0 16px',
-                border: 'none',
-                background: isActive ? T.accentTint : 'transparent',
-                color: isActive ? T.accentLight : T.textSecondary,
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: isActive ? 600 : 500,
-                transition: 'background 0.15s, color 0.15s',
-              }}
-              onMouseEnter={e => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLButtonElement).style.background = T.border
-                  ;(e.currentTarget as HTMLButtonElement).style.color = T.textPrimary
-                }
-              }}
-              onMouseLeave={e => {
-                if (!isActive) {
-                  (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
-                  ;(e.currentTarget as HTMLButtonElement).style.color = T.textSecondary
-                }
-              }}
-              onClick={() => setSubTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          )
-        })}
+      {/* ── Pivot picker ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', background: '#13161f', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <button
+          type="button"
+          onClick={() => setPivotHouseholdId(null)}
+          style={{
+            background: !pivotHouseholdId ? '#7c8cf8' : '#1e2130',
+            border: 'none', borderRadius: 4, padding: '4px 12px',
+            color: !pivotHouseholdId ? '#fff' : T.textVeryMuted,
+            fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}
+        >
+          👤 {displayName}
+        </button>
+        {households.map(h => (
+          <button key={h.id} type="button" onClick={() => setPivotHouseholdId(h.id)} style={{
+            background: pivotHouseholdId === h.id ? '#7c8cf8' : '#1e2130',
+            border: 'none', borderRadius: 4, padding: '4px 12px',
+            color: pivotHouseholdId === h.id ? '#fff' : T.textVeryMuted,
+            fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}>
+            🏠 {h.name}
+          </button>
+        ))}
+        <div style={{ marginLeft: 'auto', color: T.textVeryMuted, fontSize: 9, fontStyle: 'italic' }}>
+          {pivotHouseholdId ? 'household view' : 'person view'}
+        </div>
       </div>
 
-      {/* Content */}
-      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        {subTab === 'view' && (
-          <CurrentUnifiedView onReviewChanges={() => setSubTab('update')} />
-        )}
-        {subTab === 'update' && (
-          <UpdateUnifiedView />
-        )}
-      </div>
+      {/* ── Main row ── */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
 
+        {/* ── Domain sidebar ── */}
+        <div style={{ width: 150, background: '#13161f', borderRight: `1px solid ${T.border}`, padding: '10px 0', overflowY: 'auto', flexShrink: 0 }}>
+          <div style={{ padding: '4px 12px', color: '#4a5a7a', fontSize: 9, letterSpacing: '.06em', marginBottom: 4 }}>DOMAINS</div>
+
+          <div
+            onClick={() => setSelectedDomain(null)}
+            style={{
+              padding: '5px 12px', cursor: 'pointer',
+              color: !selectedDomain ? '#e2e8f0' : '#4a5a7a',
+              background: !selectedDomain ? '#1e2535' : 'transparent',
+              borderLeft: !selectedDomain ? '2px solid #7c8cf8' : '2px solid transparent',
+              fontSize: 10,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}
+          >
+            <span>All</span>
+            <span style={{ color: '#4a5a7a', fontSize: 9 }}>{schemas.length}</span>
+          </div>
+
+          {domainCounts.map(({ name, count }) => {
+            const dc = domainColor(name)
+            const isActive = selectedDomain === name
+            return (
+              <div
+                key={name}
+                onClick={() => setSelectedDomain(isActive ? null : name)}
+                style={{
+                  padding: '5px 12px', cursor: 'pointer',
+                  color: isActive ? dc : '#4a5a7a',
+                  background: isActive ? dc + '18' : 'transparent',
+                  borderLeft: isActive ? `2px solid ${dc}` : '2px solid transparent',
+                  fontSize: 10, fontWeight: isActive ? 600 : 400,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}
+              >
+                <span>{name}</span>
+                <span style={{ color: '#4a5a7a', fontSize: 9 }}>{count}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* ── Schema cards area ── */}
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <div ref={containerRef} style={{ position: 'relative', padding: 16 }}>
+
+            {visibleSchemas.length === 0 ? (
+              <div style={{ color: T.textVeryMuted, fontSize: 12, padding: 8 }}>No schemas for this domain.</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+                {visibleSchemas.map(schema => {
+                  const connectors = connectorsFor(schema)
+                  return (
+                    <EntityTypeSchemaCard
+                      key={schema.id}
+                      schema={schema}
+                      domainName={domainNameMap[schema.domainId] ?? 'unknown'}
+                      connectors={connectors}
+                      cardRef={el => {
+                        if (el) cardRefs.current.set(schema.entityType, el)
+                        else cardRefs.current.delete(schema.entityType)
+                      }}
+                      fieldRef={(fieldName, el) => {
+                        const key = `${schema.entityType}.${fieldName}`
+                        if (el) fieldRefs.current.set(key, el)
+                        else fieldRefs.current.delete(key)
+                      }}
+                      personId={effectivePersonId}
+                      householdId={effectiveHouseholdId}
+                    />
+                  )
+                })}
+              </div>
+            )}
+
+            {/* SVG FK arrows */}
+            {arrows.length > 0 && (
+              <svg
+                style={{
+                  position: 'absolute',
+                  top: 0, left: 0,
+                  width: '100%', height: '100%',
+                  pointerEvents: 'none',
+                  overflow: 'visible',
+                }}
+              >
+                <defs>
+                  <marker id="fk-arrow" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto">
+                    <polygon points="0 0, 6 2.5, 0 5" fill="#e8b84077" />
+                  </marker>
+                </defs>
+                {arrows.map(arrow => {
+                  const dx = Math.max(40, Math.abs(arrow.toX - arrow.fromX) * 0.45)
+                  const d = `M ${arrow.fromX} ${arrow.fromY} C ${arrow.fromX + dx} ${arrow.fromY}, ${arrow.toX - dx} ${arrow.toY}, ${arrow.toX} ${arrow.toY}`
+                  return (
+                    <path
+                      key={arrow.id}
+                      d={d}
+                      stroke="#e8b84055"
+                      strokeWidth="1.5"
+                      fill="none"
+                      strokeDasharray="5 3"
+                      markerEnd="url(#fk-arrow)"
+                    />
+                  )
+                })}
+              </svg>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

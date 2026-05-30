@@ -1,4 +1,4 @@
-import type { Session, SourceConnection, SyncRun, LatestRuns } from './types'
+import type { Session, SourceConnection, SyncRun, LatestRuns, UnifiedSchema, UnifiedFieldDefinition, SourceSchemasResponse, UnifiedDataResponse, EntityTypeSchema, Domain } from './types'
 
 export async function login(username: string): Promise<Session> {
   const resp = await fetch('/api/login', {
@@ -157,4 +157,122 @@ export async function fetchRunDetail(connId: string, runId: string): Promise<Syn
   const resp = await fetch(`/api/v1/source-connections/${connId}/runs/${runId}`)
   if (!resp.ok) throw new Error(`fetch run failed: ${resp.status}`)
   return resp.json()
+}
+
+// ─── Person / Household helpers ──────────────────────────────────────────────
+
+export async function getPersonHouseholds(personId: string): Promise<{ personId: string; householdIds: string[] }> {
+  const res = await fetch(`/api/v1/persons/${personId}/households`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getHousehold(householdId: string): Promise<{ id: string; name: string; createdAt: string; updatedAt: string }> {
+  const res = await fetch(`/api/v1/households/${householdId}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function fetchSourceTableSample(params: {
+  sourceType: string
+  tableName: string
+  sourceConnectionId?: string
+  personId?: string
+  householdId?: string
+  limit?: number
+}): Promise<Record<string, unknown>[]> {
+  const q = new URLSearchParams()
+  q.set('sourceType', params.sourceType)
+  q.set('tableName', params.tableName)
+  if (params.sourceConnectionId) q.set('sourceConnectionId', params.sourceConnectionId)
+  if (params.personId)           q.set('personId', params.personId)
+  if (params.householdId)        q.set('householdId', params.householdId)
+  if (params.limit != null)      q.set('limit', String(params.limit))
+  const resp = await fetch(`/api/v1/unified-schemas/source-schemas/sample?${q}`)
+  if (!resp.ok) throw new Error(`sample fetch failed: ${await resp.text()}`)
+  const data = await resp.json()
+  return (data.rows ?? []) as Record<string, unknown>[]
+}
+
+// ─── Unified Schema API ──────────────────────────────────────────────────────
+
+export async function listUnifiedSchemas(
+  personId?: string,
+  householdId?: string,
+): Promise<{ items: UnifiedSchema[] }> {
+  const params = new URLSearchParams()
+  if (personId) params.set('personId', personId)
+  if (householdId) params.set('householdId', householdId)
+  const res = await fetch(`/api/v1/unified-schemas?${params}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function listSourceSchemas(
+  personId?: string,
+  householdId?: string,
+): Promise<SourceSchemasResponse> {
+  const params = new URLSearchParams()
+  if (personId) params.set('personId', personId)
+  if (householdId) params.set('householdId', householdId)
+  const res = await fetch(`/api/v1/unified-schemas/source-schemas?${params}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function createUnifiedSchema(body: {
+  personId?: string
+  householdId?: string
+  name: string
+  description?: string
+  status?: 'proposed' | 'approved'
+  fieldDefinitions: UnifiedFieldDefinition[]
+}): Promise<UnifiedSchema> {
+  const res = await fetch('/api/v1/unified-schemas', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function updateUnifiedSchema(
+  id: string,
+  patch: {
+    name?: string
+    description?: string
+    status?: 'proposed' | 'approved'
+    fieldDefinitions?: UnifiedFieldDefinition[]
+  },
+): Promise<UnifiedSchema> {
+  const res = await fetch(`/api/v1/unified-schemas/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function listDomains(): Promise<{ items: Domain[] }> {
+  const res = await fetch('/api/v1/reference/domains')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function listEntityTypeSchemas(activeOnly = true): Promise<{ items: EntityTypeSchema[] }> {
+  const res = await fetch(`/api/v1/schemas?activeOnly=${activeOnly}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getUnifiedSchemaData(
+  id: string,
+  limit = 50,
+  offset = 0,
+): Promise<UnifiedDataResponse> {
+  const res = await fetch(`/api/v1/unified-schemas/${id}/data?limit=${limit}&offset=${offset}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
 }

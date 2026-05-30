@@ -674,7 +674,47 @@ Note: documents are immutable, so a referenced file cannot be cleaned up by upda
 
 ---
 
-## Group 7 — Scheduled Job Management (4 tools)
+## Group 7 — News Tools (3 tools)
+
+Tools for discovering valid newsapi.ai URIs and updating the categories/sources a news_poll source connection fetches. News preferences are stored in `source_connection.config` — not as facts.
+
+### `search_news_categories`
+
+**Purpose:** Search newsapi.ai for category URIs matching a query. Call before `update_news_preferences` to get exact URIs.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `query` | string | yes | Category name to search for. Example: `Finance`, `Technology` |
+| `count` | int | no | Max results. Default 10 |
+
+**Returns:** `{ items: [{ uri, label }] }`
+
+### `search_news_sources`
+
+**Purpose:** Search newsapi.ai for news source URIs matching a query. Call before `update_news_preferences` to get exact URIs.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `query` | string | yes | News outlet name. Example: `Reuters`, `BBC` |
+| `count` | int | no | Max results. Default 10 |
+
+**Returns:** `{ items: [{ uri, title }] }`
+
+### `update_news_preferences`
+
+**Purpose:** Save categories and/or sources into a news_poll source connection's config. The scheduler uses these on its next run.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `source_connection_id` | UUID | yes | The news_poll source connection to update |
+| `categories` | string[] | yes | List of newsapi.ai category URIs |
+| `sources` | string[] | no | List of newsapi.ai source URIs; omit to fetch from all sources |
+
+**Returns:** Updated `SourceConnectionResponse`.
+
+---
+
+## Group 8 — Scheduled Job Management (4 tools)
 
 Manages cron-based scheduled jobs that drive background work (e.g. periodic news fetching). The scheduler service calls `list_scheduled_jobs` (or reads due jobs directly from the backend) and records run results after each execution. Claude uses these tools to let users configure and inspect their polling schedules.
 

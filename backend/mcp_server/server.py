@@ -3,6 +3,7 @@ from client import make_client
 from tools import (
     persons, households, person_household, relationships,
     documents, facts, schemas, reference, audit, files,
+    unified_schema, finance,
 )
 
 mcp = FastMCP("myassistant")
@@ -18,6 +19,8 @@ schemas.register(mcp, http)
 reference.register(mcp, http)
 audit.register(mcp, http)
 files.register(mcp, http)
+unified_schema.register(mcp, http)
+finance.register(mcp, http)
 
 if __name__ == "__main__":
     mcp.run()
