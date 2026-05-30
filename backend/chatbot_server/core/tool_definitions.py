@@ -716,7 +716,7 @@ ALL_TOOLS = [
         "name": "search_news_categories",
         "description": (
             "Search newsapi.ai for category URIs matching a query. "
-            "Always call this before writing news_preference categories to get the exact URI. "
+            "Always call this before update_news_preferences to get the exact URI. "
             "Returns a list of {uri, label} objects."
         ),
         "input_schema": {
@@ -732,7 +732,7 @@ ALL_TOOLS = [
         "name": "search_news_sources",
         "description": (
             "Search newsapi.ai for news source URIs matching a query. "
-            "Always call this before writing news_preference sources to get the exact URI. "
+            "Always call this before update_news_preferences to get the exact URI. "
             "Returns a list of {uri, title} objects."
         ),
         "input_schema": {
@@ -742,6 +742,31 @@ ALL_TOOLS = [
                 "count": {"type": "integer", "description": "Max results to return. Default 10"},
             },
             "required": ["query"],
+        },
+    },
+    {
+        "name": "update_news_preferences",
+        "description": (
+            "Update the news categories and/or sources for a news_poll source connection. "
+            "Call search_news_categories / search_news_sources first to obtain valid URIs, "
+            "then call this to save them. The news scheduler will use these on its next run."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_connection_id": {"type": "string", "description": "UUID of the news_poll source connection to update"},
+                "categories": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of newsapi.ai category URIs. Example: [\"dmoz/Business/Finance\"]",
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of newsapi.ai source URIs to filter by. Omit to fetch from all sources.",
+                },
+            },
+            "required": ["source_connection_id", "categories"],
         },
     },
     # ── Group 8 — Web ────────────────────────────────────────────────────
@@ -826,4 +851,4 @@ ALL_TOOLS = [
     },
 ]
 
-assert len(ALL_TOOLS) == 49, f"Expected 49 tools, got {len(ALL_TOOLS)}"
+assert len(ALL_TOOLS) == 50, f"Expected 50 tools, got {len(ALL_TOOLS)}"

@@ -1,4 +1,4 @@
-import type { Session, SourceConnection, SyncRun, LatestRuns, UnifiedSchema, UnifiedFieldDefinition, SourceSchemasResponse, UnifiedDataResponse } from './types'
+import type { Session, SourceConnection, SyncRun, LatestRuns, UnifiedSchema, UnifiedFieldDefinition, SourceSchemasResponse, UnifiedDataResponse, EntityTypeSchema, Domain } from './types'
 
 export async function login(username: string): Promise<Session> {
   const resp = await fetch('/api/login', {
@@ -251,6 +251,18 @@ export async function updateUnifiedSchema(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch),
   })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function listDomains(): Promise<{ items: Domain[] }> {
+  const res = await fetch('/api/v1/reference/domains')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function listEntityTypeSchemas(activeOnly = true): Promise<{ items: EntityTypeSchema[] }> {
+  const res = await fetch(`/api/v1/schemas?activeOnly=${activeOnly}`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }

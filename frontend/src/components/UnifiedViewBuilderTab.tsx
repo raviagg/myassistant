@@ -1,170 +1,263 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { T } from '../theme'
 import {
-  listUnifiedSchemas,
+  listEntityTypeSchemas,
   listSourceSchemas,
-  updateUnifiedSchema,
-  getUnifiedSchemaData,
+  listDomains,
   getPersonHouseholds,
   getHousehold,
   fetchSourceTableSample,
 } from '../api'
 import type {
-  UnifiedSchema,
-  UnifiedFieldDefinition,
+  EntityTypeSchema,
+  EntityTypeFieldDef,
+  Domain,
   SourceSchemasResponse,
-  SourceSchemaGroup,
-  SourceTable,
 } from '../types'
 
-// ─── Source-type color palette ────────────────────────────────────────────────
+// ─── Color helpers ────────────────────────────────────────────────────────────
+
+function domainColor(name: string): string {
+  const map: Record<string, string> = {
+    finance:          '#f59e0b',
+    health:           '#10b981',
+    news:             '#3b82f6',
+    employment:       '#8b5cf6',
+    todo:             '#f97316',
+    household:        '#ec4899',
+    personal_details: '#06b6d4',
+  }
+  return map[name] ?? '#64748b'
+}
 
 function sourceColor(sourceType: string): string {
   switch (sourceType) {
     case 'plaid_poll': return '#f59e0b'
-    case 'chatbot':    return '#8b5cf6'
+    case 'chatbot':    return '#7c8cf8'
     case 'news_poll':  return '#10b981'
     case 'gmail_poll': return '#3b82f6'
-    case 'profile':    return '#7c8cf8'
     default:           return '#64748b'
   }
 }
 
-function fieldSuffix(dataType: string): string {
-  if (dataType === 'entity_ref') return '+'
-  if (dataType.includes('[]'))   return '[]'
-  return ''
+function fieldTypeColor(type: string): string {
+  switch (type) {
+    case 'text':       return '#4a8aaa'
+    case 'number':     return '#a878d8'
+    case 'date':       return '#4aba80'
+    case 'boolean':    return '#ea8040'
+    case 'entity_ref': return '#e8b840'
+    case 'file':       return '#7890e8'
+    default:           return '#64748b'
+  }
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-function SourceTableCard({
-  table,
-  highlightedFields,
-  accentColor,
-  sourceType,
-  sourceConnectionId,
+interface Connector {
+  sourceConnectionId: string
+  sourceType: string
+  connectionName: string
+}
+
+interface Arrow {
+  id: string
+  fromX: number
+  fromY: number
+  toX: number
+  toY: number
+}
+
+// ─── EntityTypeSchemaCard ─────────────────────────────────────────────────────
+
+function EntityTypeSchemaCard({
+  schema,
+  domainName,
+  connectors,
+  cardRef,
+  fieldRef,
   personId,
   householdId,
 }: {
-  table: SourceTable
-  highlightedFields: Set<string>
-  accentColor: string
-  sourceType: string
-  sourceConnectionId?: string
+  schema: EntityTypeSchema
+  domainName: string
+  connectors: Connector[]
+  cardRef: (el: HTMLDivElement | null) => void
+  fieldRef: (fieldName: string, el: HTMLDivElement | null) => void
   personId?: string
   householdId?: string
 }) {
   const [expanded, setExpanded] = useState(false)
   const [rows, setRows] = useState<Record<string, unknown>[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [sampleError, setSampleError] = useState<string | null>(null)
+  const [loadingRows, setLoadingRows] = useState(false)
+  const [rowsError, setRowsError] = useState<string | null>(null)
 
-  const hasHighlight = table.columns.some(c => highlightedFields.has(c.name))
-  const c = accentColor  // 7-char '#rrggbb' — append 2-char alpha for 8-digit hex
+  const dColor = domainColor(domainName)
+  const primaryConnector = connectors[0]
+  const accentColor = primaryConnector ? sourceColor(primaryConnector.sourceType) : dColor
 
   async function toggleSample() {
     if (expanded) { setExpanded(false); return }
     setExpanded(true)
-    if (rows !== null) return  // already fetched
-    setLoading(true)
-    setSampleError(null)
+    if (rows !== null) return
+    setLoadingRows(true)
+    setRowsError(null)
     try {
+      const sourceType = primaryConnector?.sourceType ?? 'chatbot'
+      const tableName = `${sourceType}/${schema.entityType}`
       const result = await fetchSourceTableSample({
         sourceType,
-        tableName: table.tableName,
-        sourceConnectionId,
+        tableName,
+        sourceConnectionId: primaryConnector?.sourceConnectionId || undefined,
         personId,
         householdId,
         limit: 5,
       })
       setRows(result)
     } catch (e) {
-      setSampleError(e instanceof Error ? e.message : 'Failed')
+      setRowsError(e instanceof Error ? e.message : 'Failed to load sample rows')
     } finally {
-      setLoading(false)
+      setLoadingRows(false)
     }
   }
 
-  const colNames = table.columns.map(col => col.name)
+  const colNames = schema.fieldDefinitions.map((f: EntityTypeFieldDef) => f.name)
 
   return (
     <div
+      ref={cardRef}
       style={{
-        background: hasHighlight ? c + '1a' : c + '0b',
-        borderRadius: 7,
-        border: `1px solid ${hasHighlight ? c + '66' : c + '30'}`,
-        borderLeft: `3px solid ${hasHighlight ? c : c + '55'}`,
-        marginBottom: 6,
+        background: '#0c1220',
+        border: `1px solid ${accentColor}33`,
+        borderTop: `3px solid ${accentColor}`,
+        borderRadius: 8,
         overflow: 'hidden',
       }}
     >
-      {/* Header row — click to expand sample */}
+      {/* Header */}
       <div
         onClick={toggleSample}
-        style={{ padding: '8px 10px', cursor: 'pointer' }}
+        style={{ padding: '10px 12px', cursor: 'pointer' }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 7 }}>
-          <div style={{
-            color: hasHighlight ? '#ffffff' : c + 'cc',
-            fontSize: 11, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '-.01em',
-            flex: 1,
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+          <span style={{ color: accentColor, fontFamily: 'monospace', fontSize: 12, fontWeight: 700, flex: 1 }}>
+            {schema.entityType}
+          </span>
+          {schema.connectorManaged && (
+            <span title="connector-managed — read only" style={{ fontSize: 10 }}>🔒</span>
+          )}
+          <span style={{
+            background: dColor + '22',
+            border: `1px solid ${dColor}44`,
+            color: dColor,
+            fontSize: 8,
+            padding: '1px 6px',
+            borderRadius: 3,
+            fontWeight: 600,
+            letterSpacing: '.04em',
           }}>
-            {table.tableName}
-          </div>
-          <div style={{ color: c + '66', fontSize: 9 }}>
-            {loading ? '…' : expanded ? '▴' : '▾ rows'}
-          </div>
+            {domainName}
+          </span>
+          <span style={{ color: accentColor + '55', fontSize: 9 }}>
+            {loadingRows ? '…' : expanded ? '▴' : '▾ rows'}
+          </span>
         </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-          {table.columns.map(col => {
-            const isHighlighted = highlightedFields.has(col.name)
-            const suffix = fieldSuffix(col.dataType)
+
+        {/* Connector badges */}
+        {connectors.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+            {connectors.map(c => {
+              const sc = sourceColor(c.sourceType)
+              return (
+                <span key={c.sourceConnectionId} style={{
+                  background: sc + '18',
+                  border: `1px solid ${sc}44`,
+                  color: sc,
+                  fontSize: 8,
+                  padding: '1px 6px',
+                  borderRadius: 3,
+                  fontFamily: 'monospace',
+                  fontWeight: 500,
+                }}>
+                  {c.connectionName}
+                </span>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Field list */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {schema.fieldDefinitions.map((field: EntityTypeFieldDef) => {
+            const isRef = field.type === 'entity_ref'
+            const fc = fieldTypeColor(field.type)
             return (
-              <span
-                key={col.name}
+              <div
+                key={field.name}
+                ref={isRef ? (el: HTMLDivElement | null) => fieldRef(field.name, el) : undefined}
                 style={{
-                  background: isHighlighted ? c + '33' : c + '15',
-                  color: isHighlighted ? c : c + '99',
-                  border: `1px solid ${isHighlighted ? c + '77' : c + '33'}`,
-                  borderRadius: 4, padding: '2px 7px',
-                  fontSize: 9, fontFamily: 'monospace',
-                  fontWeight: isHighlighted ? 700 : 400,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '2px 0',
+                  paddingLeft: isRef ? 6 : 0,
+                  borderLeft: isRef ? `2px solid ${fc}66` : 'none',
                 }}
               >
-                {col.name}{suffix}
-              </span>
+                <span style={{
+                  fontFamily: 'monospace',
+                  fontSize: 9,
+                  color: isRef ? fc : '#6080a0',
+                  fontWeight: isRef ? 600 : 400,
+                  flex: 1,
+                }}>
+                  {field.name}
+                  {field.mandatory && <span style={{ color: '#e87060', marginLeft: 2 }}>*</span>}
+                </span>
+                <span style={{
+                  background: fc + '18',
+                  border: `1px solid ${fc}33`,
+                  color: fc,
+                  fontSize: 8,
+                  padding: '0 4px',
+                  borderRadius: 2,
+                  fontFamily: 'monospace',
+                }}>
+                  {field.type}
+                </span>
+                {isRef && field.refEntityType && (
+                  <span style={{ color: fc + '77', fontSize: 8, fontFamily: 'monospace' }}>
+                    → {field.refEntityType}
+                  </span>
+                )}
+              </div>
             )
           })}
         </div>
-        {table.foreignKeys.length > 0 && (
-          <div style={{ marginTop: 5, fontSize: 8, color: c + '44', fontFamily: 'monospace' }}>
-            → {table.foreignKeys.map(fk => fk.refTable).join(', ')}
-          </div>
-        )}
       </div>
 
       {/* Sample rows panel */}
       {expanded && (
-        <div style={{ borderTop: `1px solid ${c}22`, background: c + '08' }}>
-          {sampleError && (
-            <div style={{ padding: '6px 10px', color: '#f87171', fontSize: 9, fontFamily: 'monospace' }}>{sampleError}</div>
+        <div style={{ borderTop: `1px solid ${accentColor}22`, background: accentColor + '08' }}>
+          {rowsError && (
+            <div style={{ padding: '6px 12px', color: '#f87171', fontSize: 9, fontFamily: 'monospace' }}>{rowsError}</div>
           )}
-          {loading && (
-            <div style={{ padding: '6px 10px', color: c + '66', fontSize: 9 }}>loading…</div>
+          {loadingRows && (
+            <div style={{ padding: '6px 12px', color: accentColor + '66', fontSize: 9 }}>loading…</div>
           )}
           {rows && rows.length === 0 && (
-            <div style={{ padding: '6px 10px', color: c + '44', fontSize: 9, fontStyle: 'italic' }}>no rows found</div>
+            <div style={{ padding: '6px 12px', color: accentColor + '44', fontSize: 9, fontStyle: 'italic' }}>no rows found</div>
           )}
           {rows && rows.length > 0 && (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 9, fontFamily: 'monospace' }}>
                 <thead>
                   <tr>
-                    {colNames.map(col => (
+                    {colNames.map((col: string) => (
                       <th key={col} style={{
                         padding: '4px 8px', textAlign: 'left',
-                        color: c + '99', fontWeight: 600, borderBottom: `1px solid ${c}22`,
+                        color: accentColor + '88', fontWeight: 600,
+                        borderBottom: `1px solid ${accentColor}22`,
                         whiteSpace: 'nowrap',
                       }}>{col}</th>
                     ))}
@@ -172,14 +265,18 @@ function SourceTableCard({
                 </thead>
                 <tbody>
                   {rows.map((row, i) => (
-                    <tr key={i} style={{ background: i % 2 === 0 ? c + '08' : 'transparent' }}>
-                      {colNames.map(col => {
+                    <tr key={i} style={{ background: i % 2 === 0 ? accentColor + '08' : 'transparent' }}>
+                      {colNames.map((col: string) => {
                         const val = row[col]
                         const display = val == null ? '' : typeof val === 'object' ? JSON.stringify(val) : String(val)
                         return (
                           <td key={col} style={{
-                            padding: '3px 8px', color: c + 'cc',
-                            maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            padding: '3px 8px',
+                            color: accentColor + 'bb',
+                            maxWidth: 140,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
                           }} title={display}>{display}</td>
                         )
                       })}
@@ -195,286 +292,44 @@ function SourceTableCard({
   )
 }
 
-function SourceGroupPanel({
-  group,
-  highlightedFields,
-  personId,
-  householdId,
-}: {
-  group: SourceSchemaGroup
-  highlightedFields: Set<string>
-  personId?: string
-  householdId?: string
-}) {
-  const color = sourceColor(group.sourceType)
-
-  return (
-    <div style={{ marginBottom: 20 }}>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 7,
-        marginBottom: 8,
-        paddingBottom: 5,
-        borderBottom: `1px solid ${color}22`,
-      }}>
-        <span style={{
-          display: 'inline-block',
-          width: 8, height: 8,
-          borderRadius: '50%',
-          background: color,
-          flexShrink: 0,
-        }} />
-        <span style={{ color, fontSize: 10, fontWeight: 700, letterSpacing: '.08em' }}>
-          {group.connectionName.toUpperCase()}
-        </span>
-      </div>
-      {group.tables.length === 0 ? (
-        <div style={{ color: color + '44', fontSize: 9, fontStyle: 'italic', padding: '4px 6px' }}>
-          No schema data yet — run a sync to populate
-        </div>
-      ) : (
-        group.tables.map(table => (
-          <SourceTableCard
-            key={table.tableName}
-            table={table}
-            highlightedFields={highlightedFields}
-            accentColor={color}
-            sourceType={group.sourceType}
-            sourceConnectionId={group.sourceConnectionId ?? undefined}
-            personId={personId}
-            householdId={householdId}
-          />
-        ))
-      )}
-    </div>
-  )
-}
-
-function UnifiedFieldRow({
-  field,
-  isHighlighted,
-  onClick,
-  onAccept,
-  onReject,
-}: {
-  field: UnifiedFieldDefinition
-  isHighlighted: boolean
-  onClick: () => void
-  onAccept?: () => void
-  onReject?: () => void
-}) {
-  const isPending = field.status === 'pending'
-  const isRejected = field.status === 'rejected'
-  return (
-    <div
-      onClick={onClick}
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '80px 1fr',
-        borderBottom: '1px solid #1a2a1a',
-        padding: '5px 7px',
-        background: isHighlighted ? '#2a2000' : isPending ? '#1a1500' : 'transparent',
-        borderLeft: isHighlighted ? '3px solid #e8a838' : 'none',
-        cursor: 'pointer',
-        opacity: isRejected ? 0.4 : 1,
-      }}
-    >
-      <div style={{ color: isHighlighted ? '#e8a838' : isPending ? '#e8a838' : '#4ade80', fontFamily: 'monospace', fontWeight: isHighlighted ? 600 : 400 }}>
-        {field.name} {isHighlighted && '✦'} {isPending && '★'}
-      </div>
-      <div>
-        {isPending ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ color: T.textVeryMuted, fontSize: 9, fontFamily: 'monospace' }}>
-              {field.sources.map(s => s.source_field).join(' · ')}
-            </span>
-            {onAccept && (
-              <button type="button" onClick={e => { e.stopPropagation(); onAccept() }} style={{ background: '#4ade80', color: '#000', fontSize: 8, padding: '1px 4px', borderRadius: 2, border: 'none', cursor: 'pointer' }}>✓</button>
-            )}
-            {onReject && (
-              <button type="button" onClick={e => { e.stopPropagation(); onReject() }} style={{ background: '#555', color: '#000', fontSize: 8, padding: '1px 4px', borderRadius: 2, border: 'none', cursor: 'pointer' }}>✕</button>
-            )}
-            <span style={{ background: '#e8a838', color: '#000', fontSize: 8, padding: '1px 4px', borderRadius: 2 }}>REVIEW</span>
-          </div>
-        ) : isHighlighted ? (
-          <div style={{ lineHeight: 1.8 }}>
-            {field.sources.map(s => (
-              <div key={s.source_connection_id + s.source_field} style={{ color: '#e8a838', fontFamily: 'monospace', fontSize: 8 }}>
-                ← {s.source_table}.{s.source_field}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div style={{ color: T.textVeryMuted, fontSize: 9 }}>
-            {field.sources.map(s => s.source_field).join(' · ') || 'no mapping'}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function UnifiedSchemaCard({
-  schema,
-  highlightedField,
-  onFieldClick,
-  onFieldUpdate,
-}: {
-  schema: UnifiedSchema
-  highlightedField: string | null
-  onFieldClick: (fieldName: string | null) => void
-  onFieldUpdate: (schema: UnifiedSchema) => void
-}) {
-  const [expanded, setExpanded] = useState(true)
-  const [loadingData, setLoadingData] = useState(false)
-  const [dataRows, setDataRows] = useState<unknown[] | null>(null)
-  const [patchError, setPatchError] = useState<string | null>(null)
-  const [dataError, setDataError] = useState<string | null>(null)
-
-  const pendingCount = schema.fieldDefinitions.filter(f => f.status === 'pending').length
-
-  async function patchField(fieldName: string, newStatus: 'approved' | 'rejected') {
-    setPatchError(null)
-    try {
-      const newDefs = schema.fieldDefinitions.map(f =>
-        f.name === fieldName ? { ...f, status: newStatus } : f
-      )
-      const updated = await updateUnifiedSchema(schema.id, { fieldDefinitions: newDefs })
-      onFieldUpdate(updated)
-    } catch (e) {
-      setPatchError(e instanceof Error ? e.message : 'Update failed')
-    }
-  }
-
-  async function loadData() {
-    setLoadingData(true)
-    setDataError(null)
-    try {
-      const result = await getUnifiedSchemaData(schema.id, 10, 0)
-      setDataRows(result.items)
-    } catch (e) {
-      setDataError(e instanceof Error ? e.message : 'Failed to load data')
-    } finally {
-      setLoadingData(false)
-    }
-  }
-
-  const sourceTables = schema.fieldDefinitions
-    .flatMap(f => f.sources.map(s => s.source_table))
-    .filter((v, i, a) => a.indexOf(v) === i)
-
-  return (
-    <div style={{ background: '#0c1220', borderRadius: 8, padding: 12, border: '1px solid #1a2540', marginBottom: 10 }}>
-      <div
-        style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: expanded ? 10 : 0, cursor: 'pointer' }}
-        onClick={() => setExpanded(e => !e)}
-      >
-        <div style={{ color: '#4ade80', fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>unified.{schema.name}</div>
-        <div style={{
-          background: schema.status === 'approved' ? '#10b98122' : '#f59e0b22',
-          border: `1px solid ${schema.status === 'approved' ? '#10b98166' : '#f59e0b66'}`,
-          borderRadius: 4,
-          padding: '1px 7px',
-          color: schema.status === 'approved' ? '#10b981' : '#f59e0b',
-          fontSize: 8,
-          fontWeight: 700,
-          letterSpacing: '.06em',
-        }}>
-          {schema.status.toUpperCase()}
-        </div>
-        {pendingCount > 0 && (
-          <div style={{ background: '#f59e0b', color: '#000', fontSize: 8, padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
-            {pendingCount} REVIEW
-          </div>
-        )}
-        <div style={{ marginLeft: 'auto', color: '#2a3a5a', fontSize: 9 }}>{expanded ? '▾' : '▸'}</div>
-      </div>
-
-      {expanded && (
-        <>
-          <div style={{ background: '#080e1c', borderRadius: 5, overflow: 'hidden', fontSize: 9, border: '1px solid #111e35' }}>
-            {schema.fieldDefinitions.map(field => (
-              <UnifiedFieldRow
-                key={field.name}
-                field={field}
-                isHighlighted={highlightedField === field.name}
-                onClick={() => onFieldClick(highlightedField === field.name ? null : field.name)}
-                onAccept={field.status === 'pending' ? () => patchField(field.name, 'approved') : undefined}
-                onReject={field.status === 'pending' ? () => patchField(field.name, 'rejected') : undefined}
-              />
-            ))}
-          </div>
-
-          {patchError && (
-            <div style={{ color: '#f87171', fontSize: 9, padding: '4px 7px' }}>{patchError}</div>
-          )}
-
-          <div style={{ display: 'flex', gap: 5, marginTop: 9, alignItems: 'center', flexWrap: 'wrap' }}>
-            {sourceTables.map(src => (
-              <span key={src} style={{ background: '#0e1830', border: '1px solid #1e2e50', borderRadius: 4, padding: '2px 8px', color: '#4a6aa0', fontSize: 8, fontFamily: 'monospace' }}>{src}</span>
-            ))}
-            <button
-              type="button"
-              onClick={loadData}
-              disabled={loadingData}
-              style={{ marginLeft: 'auto', background: '#0e1830', border: '1px solid #1e2e50', color: '#4a6aa0', fontSize: 9, padding: '3px 9px', borderRadius: 4, cursor: 'pointer' }}
-            >
-              {loadingData ? 'loading…' : '▶ sample data'}
-            </button>
-          </div>
-
-          {dataRows && (
-            <div style={{ marginTop: 8, background: '#060b14', borderRadius: 5, padding: 10, fontSize: 9, fontFamily: 'monospace', color: '#3a4a6a', maxHeight: 140, overflow: 'auto', border: '1px solid #111e35' }}>
-              {dataRows.length === 0 ? 'no data' : JSON.stringify(dataRows.slice(0, 3), null, 2)}
-            </div>
-          )}
-
-          {dataError && (
-            <div style={{ marginTop: 6, color: '#f87171', fontSize: 9, fontFamily: 'monospace' }}>{dataError}</div>
-          )}
-        </>
-      )}
-    </div>
-  )
-}
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function UnifiedViewBuilderTab({ personId, displayName }: { personId: string; displayName: string }) {
-  const [schemas, setSchemas]               = useState<UnifiedSchema[]>([])
-  const [sourceSchemas, setSourceSchemas]   = useState<SourceSchemasResponse | null>(null)
-  const [selectedSource, setSelectedSource] = useState<string | null>(null)
-  const [highlightedField, setHighlightedField] = useState<string | null>(null)
-  const [loading, setLoading]               = useState(true)
-  const [error, setError]                   = useState<string | null>(null)
-  const [households, setHouseholds]         = useState<Array<{ id: string; name: string }>>([])
+  const [schemas, setSchemas]           = useState<EntityTypeSchema[]>([])
+  const [domains, setDomains]           = useState<Domain[]>([])
+  const [sourceSchemas, setSourceSchemas] = useState<SourceSchemasResponse | null>(null)
+  const [selectedDomain, setSelectedDomain] = useState<string | null>(null)
+  const [loading, setLoading]           = useState(true)
+  const [error, setError]               = useState<string | null>(null)
+  const [households, setHouseholds]     = useState<Array<{ id: string; name: string }>>([])
   const [pivotHouseholdId, setPivotHouseholdId] = useState<string | null>(null)
+  const [arrows, setArrows]             = useState<Arrow[]>([])
 
-  // Fetch households once on mount so the pivot picker can show them
+  const containerRef = useRef<HTMLDivElement>(null)
+  const cardRefs     = useRef<Map<string, HTMLDivElement>>(new Map())
+  const fieldRefs    = useRef<Map<string, HTMLDivElement>>(new Map())
+
   useEffect(() => {
     getPersonHouseholds(personId)
       .then(resp => Promise.all(resp.householdIds.map(hid => getHousehold(hid))))
       .then(houses => setHouseholds(houses.map(h => ({ id: h.id, name: h.name }))))
-      .catch(() => { /* households not critical */ })
+      .catch(() => {})
   }, [personId])
 
-  // Reload data whenever the pivot changes
   useEffect(() => {
     async function load() {
       setLoading(true)
       setError(null)
-      setSelectedSource(null)
       try {
-        const [schemasResp, sourceSchemasResp] = await Promise.all([
-          pivotHouseholdId
-            ? listUnifiedSchemas(undefined, pivotHouseholdId)
-            : listUnifiedSchemas(personId),
+        const [schemasResp, domainsResp, sourceSchemasResp] = await Promise.all([
+          listEntityTypeSchemas(true),
+          listDomains(),
           pivotHouseholdId
             ? listSourceSchemas(undefined, pivotHouseholdId)
             : listSourceSchemas(personId),
         ])
         setSchemas(schemasResp.items)
+        setDomains(domainsResp.items)
         setSourceSchemas(sourceSchemasResp)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load')
@@ -485,32 +340,85 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
     load()
   }, [personId, pivotHouseholdId])
 
-  // Compute which source fields should be highlighted based on the selected unified field
-  const highlightedSourceFields = (() => {
-    if (!highlightedField) return new Set<string>()
-    const allFields = schemas.flatMap(s => s.fieldDefinitions)
-    const match = allFields.find(f => f.name === highlightedField)
-    if (!match) return new Set<string>()
-    return new Set(match.sources.map(s => s.source_field))
-  })()
+  // Recompute SVG FK arrows after schemas/domain change
+  useEffect(() => {
+    if (loading || !containerRef.current) return
+    const container = containerRef.current
 
-  const visibleSources = selectedSource
-    ? sourceSchemas?.sources.filter(s => s.sourceConnectionId === selectedSource || s.connectionName === selectedSource) ?? []
-    : sourceSchemas?.sources ?? []
+    const id = requestAnimationFrame(() => {
+      const containerRect = container.getBoundingClientRect()
+      const newArrows: Arrow[] = []
+
+      for (const [key, fieldEl] of fieldRefs.current) {
+        const dotIdx = key.indexOf('.')
+        const entityType = key.slice(0, dotIdx)
+        const fieldName  = key.slice(dotIdx + 1)
+
+        const schema = schemas.find(s => s.entityType === entityType)
+        if (!schema) continue
+        const field = schema.fieldDefinitions.find((f: EntityTypeFieldDef) => f.name === fieldName)
+        if (!field || field.type !== 'entity_ref' || !field.refEntityType) continue
+
+        const targetCard = cardRefs.current.get(field.refEntityType)
+        if (!targetCard) continue
+
+        const fieldRect  = fieldEl.getBoundingClientRect()
+        const targetRect = targetCard.getBoundingClientRect()
+        if (!fieldRect.width || !targetRect.width) continue
+
+        const fromX = fieldRect.right  - containerRect.left
+        const fromY = fieldRect.top    + fieldRect.height / 2 - containerRect.top
+        const toX   = targetRect.left  - containerRect.left
+        const toY   = targetRect.top   + 24 - containerRect.top
+
+        newArrows.push({ id: key, fromX, fromY, toX, toY })
+      }
+
+      setArrows(newArrows)
+    })
+
+    return () => cancelAnimationFrame(id)
+  }, [schemas, selectedDomain, loading])
+
+  const domainNameMap = Object.fromEntries(domains.map(d => [d.id, d.name]))
+
+  function connectorsFor(schema: EntityTypeSchema): Connector[] {
+    if (!sourceSchemas) return []
+    return sourceSchemas.sources
+      .filter(g => g.tables.some(t => {
+        const parts = t.tableName.split('/')
+        return parts[parts.length - 1] === schema.entityType
+      }))
+      .map(g => ({
+        sourceConnectionId: g.sourceConnectionId ?? '',
+        sourceType: g.sourceType,
+        connectionName: g.connectionName,
+      }))
+  }
+
+  const visibleSchemas = selectedDomain
+    ? schemas.filter(s => domainNameMap[s.domainId] === selectedDomain)
+    : schemas
+
+  const domainCounts = domains
+    .map(d => ({ name: d.name, count: schemas.filter(s => s.domainId === d.id).length }))
+    .filter(d => d.count > 0)
+
+  const effectivePersonId    = pivotHouseholdId ? undefined : personId
+  const effectiveHouseholdId = pivotHouseholdId ?? undefined
 
   if (loading) return (
-    <div style={{ padding: 24, color: T.textVeryMuted, fontSize: 12 }}>Loading unified view…</div>
+    <div style={{ padding: 24, color: T.textVeryMuted, fontSize: 12 }}>Loading schema view…</div>
   )
-
   if (error) return (
     <div style={{ padding: 24, color: '#f87171', fontSize: 12 }}>Error: {error}</div>
   )
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr 1fr', gridTemplateRows: 'auto 1fr', height: '100%', background: '#0f1117' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0f1117' }}>
 
-      {/* ── Pivot picker (spans all 3 columns) ── */}
-      <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', background: '#13161f', borderBottom: `1px solid ${T.border}` }}>
+      {/* ── Pivot picker ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 14px', background: '#13161f', borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
         <button
           type="button"
           onClick={() => setPivotHouseholdId(null)}
@@ -524,108 +432,133 @@ export default function UnifiedViewBuilderTab({ personId, displayName }: { perso
           👤 {displayName}
         </button>
         {households.map(h => (
-          <button
-            key={h.id}
-            type="button"
-            onClick={() => setPivotHouseholdId(h.id)}
-            style={{
-              background: pivotHouseholdId === h.id ? '#7c8cf8' : '#1e2130',
-              border: 'none', borderRadius: 4, padding: '4px 12px',
-              color: pivotHouseholdId === h.id ? '#fff' : T.textVeryMuted,
-              fontSize: 11, fontWeight: 600, cursor: 'pointer',
-            }}
-          >
+          <button key={h.id} type="button" onClick={() => setPivotHouseholdId(h.id)} style={{
+            background: pivotHouseholdId === h.id ? '#7c8cf8' : '#1e2130',
+            border: 'none', borderRadius: 4, padding: '4px 12px',
+            color: pivotHouseholdId === h.id ? '#fff' : T.textVeryMuted,
+            fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          }}>
             🏠 {h.name}
           </button>
         ))}
         <div style={{ marginLeft: 'auto', color: T.textVeryMuted, fontSize: 9, fontStyle: 'italic' }}>
-          {pivotHouseholdId ? 'household view' : 'person view · full picture'}
+          {pivotHouseholdId ? 'household view' : 'person view'}
         </div>
       </div>
 
-      {/* ── Sidebar ── */}
-      <div style={{ background: '#13161f', borderRight: `1px solid ${T.border}`, padding: '10px 0', fontSize: 10, overflowY: 'auto' }}>
-        <div style={{ padding: '4px 10px', color: '#4a5a7a', fontSize: 9, letterSpacing: '.06em', marginBottom: 2 }}>DATA SOURCES</div>
-        {sourceSchemas?.sources.map(src => {
-          const srcKey = src.sourceConnectionId ?? src.connectionName
-          const isActive = selectedSource === srcKey
-          const color = sourceColor(src.sourceType)
-          const icon = src.sourceType === 'plaid_poll' ? '🏦' : src.sourceType === 'gmail_poll' ? '📧' : src.sourceType === 'news_poll' ? '📰' : src.sourceType === 'chatbot' ? '🤖' : '📄'
-          return (
-            <div
-              key={srcKey}
-              onClick={() => setSelectedSource(isActive ? null : srcKey)}
-              style={{
-                padding: '4px 10px',
-                color: isActive ? color : '#4a5a7a',
-                background: isActive ? color + '15' : 'transparent',
-                borderLeft: `2px solid ${isActive ? color : 'transparent'}`,
-                cursor: 'pointer',
-                fontSize: 10,
-                fontWeight: isActive ? 600 : 400,
-              }}
-            >
-              {icon} {src.connectionName}
-            </div>
-          )
-        })}
+      {/* ── Main row ── */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
 
-        {!selectedSource && (
-          <>
-            <div style={{ borderTop: `1px solid ${T.border}`, margin: '7px 0' }} />
-            <div style={{ padding: '4px 10px', background: '#131a13', borderLeft: '2px solid #7c8cf8' }}>
-              <div style={{ color: '#7c8cf8', fontSize: 9 }}>← full picture</div>
-              <div style={{ color: T.textVeryMuted, fontSize: 8, marginTop: 2 }}>click a source<br />to narrow view</div>
-            </div>
-          </>
-        )}
-      </div>
+        {/* ── Domain sidebar ── */}
+        <div style={{ width: 150, background: '#13161f', borderRight: `1px solid ${T.border}`, padding: '10px 0', overflowY: 'auto', flexShrink: 0 }}>
+          <div style={{ padding: '4px 12px', color: '#4a5a7a', fontSize: 9, letterSpacing: '.06em', marginBottom: 4 }}>DOMAINS</div>
 
-      {/* ── Left panel: Source Schema Browser ── */}
-      <div style={{ borderRight: `1px solid ${T.border}`, padding: 12, overflowY: 'auto', background: '#0f1117' }}>
-        <div style={{ color: '#2a3a5a', fontSize: 9, letterSpacing: '.08em', fontWeight: 700, marginBottom: 12 }}>
-          {selectedSource ? 'FOCUSED SOURCE SCHEMA' : 'ALL SOURCE SCHEMAS'}
-        </div>
-
-        {visibleSources.map(src => (
-          <SourceGroupPanel
-            key={src.sourceConnectionId ?? src.connectionName}
-            group={src}
-            highlightedFields={highlightedSourceFields}
-            personId={pivotHouseholdId ? undefined : personId}
-            householdId={pivotHouseholdId ?? undefined}
-          />
-        ))}
-      </div>
-
-      {/* ── Right panel: Unified Schema View ── */}
-      <div style={{ padding: 12, overflowY: 'auto', background: '#0b0f0b' }}>
-        <div style={{ color: '#2a3a5a', fontSize: 9, letterSpacing: '.08em', fontWeight: 700, marginBottom: 12 }}>UNIFIED SCHEMAS</div>
-
-        {schemas.length === 0 ? (
-          <div style={{ color: T.textVeryMuted, fontSize: 11, padding: 8 }}>No unified schemas yet.</div>
-        ) : (
-          schemas.map(schema => (
-            <UnifiedSchemaCard
-              key={schema.id}
-              schema={schema}
-              highlightedField={highlightedField}
-              onFieldClick={setHighlightedField}
-              onFieldUpdate={updated => setSchemas(prev => prev.map(s => s.id === updated.id ? updated : s))}
-            />
-          ))
-        )}
-
-        <div style={{ marginTop: 10, border: '1px dashed #1a2540', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
-          <div style={{ color: '#2a3a5a', fontSize: 10 }}>+ Ask LLM to propose a new unified schema</div>
-        </div>
-
-        {highlightedField && (
-          <div style={{ marginTop: 12, background: '#0c1220', borderRadius: 6, padding: '8px 10px', fontSize: 9, color: '#2a3a5a', border: '1px solid #1a2540' }}>
-            <div style={{ marginBottom: 3 }}><span style={{ color: '#4ade80' }}>✦</span> {highlightedField} — highlighted in source schemas on left</div>
-            <div>Click again to deselect</div>
+          <div
+            onClick={() => setSelectedDomain(null)}
+            style={{
+              padding: '5px 12px', cursor: 'pointer',
+              color: !selectedDomain ? '#e2e8f0' : '#4a5a7a',
+              background: !selectedDomain ? '#1e2535' : 'transparent',
+              borderLeft: !selectedDomain ? '2px solid #7c8cf8' : '2px solid transparent',
+              fontSize: 10,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}
+          >
+            <span>All</span>
+            <span style={{ color: '#4a5a7a', fontSize: 9 }}>{schemas.length}</span>
           </div>
-        )}
+
+          {domainCounts.map(({ name, count }) => {
+            const dc = domainColor(name)
+            const isActive = selectedDomain === name
+            return (
+              <div
+                key={name}
+                onClick={() => setSelectedDomain(isActive ? null : name)}
+                style={{
+                  padding: '5px 12px', cursor: 'pointer',
+                  color: isActive ? dc : '#4a5a7a',
+                  background: isActive ? dc + '18' : 'transparent',
+                  borderLeft: isActive ? `2px solid ${dc}` : '2px solid transparent',
+                  fontSize: 10, fontWeight: isActive ? 600 : 400,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}
+              >
+                <span>{name}</span>
+                <span style={{ color: '#4a5a7a', fontSize: 9 }}>{count}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* ── Schema cards area ── */}
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <div ref={containerRef} style={{ position: 'relative', padding: 16 }}>
+
+            {visibleSchemas.length === 0 ? (
+              <div style={{ color: T.textVeryMuted, fontSize: 12, padding: 8 }}>No schemas for this domain.</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+                {visibleSchemas.map(schema => {
+                  const connectors = connectorsFor(schema)
+                  return (
+                    <EntityTypeSchemaCard
+                      key={schema.id}
+                      schema={schema}
+                      domainName={domainNameMap[schema.domainId] ?? 'unknown'}
+                      connectors={connectors}
+                      cardRef={el => {
+                        if (el) cardRefs.current.set(schema.entityType, el)
+                        else cardRefs.current.delete(schema.entityType)
+                      }}
+                      fieldRef={(fieldName, el) => {
+                        const key = `${schema.entityType}.${fieldName}`
+                        if (el) fieldRefs.current.set(key, el)
+                        else fieldRefs.current.delete(key)
+                      }}
+                      personId={effectivePersonId}
+                      householdId={effectiveHouseholdId}
+                    />
+                  )
+                })}
+              </div>
+            )}
+
+            {/* SVG FK arrows */}
+            {arrows.length > 0 && (
+              <svg
+                style={{
+                  position: 'absolute',
+                  top: 0, left: 0,
+                  width: '100%', height: '100%',
+                  pointerEvents: 'none',
+                  overflow: 'visible',
+                }}
+              >
+                <defs>
+                  <marker id="fk-arrow" markerWidth="6" markerHeight="5" refX="5" refY="2.5" orient="auto">
+                    <polygon points="0 0, 6 2.5, 0 5" fill="#e8b84077" />
+                  </marker>
+                </defs>
+                {arrows.map(arrow => {
+                  const dx = Math.max(40, Math.abs(arrow.toX - arrow.fromX) * 0.45)
+                  const d = `M ${arrow.fromX} ${arrow.fromY} C ${arrow.fromX + dx} ${arrow.fromY}, ${arrow.toX - dx} ${arrow.toY}, ${arrow.toX} ${arrow.toY}`
+                  return (
+                    <path
+                      key={arrow.id}
+                      d={d}
+                      stroke="#e8b84055"
+                      strokeWidth="1.5"
+                      fill="none"
+                      strokeDasharray="5 3"
+                      markerEnd="url(#fk-arrow)"
+                    />
+                  )
+                })}
+              </svg>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )

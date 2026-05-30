@@ -106,6 +106,37 @@ export interface LatestRuns {
   lastAdhoc: SyncRun | null
 }
 
+// ─── Entity Type Schema types ────────────────────────────────────────────────
+
+export interface EntityTypeFieldDef {
+  name: string
+  type: 'text' | 'number' | 'date' | 'boolean' | 'file' | 'entity_ref' | string
+  mandatory?: boolean
+  description?: string
+  refEntityType?: string
+}
+
+export interface EntityTypeSchema {
+  id: string
+  domainId: string
+  entityType: string
+  schemaVersion: number
+  isActive: boolean
+  connectorManaged: boolean
+  description?: string
+  fieldDefinitions: EntityTypeFieldDef[]
+  mandatoryFields: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Domain {
+  id: string
+  name: string
+  description: string
+  createdAt: string
+}
+
 // ─── Unified Schema types ────────────────────────────────────────────────────
 
 export interface FieldSource {

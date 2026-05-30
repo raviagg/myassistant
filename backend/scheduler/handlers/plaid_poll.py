@@ -284,10 +284,11 @@ class PlaidPollHandler(BaseHandler):
         doc_id = doc_resp.json()["id"]
 
         fields: dict = {
-            "transaction_id": plaid_txn_id,
-            "account_id":     txn["account_id"],
-            "amount":         amount,
-            "date":           date,
+            "transaction_id":  plaid_txn_id,
+            "account_id":      txn["account_id"],
+            "bank_account_id": str(uuid.uuid5(uuid.NAMESPACE_URL, txn["account_id"])),
+            "amount":          amount,
+            "date":            date,
         }
         if merchant_name:
             fields["merchant_name"] = merchant_name

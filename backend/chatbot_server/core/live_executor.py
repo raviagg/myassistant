@@ -73,6 +73,7 @@ def _build_tool_map() -> dict:
         "web_search":                  lambda http, **kw: web.web_search(**kw),
         "search_news_categories":      lambda http, **kw: news.search_news_categories(**kw),
         "search_news_sources":         lambda http, **kw: news.search_news_sources(**kw),
+        "update_news_preferences":     news.update_news_preferences,
     }
 
 
